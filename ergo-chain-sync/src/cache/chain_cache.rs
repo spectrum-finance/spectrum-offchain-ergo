@@ -1,7 +1,9 @@
-use crate::model::{Block, BlockRecord};
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use ergo_lib::ergo_chain_types::{BlockId, Digest32};
-use std::collections::HashMap;
+
+use crate::model::{Block, BlockRecord};
 
 #[async_trait(?Send)]
 pub trait ChainCache {
@@ -20,7 +22,7 @@ impl InMemoryCache {
     pub fn new() -> Self {
         Self {
             blocks: HashMap::new(),
-            best_block: None
+            best_block: None,
         }
     }
 }

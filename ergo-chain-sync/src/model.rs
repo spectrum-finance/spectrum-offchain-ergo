@@ -1,6 +1,7 @@
-use crate::client::model::FullBlock;
 use ergo_lib::chain::transaction::Transaction;
 use ergo_lib::ergo_chain_types::BlockId;
+
+use crate::client::model::FullBlock;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Block {

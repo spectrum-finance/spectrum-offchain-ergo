@@ -1,9 +1,9 @@
-use crate::client::model::FullBlock;
-use crate::client::types::Url;
-
 use async_trait::async_trait;
 use ergo_lib::ergo_chain_types::BlockId;
 use reqwest::Client;
+
+use crate::client::model::FullBlock;
+use crate::client::types::Url;
 
 #[async_trait]
 pub trait ErgoNetwork {

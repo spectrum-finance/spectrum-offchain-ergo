@@ -1,14 +1,16 @@
-use crate::cache::chain_cache::ChainCache;
-use crate::client::node::ErgoNetwork;
-use crate::model::Block;
-use futures::stream::FusedStream;
-use futures::Stream;
 use std::cell::RefCell;
 use std::cmp::max;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll};
+
+use futures::Stream;
+use futures::stream::FusedStream;
+
+use crate::cache::chain_cache::ChainCache;
+use crate::client::node::ErgoNetwork;
+use crate::model::Block;
 
 pub mod cache;
 pub mod client;
@@ -51,9 +53,9 @@ pub struct ChainSync<TClient, TCache> {
 }
 
 impl<TClient, TCache> ChainSync<TClient, TCache>
-where
-    TClient: ErgoNetwork,
-    TCache: ChainCache,
+    where
+        TClient: ErgoNetwork,
+        TCache: ChainCache,
 {
     pub async fn init(conf: ChainSyncConf, client: TClient, mut cache: TCache) -> Self {
         let best_block = cache.get_best_block().await;
@@ -95,9 +97,9 @@ where
 }
 
 impl<TClient, TCache> Stream for ChainSync<TClient, TCache>
-where
-    TClient: ErgoNetwork + Unpin,
-    TCache: ChainCache + Unpin,
+    where
+        TClient: ErgoNetwork + Unpin,
+        TCache: ChainCache + Unpin,
 {
     type Item = ChainUpgrade;
 
@@ -114,8 +116,8 @@ where
 }
 
 impl<TClient, TCache> FusedStream for ChainSync<TClient, TCache>
-where
-    ChainSync<TClient, TCache>: Stream,
+    where
+        ChainSync<TClient, TCache>: Stream,
 {
     /// ChainSync stream is never terminated.
     fn is_terminated(&self) -> bool {

@@ -1,8 +1,9 @@
+use futures::prelude::*;
+
 use ergo_chain_sync::cache::chain_cache::InMemoryCache;
-use ergo_chain_sync::client::node::{ErgoNetwork, ErgoNodeHttpClient};
+use ergo_chain_sync::client::node::ErgoNodeHttpClient;
 use ergo_chain_sync::client::types::Url;
 use ergo_chain_sync::{ChainSync, ChainSyncConf, ChainUpgrade};
-use futures::prelude::*;
 
 #[tokio::main]
 async fn main() {
