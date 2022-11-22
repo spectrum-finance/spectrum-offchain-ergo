@@ -1,0 +1,9 @@
+**/target/
+/Cargo.lock
+.DS_Store
+.idea/
+log/
+*.bin
+*.iml
+.local
+.vscode

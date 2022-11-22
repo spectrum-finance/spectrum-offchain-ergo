@@ -1,0 +1,17 @@
+[package]
+name = "ergo-chain-sync"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.65.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+futures = "0.3.25"
+reqwest = { version = "0.11.13", features = ["json"] }
+serde = { version = "1.0.147", features = ["derive"] }
+serde_json = "1.0.88"
+ergo-lib = { version = "0.21.1", features = ["json"] }
+async-trait = "0.1.58"
+base16 = "0.2.1"
+pin-project = "1.0.12"
