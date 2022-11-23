@@ -7,6 +7,7 @@ use std::task::{Context, Poll};
 
 use futures::Stream;
 use futures::stream::FusedStream;
+use log::{info, trace};
 
 use crate::cache::chain_cache::ChainCache;
 use crate::client::node::ErgoNetwork;
@@ -76,16 +77,20 @@ impl<TClient, TCache> ChainSync<TClient, TCache>
     /// `None` is returned when no upgrade is available at the moment.
     async fn try_upgrade(&mut self) -> Option<ChainUpgrade> {
         let mut state = self.state.borrow_mut();
+        trace!("Processing height {}", state.next_height);
         if let Some(api_blk) = self.client.get_block_at(state.next_height).await {
+            trace!("Best block is {:?}", api_blk.header.id.clone());
             let parent_id = api_blk.header.parent_id.clone();
             let linked = self.cache.exists(parent_id.clone()).await;
             if linked || api_blk.header.height == self.conf.starting_height {
+                trace!("Chain is linked");
                 let blk = Block::from(api_blk);
                 self.cache.append_block(blk.clone()).await;
                 state.upgrade();
                 return Some(ChainUpgrade::RollForward(blk));
             } else {
                 // Local chain does not link anymore
+                trace!("Processing fork");
                 if let Some(discarded_blk) = self.cache.take_best_block().await {
                     state.downgrade();
                     return Some(ChainUpgrade::RollBackward(discarded_blk));
