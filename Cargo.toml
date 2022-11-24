@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "ergo-chain-sync",
+    "ergo-mempool-sync",
     "spectrum-offchain"
 ]
 
