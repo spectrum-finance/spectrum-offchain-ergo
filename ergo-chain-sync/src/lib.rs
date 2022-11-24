@@ -23,10 +23,6 @@ pub enum ChainUpgrade {
     RollBackward(Block),
 }
 
-pub struct ChainSyncConf {
-    pub starting_height: u32,
-}
-
 #[derive(Debug, Clone)]
 struct SyncState {
     next_height: u32,
@@ -42,8 +38,35 @@ impl SyncState {
     }
 }
 
+#[async_trait::async_trait(?Send)]
+pub trait InitChainSync<TChainSync> {
+    async fn init(self, starting_height: u32) -> TChainSync;
+}
+
+pub struct ChainSyncNonInit<TClient, TCache> {
+    client: TClient,
+    cache: TCache,
+}
+
+impl<TClient, TCache> ChainSyncNonInit<TClient, TCache> {
+    pub fn new(client: TClient, cache: TCache) -> Self {
+        Self { client, cache }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl<TClient, TCache> InitChainSync<ChainSync<TClient, TCache>> for ChainSyncNonInit<TClient, TCache>
+where
+    TClient: ErgoNetwork,
+    TCache: ChainCache,
+{
+    async fn init(self, starting_height: u32) -> ChainSync<TClient, TCache> {
+        ChainSync::init(starting_height, self.client, self.cache).await
+    }
+}
+
 pub struct ChainSync<TClient, TCache> {
-    conf: ChainSyncConf,
+    starting_height: u32,
     client: TClient,
     cache: TCache,
     state: Rc<RefCell<SyncState>>,
@@ -54,15 +77,15 @@ where
     TClient: ErgoNetwork,
     TCache: ChainCache,
 {
-    pub async fn init(conf: ChainSyncConf, client: TClient, mut cache: TCache) -> Self {
+    pub async fn init(starting_height: u32, client: TClient, mut cache: TCache) -> Self {
         let best_block = cache.get_best_block().await;
         let start_at = if let Some(best_block) = best_block {
-            max(best_block.height, conf.starting_height)
+            max(best_block.height, starting_height)
         } else {
-            conf.starting_height
+            starting_height
         };
         Self {
-            conf,
+            starting_height,
             client,
             cache,
             state: Rc::new(RefCell::new(SyncState {
@@ -84,7 +107,7 @@ where
             );
             let parent_id = api_blk.header.parent_id.clone();
             let linked = self.cache.exists(parent_id.clone()).await;
-            if linked || api_blk.header.height == self.conf.starting_height {
+            if linked || api_blk.header.height == self.starting_height {
                 trace!("Chain is linked, upgrading ..");
                 let blk = Block::from(api_blk);
                 self.cache.append_block(blk.clone()).await;

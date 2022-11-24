@@ -4,15 +4,14 @@ use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll};
-use std::time::Duration;
 
 use ergo_lib::chain::transaction::{Transaction, TxId};
-use futures::Stream;
 use futures::stream::FusedStream;
+use futures::Stream;
 use wasm_timer::Delay;
 
 use ergo_chain_sync::model::Block;
-use ergo_chain_sync::ChainUpgrade;
+use ergo_chain_sync::{ChainUpgrade, InitChainSync};
 
 use crate::client::node::ErgoNetwork;
 
@@ -31,6 +30,16 @@ struct SyncState {
     latest_blocks: VecDeque<HashSet<TxId>>,
     mempool_projection: HashMap<TxId, Transaction>,
     pending_updates: VecDeque<MempoolUpdate>,
+}
+
+impl SyncState {
+    fn empty() -> Self {
+        Self {
+            latest_blocks: VecDeque::new(),
+            mempool_projection: HashMap::new(),
+            pending_updates: VecDeque::new(),
+        }
+    }
 }
 
 const KEEP_LAST_BLOCKS: usize = 10;
@@ -55,11 +64,32 @@ pub struct MempoolSyncConf {
 
 #[pin_project::pin_project]
 pub struct MempoolSync<TClient, TChainSync> {
+    conf: MempoolSyncConf,
     client: TClient,
     #[pin]
     chain_sync: TChainSync,
-    conf: MempoolSyncConf,
     state: Rc<RefCell<SyncState>>,
+}
+
+impl<TClient, TChainSync> MempoolSync<TClient, TChainSync>
+where
+    TClient: ErgoNetwork,
+{
+    pub async fn init<TChainSyncMaker: InitChainSync<TChainSync>>(
+        conf: MempoolSyncConf,
+        client: TClient,
+        chain_sync_maker: TChainSyncMaker,
+    ) -> Self {
+        let chain_tip_height = client.get_best_height().await;
+        let start_at = chain_tip_height as usize - KEEP_LAST_BLOCKS;
+        let chain_sync = chain_sync_maker.init(start_at as u32).await;
+        Self {
+            conf,
+            client,
+            chain_sync,
+            state: Rc::new(RefCell::new(SyncState::empty())),
+        }
+    }
 }
 
 const TXS_PER_REQUEST: usize = 100;
@@ -129,14 +159,16 @@ where
             }
         }
         if let Some(upgr) = this.state.borrow_mut().pending_updates.pop_front() {
-            return Poll::Ready(Some(upgr))
+            return Poll::Ready(Some(upgr));
         }
         Poll::Pending
     }
 }
 
 impl<TClient, TChainSync> FusedStream for MempoolSync<TClient, TChainSync>
-    where MempoolSync<TClient, TChainSync>: Stream {
+where
+    MempoolSync<TClient, TChainSync>: Stream,
+{
     /// MempoolSync stream is never terminated.
     fn is_terminated(&self) -> bool {
         false
