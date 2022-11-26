@@ -16,3 +16,10 @@ async-trait = "0.1.58"
 base16 = "0.2.1"
 pin-project = "1.0.12"
 log = "0.4.17"
+deadpool-redis = { version = "0.11.0", features = [ "rt_async-std_1" ] }
+redis = { version = "0.22", default-features = false }
+# Fast string concatenation (benchmarks: https://github.com/hoodie/concatenation_benchmarks-rs)
+concat-string = "1.0.1"
+
+[dev-dependencies]
+async-std = "1.12.0"
