@@ -13,6 +13,15 @@ use super::chain_cache::ChainCache;
 
 static BEST_BLOCK: &str = "best_block";
 
+/// How the blocks are stored in Redis:
+///
+/// Given a block `B`, let `HB` denote the (lowercase) hex-representation of block's ID. Then
+///  - {HB}:p is the key which maps to the hex-representation of B's parent block ID.
+///  - {HB}:h is the key which maps to the height of `B`.
+///  - {HB}:t is the key of a Redis set, which contains the hex-representation `HT` of the
+///    transaction ID of every transaction of `B`.
+///    - Every {HT} is a Redis key which maps to the string-encoded JSON representation of the
+///      transaction.
 struct RedisClient {
     pool: Pool,
 }
