@@ -4,7 +4,7 @@ use ergo_lib::{
     chain::transaction::Transaction,
     ergo_chain_types::{BlockId, Digest32},
 };
-use redis::cmd;
+use redis::{cmd, pipe};
 
 use crate::model::{Block, BlockRecord};
 use async_trait::async_trait;
@@ -52,48 +52,41 @@ impl ChainCache for RedisClient {
         let block_height_key = concat_string!(block_id_hex, ":h");
         let block_transactions_key = concat_string!(block_id_hex, ":t");
 
+        let mut pipe = pipe();
         // SET {block_id_hex}:p {parent_id_hex}
-        let _: () = cmd("SET")
+        pipe.cmd("SET")
             .arg(&parent_id_key)
             .arg(&parent_id_hex)
-            .query_async(&mut conn)
-            .await
-            .unwrap();
-
-        // SET {block_id_hex}:h {block.height}
-        let _: () = cmd("SET")
+            .ignore()
+            // SET {block_id_hex}:h {block.height}
+            .cmd("SET")
             .arg(&block_height_key)
             .arg(block.height)
-            .query_async(&mut conn)
-            .await
-            .unwrap();
+            .ignore();
 
         for tx in block.transactions {
             let tx_json = serde_json::to_string(&tx).unwrap();
             let tx_id = String::from(tx.id().0);
 
             // SADD {block_id_hex}:t {tx_id}
-            let _: () = cmd("SADD")
+            pipe.cmd("SADD")
                 .arg(&block_transactions_key)
                 .arg(&tx_id)
-                .query_async(&mut conn)
-                .await
-                .unwrap();
-
-            // SET {tx_id} {tx_json}
-            let _: () = cmd("SET")
+                .ignore()
+                // SET {tx_id} {tx_json}
+                .cmd("SET")
                 .arg(&tx_id)
                 .arg(&tx_json)
-                .query_async(&mut conn)
-                .await
-                .unwrap();
+                .ignore();
         }
 
         // DEL best_block
-        let _: () = cmd("DEL").arg(BEST_BLOCK).query_async(&mut conn).await.unwrap();
-
-        // RPUSH best_block {block_id_hex} {parent_id_hex}
-        let _: () = cmd("RPUSH")
+        let _: () = pipe
+            .cmd("DEL")
+            .arg(BEST_BLOCK)
+            .ignore()
+            // RPUSH best_block {block_id_hex} {parent_id_hex}
+            .cmd("RPUSH")
             .arg(BEST_BLOCK)
             .arg(&block_id_hex)
             .arg(&parent_id_hex)
@@ -140,12 +133,15 @@ impl ChainCache for RedisClient {
     async fn take_best_block(&mut self) -> Option<Block> {
         let mut conn = self.pool.get().await.unwrap();
         if let Some(BlockRecord { id, height }) = self.get_best_block().await {
-            let _: () = cmd("DEL").arg(BEST_BLOCK).query_async(&mut conn).await.unwrap();
             let block_id_hex = String::from(id.0.clone());
             let block_id_digest32 = Digest32::try_from(block_id_hex.clone()).unwrap();
             let block_id = BlockId(block_id_digest32);
 
-            let parent_id_hex: String = cmd("GET")
+            let (parent_id_hex,): (String,) = pipe()
+                .cmd("DEL")
+                .arg(BEST_BLOCK)
+                .ignore()
+                .cmd("GET")
                 .arg(concat_string!(block_id_hex, ":p"))
                 .query_async(&mut conn)
                 .await
@@ -175,19 +171,21 @@ impl ChainCache for RedisClient {
                 .await
                 .unwrap();
 
-            let mut transactions = Vec::with_capacity(transaction_ids.len());
-            for tx_id_hex in transaction_ids {
-                let tx_json: String = cmd("GETDEL")
-                    .arg(&tx_id_hex)
-                    .query_async(&mut conn)
-                    .await
-                    .unwrap();
-                let tx: Transaction = serde_json::from_str(&tx_json).unwrap();
-                transactions.push(tx);
-            }
+            let transactions_json: Vec<String> = cmd("MGET")
+                .arg(&transaction_ids)
+                .query_async(&mut conn)
+                .await
+                .unwrap();
+            let transactions: Vec<Transaction> = transactions_json
+                .into_iter()
+                .map(|tx_json| serde_json::from_str(&tx_json).unwrap())
+                .collect();
 
-            // DEL best_block
-            let _: () = cmd("DEL").arg(BEST_BLOCK).query_async(&mut conn).await.unwrap();
+            let _: () = cmd("DEL")
+                .arg(&transaction_ids)
+                .query_async(&mut conn)
+                .await
+                .unwrap();
 
             Some(Block {
                 id: block_id,
