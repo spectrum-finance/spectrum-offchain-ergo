@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 
-use crate::box_resolver::repository::EntityRepo;
+use crate::box_resolver::persistence::EntityRepo;
 use crate::data::state::{Confirmed, Predicted, Traced, Unconfirmed};
 use crate::data::Has;
 
 pub mod process;
-pub mod repository;
+pub mod persistence;
 
 #[async_trait(?Send)]
 pub trait BoxResolver<TEntity, TEntityId, TStateId> {

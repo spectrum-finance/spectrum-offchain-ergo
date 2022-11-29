@@ -4,7 +4,7 @@ use futures::channel::mpsc::UnboundedReceiver;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
 
-use crate::box_resolver::repository::EntityRepo;
+use crate::box_resolver::persistence::EntityRepo;
 use crate::data::event::{Upgrade, UpgradeRollback};
 use crate::data::state::{Confirmed, Unconfirmed};
 use crate::data::Has;
