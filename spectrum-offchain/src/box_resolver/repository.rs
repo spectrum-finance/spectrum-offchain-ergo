@@ -12,5 +12,5 @@ pub trait EntityRepo<TEntity, TEntityId, TStateId> {
     async fn put_predicted(&mut self, entity: Traced<Predicted<TEntity>, TStateId>);
     async fn put_confirmed(&mut self, entity: Confirmed<TEntity>);
     async fn put_unconfirmed(&mut self, entity: Unconfirmed<TEntity>);
-    async fn invalidate(&mut self, eip: TEntityId, sid: TStateId);
+    async fn invalidate(&mut self, eid: TEntityId, sid: TStateId);
 }
