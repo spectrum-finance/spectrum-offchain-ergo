@@ -4,7 +4,7 @@ use ergo_lib::{
     chain::transaction::Transaction,
     ergo_chain_types::{BlockId, Digest32},
 };
-use redis::{cmd, pipe};
+use redis::cmd;
 
 use crate::model::{Block, BlockRecord};
 use async_trait::async_trait;
@@ -52,9 +52,10 @@ impl ChainCache for RedisClient {
         let block_height_key = concat_string!(block_id_hex, ":h");
         let block_transactions_key = concat_string!(block_id_hex, ":t");
 
-        let mut pipe = pipe();
+        let mut pipe = redis::pipe();
         // SET {block_id_hex}:p {parent_id_hex}
-        pipe.cmd("SET")
+        let () = pipe
+            .cmd("SET")
             .arg(&parent_id_key)
             .arg(&parent_id_hex)
             .ignore()
@@ -62,8 +63,12 @@ impl ChainCache for RedisClient {
             .cmd("SET")
             .arg(&block_height_key)
             .arg(block.height)
-            .ignore();
+            .query_async(&mut conn)
+            .await
+            .unwrap();
 
+        let mut pipe = redis::pipe();
+        pipe.cmd("MULTI").ignore();
         for tx in block.transactions {
             let tx_json = serde_json::to_string(&tx).unwrap();
             let tx_id = String::from(tx.id().0);
@@ -79,6 +84,7 @@ impl ChainCache for RedisClient {
                 .arg(&tx_json)
                 .ignore();
         }
+        let () = pipe.cmd("EXEC").query_async(&mut conn).await.unwrap();
 
         // DEL best_block
         let _: () = pipe
@@ -137,7 +143,7 @@ impl ChainCache for RedisClient {
             let block_id_digest32 = Digest32::try_from(block_id_hex.clone()).unwrap();
             let block_id = BlockId(block_id_digest32);
 
-            let (parent_id_hex,): (String,) = pipe()
+            let (parent_id_hex,): (String,) = redis::pipe()
                 .cmd("DEL")
                 .arg(BEST_BLOCK)
                 .ignore()
