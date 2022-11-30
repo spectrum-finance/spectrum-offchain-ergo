@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use crate::box_resolver::{Predicted, Traced};
-use crate::data::state::{Confirmed, Unconfirmed};
+use crate::data::reprod_entity::state::{Confirmed, Unconfirmed};
 
 #[async_trait]
 pub trait EntityRepo<TEntity, TEntityId, TStateId> {

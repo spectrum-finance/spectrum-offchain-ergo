@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use crate::box_resolver::persistence::EntityRepo;
-use crate::data::state::{Confirmed, Predicted, Traced, Unconfirmed};
+use crate::data::reprod_entity::state::{Confirmed, Predicted, Traced, Unconfirmed};
 use crate::data::Has;
 
 pub mod process;

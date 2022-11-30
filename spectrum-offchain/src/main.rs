@@ -1,8 +1,3 @@
-pub mod box_resolver;
-pub mod data;
-pub mod event_source;
-pub mod event_sink;
-
 use std::time::Duration;
 
 use futures::prelude::*;
@@ -12,6 +7,11 @@ use ergo_chain_sync::cache::chain_cache::InMemoryCache;
 use ergo_chain_sync::client::node::ErgoNodeHttpClient;
 use ergo_chain_sync::client::types::Url;
 use ergo_chain_sync::{ChainSync, ChainUpgrade};
+
+pub mod box_resolver;
+pub mod data;
+pub mod event_sink;
+pub mod event_source;
 
 #[tokio::main]
 async fn main() {
