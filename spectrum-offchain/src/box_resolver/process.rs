@@ -5,8 +5,7 @@ use futures::stream::select_all;
 use futures::{Stream, StreamExt};
 
 use crate::box_resolver::persistence::EntityRepo;
-use crate::data::reprod_entity::events::{Upgrade, UpgradeRollback};
-use crate::data::reprod_entity::state::{Confirmed, Unconfirmed};
+use crate::data::unique_entity::{Confirmed, Unconfirmed, Upgrade, UpgradeRollback};
 use crate::data::Has;
 
 pub fn box_tracker_stream<'a, TRepo, TEntity, TEntityId, TStateId>(
