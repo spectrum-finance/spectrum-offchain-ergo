@@ -12,6 +12,7 @@ pub mod box_resolver;
 pub mod data;
 pub mod event_sink;
 pub mod event_source;
+pub mod backlog;
 
 #[tokio::main]
 async fn main() {
