@@ -7,7 +7,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::backlog::data::BacklogOrder;
 use crate::backlog::persistence::BacklogStore;
-use crate::data::order::events::{EliminatedOrder, PendingOrder};
+use crate::data::order::{EliminatedOrder, PendingOrder};
 use crate::event_sink::handlers::types::TryFromBox;
 use crate::event_sink::types::EventHandler;
 use crate::event_source::data::LedgerTxEvent;
