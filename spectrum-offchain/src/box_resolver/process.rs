@@ -22,7 +22,7 @@ where
     select_all(vec![
         track_conf_upgrades(persistence.clone(), conf_upgrades),
         track_unconf_upgrades(persistence.clone(), unconf_upgrades),
-        handle_rollbacks(persistence.clone(), rollbacks),
+        handle_rollbacks(persistence, rollbacks),
     ])
 }
 
