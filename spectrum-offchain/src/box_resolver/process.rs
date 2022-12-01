@@ -39,8 +39,8 @@ where
     Box::pin(conf_upgrades.then(move |Upgrade(et)| {
         let pers = Arc::clone(&persistence);
         async move {
-            let mut pers = pers.lock();
-            pers.put_confirmed(et).await;
+            let mut pers_guard = pers.lock();
+            pers_guard.put_confirmed(et).await;
         }
     }))
 }
@@ -56,8 +56,8 @@ where
     Box::pin(unconf_upgrades.then(move |Upgrade(et)| {
         let pers = Arc::clone(&persistence);
         async move {
-            let mut pers = pers.lock();
-            pers.put_unconfirmed(et).await;
+            let mut pers_guard = pers.lock();
+            pers_guard.put_unconfirmed(et).await;
         }
     }))
 }
@@ -73,8 +73,10 @@ where
     Box::pin(rollbacks.then(move |UpgradeRollback(et)| {
         let pers = Arc::clone(&persistence);
         async move {
-            let mut pers = pers.lock();
-            pers.invalidate(et.get::<TEntityId>(), et.get::<TStateId>()).await;
+            let mut pers_guard = pers.lock();
+            pers_guard
+                .invalidate(et.get::<TEntityId>(), et.get::<TStateId>())
+                .await;
         }
     }))
 }
