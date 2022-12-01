@@ -12,8 +12,9 @@ use crate::backlog::persistence::BacklogStore;
 use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
 use crate::data::{Has, OnChainOrder};
 
-pub(crate) mod data;
-pub(crate) mod persistence;
+pub mod data;
+pub mod persistence;
+pub mod process;
 
 #[async_trait(?Send)]
 pub trait Backlog<TOrd>
@@ -30,7 +31,7 @@ where
     /// Pop best order.
     async fn try_pop(&mut self) -> Option<TOrd>;
     /// Remove order from backlog.
-    async fn drop(&mut self, ord_id: TOrd::TOrderId);
+    async fn elim(&mut self, ord_id: TOrd::TOrderId);
 }
 
 pub struct BacklogConfig {
@@ -209,7 +210,7 @@ where
         }
     }
 
-    async fn drop(&mut self, ord_id: TOrd::TOrderId) {
+    async fn elim(&mut self, ord_id: TOrd::TOrderId) {
         self.store.drop(ord_id).await;
     }
 }
