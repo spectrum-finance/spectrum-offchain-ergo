@@ -1,12 +1,15 @@
 use async_trait::async_trait;
 
 use crate::backlog::data::BacklogOrder;
+use crate::data::OnChainOrder;
 
 #[async_trait(?Send)]
-pub trait BacklogStore<TOrd, TOrdId> {
+pub trait BacklogStore<TOrd>
+where
+    TOrd: OnChainOrder,
+{
     async fn put(&mut self, ord: BacklogOrder<TOrd>);
-    async fn exists(&self, ord_id: TOrdId) -> bool;
-    async fn drop(&mut self, ord_id: TOrdId);
-    async fn get(&self, ord_id: TOrdId) -> Option<BacklogOrder<TOrd>>;
-    async fn get_all(&self) -> Vec<BacklogOrder<TOrd>>;
+    async fn exists(&self, ord: TOrd) -> bool;
+    async fn drop(&mut self, ord_id: TOrd::TOrderId);
+    async fn get(&self, ord_id: TOrd::TOrderId) -> Option<BacklogOrder<TOrd>>;
 }
