@@ -4,6 +4,15 @@ pub struct PendingOrder<TOrd> {
     pub timestamp: i64,
 }
 
+impl<TOrd> From<ProgressingOrder<TOrd>> for PendingOrder<TOrd> {
+    fn from(po: ProgressingOrder<TOrd>) -> Self {
+        Self {
+            order: po.order,
+            timestamp: po.timestamp,
+        }
+    }
+}
+
 #[derive(Debug, Hash, Clone, Eq, PartialEq)]
 pub struct SuspendedOrder<TOrd> {
     pub order: TOrd,
