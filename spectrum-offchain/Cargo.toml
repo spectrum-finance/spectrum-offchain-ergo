@@ -24,3 +24,4 @@ serde = { version = "1.0.147", features = ["derive"] }
 priority-queue = "1.3.0"
 bounded-integer = "0.5.3"
 rand = "0.8.5"
+parking_lot = "0.12.1"
