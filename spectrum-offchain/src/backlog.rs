@@ -31,7 +31,7 @@ where
     /// Pop best order.
     async fn try_pop(&mut self) -> Option<TOrd>;
     /// Remove order from backlog.
-    async fn elim(&mut self, ord_id: TOrd::TOrderId);
+    async fn remove(&mut self, ord_id: TOrd::TOrderId);
 }
 
 pub struct BacklogConfig {
@@ -210,7 +210,7 @@ where
         }
     }
 
-    async fn elim(&mut self, ord_id: TOrd::TOrderId) {
+    async fn remove(&mut self, ord_id: TOrd::TOrderId) {
         self.store.drop(ord_id).await;
     }
 }

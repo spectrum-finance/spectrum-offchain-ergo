@@ -56,7 +56,7 @@ where
         let backlog = Arc::clone(&backlog);
         async move {
             let mut backlog_guard = backlog.lock();
-            backlog_guard.elim(ord.order_id).await;
+            backlog_guard.remove(ord.order_id).await;
         }
     }))
 }
