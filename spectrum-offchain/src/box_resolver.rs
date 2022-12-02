@@ -2,27 +2,26 @@ use async_trait::async_trait;
 
 use crate::box_resolver::persistence::EntityRepo;
 use crate::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
-use crate::data::Has;
+use crate::data::{Has, OnChainEntity};
 
 pub mod persistence;
 pub mod process;
 
 #[async_trait(?Send)]
-pub trait BoxResolver<TEntity, TEntityId, TStateId> {
+pub trait BoxResolver<TEntity: OnChainEntity> {
     /// Get resolved state of an on-chain entity `TEntity`.
-    async fn get<'a>(&self, id: TEntityId) -> Option<TEntity>
+    async fn get<'a>(&self, id: TEntity::TEntityId) -> Option<TEntity>
     where
-        TEntityId: 'a;
+        TEntity::TEntityId: 'a;
     /// Put predicted state of an on-chain entity `TEntity`.
-    async fn put<'a>(&mut self, entity: Traced<Predicted<TEntity>, TStateId>)
+    async fn put<'a>(&mut self, entity: Traced<Predicted<TEntity>>)
     where
-        TEntity: 'a,
-        TStateId: 'a;
+        TEntity: 'a;
     /// Invalidate known state of an on-chain entity `TEntity`.
-    async fn invalidate<'a>(&mut self, eid: TEntityId, sid: TStateId)
+    async fn invalidate<'a>(&mut self, eid: TEntity::TEntityId, sid: TEntity::TStateId)
     where
-        TEntityId: 'a,
-        TStateId: 'a;
+        TEntity::TEntityId: 'a,
+        TEntity::TStateId: 'a;
 }
 
 pub struct BoxResolverImpl<TRepo> {
@@ -30,10 +29,10 @@ pub struct BoxResolverImpl<TRepo> {
 }
 
 impl<TRepo> BoxResolverImpl<TRepo> {
-    async fn is_linking<TEntity, TEntityId, TStateId>(&self, sid: TStateId, anchoring_sid: TStateId) -> bool
+    async fn is_linking<TEntity>(&self, sid: TEntity::TStateId, anchoring_sid: TEntity::TStateId) -> bool
     where
-        TRepo: EntityRepo<TEntity, TEntityId, TStateId>,
-        TStateId: Eq,
+        TEntity: OnChainEntity,
+        TRepo: EntityRepo<TEntity>,
     {
         let mut head_sid = sid;
         loop {
@@ -47,16 +46,15 @@ impl<TRepo> BoxResolverImpl<TRepo> {
 }
 
 #[async_trait(?Send)]
-impl<TEntity, TEntityId, TStateId, TRepo> BoxResolver<TEntity, TEntityId, TStateId> for BoxResolverImpl<TRepo>
+impl<TEntity, TRepo> BoxResolver<TEntity> for BoxResolverImpl<TRepo>
 where
-    TRepo: EntityRepo<TEntity, TEntityId, TStateId>,
-    TEntity: Has<TStateId>,
-    TEntityId: Clone,
-    TStateId: Eq,
+    TRepo: EntityRepo<TEntity>,
+    TEntity: OnChainEntity + Has<TEntity::TStateId>,
+    TEntity::TEntityId: Clone,
 {
-    async fn get<'a>(&self, id: TEntityId) -> Option<TEntity>
+    async fn get<'a>(&self, id: TEntity::TEntityId) -> Option<TEntity>
     where
-        TEntityId: 'a,
+        TEntity::TEntityId: 'a,
     {
         let confirmed = self.persistence.get_last_confirmed(id.clone()).await;
         let unconfirmed = self.persistence.get_last_unconfirmed(id.clone()).await;
@@ -64,8 +62,8 @@ where
         match (confirmed, unconfirmed, predicted) {
             (Some(Confirmed(conf)), unconf, Some(Predicted(pred))) => {
                 let anchoring_point = unconf.map(|Unconfirmed(e)| e).unwrap_or(conf);
-                let anchoring_sid = anchoring_point.get::<TStateId>();
-                let predicted_sid = pred.get::<TStateId>();
+                let anchoring_sid = anchoring_point.get::<TEntity::TStateId>();
+                let predicted_sid = pred.get::<TEntity::TStateId>();
                 let prediction_is_anchoring_point = predicted_sid == anchoring_sid;
                 let prediction_is_valid =
                     prediction_is_anchoring_point || self.is_linking(predicted_sid, anchoring_sid).await;
@@ -82,18 +80,17 @@ where
         }
     }
 
-    async fn put<'a>(&mut self, entity: Traced<Predicted<TEntity>, TStateId>)
+    async fn put<'a>(&mut self, entity: Traced<Predicted<TEntity>>)
     where
         TEntity: 'a,
-        TStateId: 'a,
     {
         self.persistence.put_predicted(entity).await;
     }
 
-    async fn invalidate<'a>(&mut self, eid: TEntityId, sid: TStateId)
+    async fn invalidate<'a>(&mut self, eid: TEntity::TEntityId, sid: TEntity::TStateId)
     where
-        TEntityId: 'a,
-        TStateId: 'a,
+        TEntity::TEntityId: 'a,
+        TEntity::TStateId: 'a,
     {
         self.persistence.invalidate(eid, sid).await;
     }
