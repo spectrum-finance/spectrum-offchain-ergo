@@ -11,4 +11,18 @@ pub trait Has<T> {
 
 pub trait OnChainOrder {
     type TOrderId: Eq + Hash;
+    type TEntityId: Eq + Hash;
+
+    fn get_self_ref(&self) -> Self::TOrderId;
+
+    fn get_entity_ref(&self) -> Self::TEntityId;
+}
+
+pub trait OnChainEntity {
+    type TEntityId: Eq + Hash;
+    type TStateId: Eq + Hash;
+
+    fn get_self_ref(&self) -> Self::TEntityId;
+
+    fn get_self_state_ref(&self) -> Self::TStateId;
 }
