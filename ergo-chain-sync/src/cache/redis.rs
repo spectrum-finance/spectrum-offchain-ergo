@@ -42,8 +42,13 @@ impl RedisClient {
     }
 }
 
+/// Note that the two functions that write/modify the Redis store are `append_block` and
+/// `take_best_block`. Both functions mutate the store within Redis transactions, and we also claim
+/// that these are atomic, meaning they never leave the data store in an inconsistent state.
 #[async_trait(?Send)]
 impl ChainCache for RedisClient {
+    /// Note that all Redis commands used in this function occur entirely in a single transaction,
+    /// so this operation is atomic.
     async fn append_block(&mut self, block: Block) {
         let mut conn = self.pool.get().await.unwrap();
         let block_id_hex = String::from(block.id.0.clone());
@@ -53,8 +58,10 @@ impl ChainCache for RedisClient {
         let block_transactions_key = concat_string!(block_id_hex, ":t");
 
         let mut pipe = redis::pipe();
-        // SET {block_id_hex}:p {parent_id_hex}
-        let () = pipe
+        pipe
+            // Make a transaction
+            .atomic()
+            // SET {block_id_hex}:p {parent_id_hex}
             .cmd("SET")
             .arg(&parent_id_key)
             .arg(&parent_id_hex)
@@ -63,13 +70,9 @@ impl ChainCache for RedisClient {
             .cmd("SET")
             .arg(&block_height_key)
             .arg(block.height)
-            .query_async(&mut conn)
-            .await
-            .unwrap();
+            .ignore();
 
-        let mut pipe = redis::pipe();
-        pipe.cmd("MULTI").ignore();
-        for tx in block.transactions {
+        for tx in &block.transactions {
             let tx_json = serde_json::to_string(&tx).unwrap();
             let tx_id = String::from(tx.id().0);
 
@@ -84,10 +87,9 @@ impl ChainCache for RedisClient {
                 .arg(&tx_json)
                 .ignore();
         }
-        let () = pipe.cmd("EXEC").query_async(&mut conn).await.unwrap();
 
-        // DEL best_block
         let _: () = pipe
+            // DEL best_block
             .cmd("DEL")
             .arg(BEST_BLOCK)
             .ignore()
@@ -136,71 +138,109 @@ impl ChainCache for RedisClient {
         }
     }
 
+    /// This function takes the current best block and replaces it with its parent block (if it
+    /// exists in the cache).  Note: This function is atomic.
+    ///
+    /// ## Why it's atomic
+    /// This function issue Redis commands in the following form:
+    /// ```text
+    ///   WATCH {BEST_BLOCK}
+    ///   ... <Read information from existing best block in Redis> ... (1)
+    ///   MULTI
+    ///   ... <Redis commands that make up this transaction> ...
+    ///   EXEC
+    /// ```
+    ///
+    /// Recall that the transaction is made up of all commands starting from MULTI to EXEC. The WATCH
+    /// command makes the transaction conditional on no change to BEST_BLOCK. i.e. the transaction will
+    /// only execute as long as there was no modification of `BEST_BLOCK` between the WATCH and EXEC
+    /// commands.
+    ///
+    /// The WATCH command is crucial because the reads made before the transaction at (1) could be
+    /// out-of-date due to a completed `append_block` call. Note that it's sufficient to just watch
+    /// `BEST_BLOCK` because `append_block` performs all mutations related to the best block in a
+    /// single Redis transaction.
     async fn take_best_block(&mut self) -> Option<Block> {
         let mut conn = self.pool.get().await.unwrap();
-        if let Some(BlockRecord { id, height }) = self.get_best_block().await {
-            let block_id_hex = String::from(id.0.clone());
-            let block_id_digest32 = Digest32::try_from(block_id_hex.clone()).unwrap();
-            let block_id = BlockId(block_id_digest32);
 
-            let (parent_id_hex,): (String,) = redis::pipe()
-                .cmd("DEL")
-                .arg(BEST_BLOCK)
-                .ignore()
-                .cmd("GET")
-                .arg(concat_string!(block_id_hex, ":p"))
-                .query_async(&mut conn)
-                .await
-                .unwrap();
-            let parent_digest32 = Digest32::try_from(parent_id_hex.clone()).unwrap();
-            let parent_id = BlockId(parent_digest32);
+        loop {
+            let _: () = cmd("WATCH").arg(BEST_BLOCK).query_async(&mut conn).await.unwrap();
 
-            // The new best block will now be the parent of the old best block.
-            if let Ok(new_parent_id_hex) = cmd("GET")
-                .arg(concat_string!(parent_id_hex, ":p"))
-                .query_async::<_, String>(&mut conn)
-                .await
-            {
-                // RPUSH best_block {parent_id_hex} {new_parent_id_hex}
-                let _: () = cmd("RPUSH")
-                    .arg(BEST_BLOCK)
-                    .arg(&parent_id_hex)
-                    .arg(&new_parent_id_hex)
+            if let Some(BlockRecord { id, height }) = self.get_best_block().await {
+                let block_id_hex = String::from(id.0.clone());
+                let block_id_digest32 = Digest32::try_from(block_id_hex.clone()).unwrap();
+                let block_id = BlockId(block_id_digest32);
+
+                let transaction_ids: Vec<String> = cmd("SMEMBERS")
+                    .arg(concat_string!(block_id_hex, ":t"))
                     .query_async(&mut conn)
                     .await
                     .unwrap();
+
+                let transactions_json: Vec<String> = cmd("MGET")
+                    .arg(&transaction_ids)
+                    .query_async(&mut conn)
+                    .await
+                    .unwrap();
+                let transactions: Vec<Transaction> = transactions_json
+                    .into_iter()
+                    .map(|tx_json| serde_json::from_str(&tx_json).unwrap())
+                    .collect();
+
+                let parent_id_hex: String = cmd("GET")
+                    .arg(concat_string!(block_id_hex, ":p"))
+                    .query_async(&mut conn)
+                    .await
+                    .unwrap();
+                let parent_digest32 = Digest32::try_from(parent_id_hex.clone()).unwrap();
+                let parent_id = BlockId(parent_digest32);
+
+                let mut pipe = redis::pipe();
+                pipe.atomic() // Make this a transaction
+                    .cmd("DEL")
+                    .arg(BEST_BLOCK)
+                    .arg(concat_string!(block_id_hex, ":t"))
+                    .arg(&transaction_ids)
+                    .ignore();
+
+                // The new best block will now be the parent of the old best block, if the parent
+                // exists in the cache.
+                if let Ok(new_parent_id_hex) = cmd("GET")
+                    .arg(concat_string!(parent_id_hex, ":p"))
+                    .query_async::<_, String>(&mut conn)
+                    .await
+                {
+                    // RPUSH best_block {parent_id_hex} {new_parent_id_hex}
+                    pipe.cmd("RPUSH")
+                        .arg(BEST_BLOCK)
+                        .arg(&parent_id_hex)
+                        .arg(&new_parent_id_hex);
+                }
+
+                let res = pipe.cmd("DEL").arg(&transaction_ids).query_async(&mut conn).await;
+
+                match res {
+                    Ok(()) => {
+                        return Some(Block {
+                            id: block_id,
+                            parent_id,
+                            height,
+                            transactions,
+                        })
+                    }
+                    Err(e) => {
+                        if e.kind() == redis::ErrorKind::ExecAbortError {
+                            // `BEST_BLOCK` was modified between the WATCH and EXEC statements, a
+                            // data race. Let's try again.
+                            continue;
+                        } else {
+                            panic!("Unexpected redis error {}", e);
+                        }
+                    }
+                }
+            } else {
+                return None;
             }
-
-            let transaction_ids: Vec<String> = cmd("SMEMBERS")
-                .arg(concat_string!(block_id_hex, ":t"))
-                .query_async(&mut conn)
-                .await
-                .unwrap();
-
-            let transactions_json: Vec<String> = cmd("MGET")
-                .arg(&transaction_ids)
-                .query_async(&mut conn)
-                .await
-                .unwrap();
-            let transactions: Vec<Transaction> = transactions_json
-                .into_iter()
-                .map(|tx_json| serde_json::from_str(&tx_json).unwrap())
-                .collect();
-
-            let _: () = cmd("DEL")
-                .arg(&transaction_ids)
-                .query_async(&mut conn)
-                .await
-                .unwrap();
-
-            Some(Block {
-                id: block_id,
-                parent_id,
-                height,
-                transactions,
-            })
-        } else {
-            None
         }
     }
 }
