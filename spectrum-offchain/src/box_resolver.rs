@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::box_resolver::persistence::EntityRepo;
 use crate::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
-use crate::data::{Has, OnChainEntity};
+use crate::data::OnChainEntity;
 
 pub mod persistence;
 pub mod process;
@@ -49,7 +49,7 @@ impl<TRepo> BoxResolverImpl<TRepo> {
 impl<TEntity, TRepo> BoxResolver<TEntity> for BoxResolverImpl<TRepo>
 where
     TRepo: EntityRepo<TEntity>,
-    TEntity: OnChainEntity + Has<TEntity::TStateId>,
+    TEntity: OnChainEntity,
     TEntity::TEntityId: Clone,
 {
     async fn get<'a>(&self, id: TEntity::TEntityId) -> Option<TEntity>
@@ -62,8 +62,8 @@ where
         match (confirmed, unconfirmed, predicted) {
             (Some(Confirmed(conf)), unconf, Some(Predicted(pred))) => {
                 let anchoring_point = unconf.map(|Unconfirmed(e)| e).unwrap_or(conf);
-                let anchoring_sid = anchoring_point.get::<TEntity::TStateId>();
-                let predicted_sid = pred.get::<TEntity::TStateId>();
+                let anchoring_sid = anchoring_point.get_self_state_ref();
+                let predicted_sid = pred.get_self_state_ref();
                 let prediction_is_anchoring_point = predicted_sid == anchoring_sid;
                 let prediction_is_valid =
                     prediction_is_anchoring_point || self.is_linking(predicted_sid, anchoring_sid).await;

@@ -10,7 +10,7 @@ use rand::Rng;
 use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
 use crate::backlog::persistence::BacklogStore;
 use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
-use crate::data::{Has, OnChainOrder};
+use crate::data::OnChainOrder;
 
 pub mod data;
 pub mod persistence;
@@ -50,11 +50,11 @@ struct WeightedOrder<TOrderId> {
 
 impl<TOrd> From<BacklogOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrder + Has<TOrd::TOrderId>,
+    TOrd: OnChainOrder,
 {
     fn from(bo: BacklogOrder<TOrd>) -> Self {
         Self {
-            order_id: bo.order.get::<TOrd::TOrderId>(),
+            order_id: bo.order.get_self_ref(),
             timestamp: bo.timestamp,
         }
     }
@@ -62,11 +62,11 @@ where
 
 impl<TOrd> From<PendingOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrder + Has<TOrd::TOrderId>,
+    TOrd: OnChainOrder,
 {
     fn from(po: PendingOrder<TOrd>) -> Self {
         Self {
-            order_id: po.order.get::<TOrd::TOrderId>(),
+            order_id: po.order.get_self_ref(),
             timestamp: po.timestamp,
         }
     }
@@ -74,11 +74,11 @@ where
 
 impl<TOrd> From<ProgressingOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrder + Has<TOrd::TOrderId>,
+    TOrd: OnChainOrder,
 {
     fn from(po: ProgressingOrder<TOrd>) -> Self {
         Self {
-            order_id: po.order.get::<TOrd::TOrderId>(),
+            order_id: po.order.get_self_ref(),
             timestamp: po.timestamp,
         }
     }
@@ -86,11 +86,11 @@ where
 
 impl<TOrd> From<SuspendedOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrder + Has<TOrd::TOrderId>,
+    TOrd: OnChainOrder,
 {
     fn from(so: SuspendedOrder<TOrd>) -> Self {
         Self {
-            order_id: so.order.get::<TOrd::TOrderId>(),
+            order_id: so.order.get_self_ref(),
             timestamp: so.timestamp,
         }
     }
@@ -114,7 +114,7 @@ where
 
 impl<TOrd, TStore> BacklogService<TOrd, TStore>
 where
-    TOrd: OnChainOrder + Weighted + Has<TOrd::TOrderId> + Hash + Eq,
+    TOrd: OnChainOrder + Weighted + Hash + Eq,
     TStore: BacklogStore<TOrd>,
 {
     pub fn new(store: TStore, conf: BacklogConfig) -> Self {
@@ -153,7 +153,7 @@ async fn try_pop_max_order<TOrd, TStore>(
     pq: &mut PriorityQueue<WeightedOrder<TOrd::TOrderId>, OrderWeight>,
 ) -> Option<TOrd>
 where
-    TOrd: OnChainOrder + Weighted + Has<TOrd::TOrderId> + Hash + Eq,
+    TOrd: OnChainOrder + Weighted + Hash + Eq,
     TStore: BacklogStore<TOrd>,
 {
     while let Some((ord, _)) = pq.pop() {
@@ -172,7 +172,7 @@ where
 impl<TOrd, TStore> Backlog<TOrd> for BacklogService<TOrd, TStore>
 where
     TStore: BacklogStore<TOrd>,
-    TOrd: OnChainOrder + Weighted + Has<TOrd::TOrderId> + Hash + Eq + Clone,
+    TOrd: OnChainOrder + Weighted + Hash + Eq + Clone,
 {
     async fn put(&mut self, ord: PendingOrder<TOrd>) {
         self.store
