@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use ergo_lib::chain::transaction::Transaction;
-use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::ProveDlog;
 use futures::{stream, Stream, StreamExt};
 use log::warn;
 use parking_lot::Mutex;
@@ -49,9 +48,7 @@ pub struct OrderExecutor<TNetwork, TBacklog, TResolver, TCtx> {
 }
 
 #[derive(Debug, Clone)]
-pub struct OrderExecCtx {
-    executor_pk: ProveDlog,
-}
+pub struct OrderExecCtx {}
 
 #[async_trait(?Send)]
 impl<TOrd, TEntity, TNetwork, TBacklog, TResolver> Executor<TOrd, TEntity>
