@@ -104,27 +104,30 @@ where
     }
 }
 
-pub struct UnconfirmedRollbackHandler<TEntity, TRepo> {
+pub struct UnconfirmedRollbackHandler<TEntity, TRepo, P> {
     topic: UnboundedSender<UpgradeRollback<TEntity>>,
     repo: TRepo,
+    parser: P,
 }
 
 #[async_trait(?Send)]
-impl<TEntity, TRepo> EventHandler<MempoolUpdate> for UnconfirmedRollbackHandler<TEntity, TRepo>
+impl<TEntity, TRepo, P> EventHandler<MempoolUpdate> for UnconfirmedRollbackHandler<TEntity, TRepo, P>
 where
     TEntity: OnChainEntity,
     TEntity::TStateId: From<BoxId>,
     TRepo: EntityRepo<TEntity>,
+    P: TryFromBox<TEntity>,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
         match ev {
-            MempoolUpdate::TxAccepted(tx) | MempoolUpdate::TxWithdrawn(tx) => {
+            MempoolUpdate::TxAccepted(tx) => {
+                // entity is consumed by another tx in mempool
                 let mut is_success = false;
                 for i in tx.clone().inputs {
                     let state_id = TEntity::TStateId::from(i.box_id);
-                    if let Some(entity_snapshot) = self.repo.get_state(state_id).await {
+                    if let Some(entity) = self.repo.get_state(state_id).await {
                         is_success = true;
-                        let _ = self.topic.send(UpgradeRollback(entity_snapshot));
+                        let _ = self.topic.send(UpgradeRollback(entity));
                     }
                 }
                 if is_success {
@@ -132,7 +135,20 @@ where
                 }
                 Some(MempoolUpdate::TxAccepted(tx))
             }
-            ev => Some(ev),
+            MempoolUpdate::TxWithdrawn(tx) => {
+                // entity tx is dropped from mempool
+                let mut is_success = false;
+                for bx in tx.clone().outputs {
+                    if let Some(entity) = self.parser.try_from(bx) {
+                        is_success = true;
+                        let _ = self.topic.send(UpgradeRollback(entity));
+                    }
+                }
+                if is_success {
+                    return None;
+                }
+                Some(MempoolUpdate::TxWithdrawn(tx))
+            }
         }
     }
 }
