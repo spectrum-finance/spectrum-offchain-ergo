@@ -11,8 +11,18 @@ futures = "0.3.25"
 isahc = { version = "1.7.2", features = ["json"] }
 serde = { version = "1.0.147", features = ["derive"] }
 serde_json = "1.0.88"
-ergo-lib = { version = "0.21.1", features = ["json"] }
+#ergo-lib = { version = "0.21.1", features = ["json"] }
+ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "5a3826fed9164d5ec183612a330fe19cf9994c65", features = ["json"] }
 async-trait = "0.1.58"
 base16 = "0.2.1"
 pin-project = "1.0.12"
 log = "0.4.17"
+deadpool-redis = { version = "0.11.0", features = [ "rt_async-std_1" ] }
+redis = { version = "0.22", default-features = false }
+# Fast string concatenation (benchmarks: https://github.com/hoodie/concatenation_benchmarks-rs)
+concat-string = "1.0.1"
+
+[dev-dependencies]
+async-std = {version = "1.12.0", features = ["attributes"] }
+ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "5a3826fed9164d5ec183612a330fe19cf9994c65", features = ["json", "arbitrary"] }
+sigma-test-util = { git = "https://github.com/ergoplatform/sigma-rust", rev = "5a3826fed9164d5ec183612a330fe19cf9994c65" }
