@@ -139,7 +139,7 @@ where
     async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
         match ev {
             MempoolUpdate::TxAccepted(tx) => {
-                // order is spent by another tx in mempool
+                // order is consumed by another tx in mempool
                 let mut is_success = false;
                 for i in tx.clone().inputs {
                     let ord_id = TOrdId::from(i.box_id);

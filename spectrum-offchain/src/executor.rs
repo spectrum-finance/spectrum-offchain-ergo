@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -22,35 +23,37 @@ pub enum RunOrderFailure<TOrd: OnChainOrder> {
     NonFatal(String, TOrd),
 }
 
-#[async_trait]
 pub trait RunOrder<TEntity, TCtx>: OnChainOrder + Sized {
     /// Try to run the given `TOrd` against the given `TEntity`.
     /// Returns transaction and the next state of the persistent entity in the case of success.
     /// Returns `RunOrderError<TOrd>` otherwise.
-    async fn try_run(
+    fn try_run(
         self,
         entity: TEntity,
-        ctx: TCtx,
+        ctx: TCtx, // can be used to pass extra deps
     ) -> Result<(Transaction, Predicted<TEntity>), RunOrderFailure<Self>>;
 }
 
 #[async_trait(?Send)]
-pub trait Executor<TOrd, TEntity> {
+pub trait Executor {
     /// Execute next available order.
     /// Drives execution to completion (submit tx or handle error).
     async fn execute_next(&mut self);
 }
 
-pub struct OrderExecutor<TNetwork, TBacklog, TResolver, TCtx> {
+/// A generic executor suitable for cases when single order is applied to a signle entity (pool).
+pub struct OrderExecutor<TNetwork, TBacklog, TResolver, TCtx, TOrd, TEntity> {
     network: TNetwork,
     backlog: TBacklog,
     resolver: TResolver,
     ctx: TCtx,
+    pd1: PhantomData<TOrd>,
+    pd2: PhantomData<TEntity>,
 }
 
 #[async_trait(?Send)]
-impl<TOrd, TEntity, TNetwork, TBacklog, TResolver, TCtx> Executor<TOrd, TEntity>
-    for OrderExecutor<TNetwork, TBacklog, TResolver, TCtx>
+impl<TNetwork, TBacklog, TResolver, TCtx, TOrd, TEntity> Executor
+    for OrderExecutor<TNetwork, TBacklog, TResolver, TCtx, TOrd, TEntity>
 where
     TOrd: OnChainOrder + RunOrder<TEntity, TCtx> + Clone + Display,
     TEntity: OnChainEntity + Clone,
@@ -64,7 +67,7 @@ where
         if let Some(ord) = self.backlog.try_pop().await {
             let entity_id = ord.get_entity_ref();
             if let Some(entity) = self.resolver.get(trivial_eq().coerce(entity_id)).await {
-                match ord.clone().try_run(entity.clone(), self.ctx.clone()).await {
+                match ord.clone().try_run(entity.clone(), self.ctx.clone()) {
                     Ok((tx, next_entity_state)) => {
                         if let Err(err) = self.network.submit_tx(tx).await {
                             warn!("Execution failed while submitting tx due to {}", err);
@@ -96,9 +99,7 @@ where
 }
 
 /// Construct Executor stream that drives sequential order execution.
-pub fn executor_stream<'a, TOrd, TEntity, TExecutor: Executor<TOrd, TEntity> + 'a>(
-    executor: TExecutor,
-) -> impl Stream<Item = ()> + 'a {
+pub fn executor_stream<'a, TExecutor: Executor + 'a>(executor: TExecutor) -> impl Stream<Item = ()> + 'a {
     let executor = Arc::new(Mutex::new(executor));
     stream::iter(0..).then(move |_| {
         let executor = executor.clone();

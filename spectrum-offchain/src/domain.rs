@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use ergo_lib::ergotree_ir::chain::token::TokenId;
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Hash)]
 pub struct TypedAsset<T> {
     pub token_id: TokenId,
     pub pd: PhantomData<T>,
@@ -29,4 +29,13 @@ pub struct TypedAssetAmount<T> {
     pub token_id: TokenId,
     pub amount: u64,
     pub pd: PhantomData<T>,
+}
+
+impl<T> TypedAssetAmount<T> {
+    pub fn to_asset(self) -> TypedAsset<T> {
+        TypedAsset {
+            token_id: self.token_id,
+            pd: PhantomData::default(),
+        }
+    }
 }
