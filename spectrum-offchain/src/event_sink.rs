@@ -20,7 +20,7 @@ pub async fn process_events<'a, TUpstream, TEvent, TDefHan>(
             let mut unhandled_ev = None;
             for han in &mut handlers {
                 let maybe_unhandled_ev = han.try_handle(ev.clone());
-                if unhandled_ev.is_some() {
+                if unhandled_ev.is_none() {
                     unhandled_ev = maybe_unhandled_ev;
                 }
             }
