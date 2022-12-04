@@ -4,6 +4,8 @@ use crate::box_resolver::{Predicted, Traced};
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
 use crate::data::OnChainEntity;
 
+/// Stores on-chain entities.
+/// Operations are atomic.
 #[async_trait(?Send)]
 pub trait EntityRepo<TEntity: OnChainEntity> {
     async fn get_prediction(&self, id: TEntity::TStateId) -> Option<Traced<Predicted<TEntity>>>;
@@ -14,4 +16,5 @@ pub trait EntityRepo<TEntity: OnChainEntity> {
     async fn put_confirmed(&mut self, entity: Confirmed<TEntity>);
     async fn put_unconfirmed(&mut self, entity: Unconfirmed<TEntity>);
     async fn invalidate(&mut self, eid: TEntity::TEntityId, sid: TEntity::TStateId);
+    async fn get_state(&self, sid: TEntity::TStateId) -> Option<TEntity>;
 }

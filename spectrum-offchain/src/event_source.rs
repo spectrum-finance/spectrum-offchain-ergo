@@ -7,7 +7,7 @@ use crate::event_source::data::LedgerTxEvent;
 
 pub mod data;
 
-pub fn event_source<S>(upstream: S) -> impl Stream<Item = LedgerTxEvent>
+pub fn event_source_ledger<S>(upstream: S) -> impl Stream<Item = LedgerTxEvent>
 where
     S: Stream<Item = ChainUpgrade>,
 {

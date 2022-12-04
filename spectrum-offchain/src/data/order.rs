@@ -28,5 +28,4 @@ pub struct ProgressingOrder<TOrd> {
 #[derive(Debug, Hash, Clone, Eq, PartialEq)]
 pub struct EliminatedOrder<TOrdId> {
     pub order_id: TOrdId,
-    pub timestamp: i64,
 }

@@ -186,7 +186,7 @@ where
     }
 
     async fn suspend(&mut self, ord: TOrd) -> bool {
-        if self.store.exists(ord.clone()).await {
+        if self.store.exists(ord.clone().get_self_ref()).await {
             let wt = ord.weight();
             if let Some(backlog_ord) = self.store.get(ord.get_self_ref()).await {
                 self.suspended_pq.push(
@@ -203,7 +203,7 @@ where
     }
 
     async fn check_later(&mut self, ord: ProgressingOrder<TOrd>) -> bool {
-        if self.store.exists(ord.order.clone()).await {
+        if self.store.exists(ord.order.clone().get_self_ref()).await {
             self.revisit_queue.push_back(ord.into());
             return true;
         }
@@ -332,8 +332,8 @@ mod tests {
             self.inner.insert(ord.order.order_id, ord);
         }
 
-        async fn exists(&self, ord: MockOrder) -> bool {
-            self.inner.contains_key(&ord.order_id)
+        async fn exists(&self, order_id: MockOrderId) -> bool {
+            self.inner.contains_key(&order_id)
         }
 
         async fn drop(&mut self, ord_id: MockOrderId) {

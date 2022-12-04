@@ -5,6 +5,8 @@ use chrono::{Duration, Utc};
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use tokio::sync::mpsc::UnboundedSender;
 
+use ergo_mempool_sync::MempoolUpdate;
+
 use crate::backlog::data::BacklogOrder;
 use crate::backlog::persistence::BacklogStore;
 use crate::data::order::{EliminatedOrder, PendingOrder};
@@ -50,6 +52,40 @@ where
     }
 }
 
+/// Tracks unconfirmed order.
+pub struct PendingUnconfirmedOrdersHandler<TOrd, P> {
+    topic: UnboundedSender<PendingOrder<TOrd>>,
+    parser: P,
+}
+
+#[async_trait(?Send)]
+impl<TOrd, P> EventHandler<MempoolUpdate> for PendingUnconfirmedOrdersHandler<TOrd, P>
+where
+    P: TryFromBox<TOrd>,
+{
+    async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
+        match ev {
+            MempoolUpdate::TxAccepted(tx) => {
+                let mut is_success = false;
+                for bx in &tx.outputs {
+                    if let Some(order) = self.parser.try_from(bx.clone()) {
+                        is_success = true;
+                        let _ = self.topic.send(PendingOrder {
+                            order,
+                            timestamp: Utc::now().timestamp(),
+                        });
+                    }
+                }
+                if is_success {
+                    return None;
+                }
+                Some(MempoolUpdate::TxAccepted(tx))
+            }
+            ev => Some(ev),
+        }
+    }
+}
+
 pub struct EliminatedOrdersHandler<TOrd, TOrdId, TStore> {
     topic: UnboundedSender<EliminatedOrder<TOrdId>>,
     store: TStore,
@@ -69,12 +105,9 @@ where
                 let mut is_success = false;
                 for i in tx.clone().inputs {
                     let ord_id = TOrdId::from(i.box_id);
-                    if let Some(BacklogOrder { timestamp, .. }) = self.store.get(ord_id.clone()).await {
+                    if self.store.exists(ord_id.clone()).await {
                         is_success = true;
-                        let _ = self.topic.send(EliminatedOrder {
-                            order_id: ord_id,
-                            timestamp,
-                        });
+                        let _ = self.topic.send(EliminatedOrder { order_id: ord_id });
                     }
                 }
                 if is_success {
@@ -83,6 +116,59 @@ where
                 Some(LedgerTxEvent::AppliedTx { tx, timestamp })
             }
             ev => Some(ev),
+        }
+    }
+}
+
+pub struct EliminatedUnconfirmedOrdersHandler<TOrd, TOrdId, TStore, P> {
+    topic: UnboundedSender<EliminatedOrder<TOrdId>>,
+    store: TStore,
+    parser: P,
+    pd: PhantomData<TOrd>,
+}
+
+#[async_trait(?Send)]
+impl<TOrd, TOrdId, TStore, P> EventHandler<MempoolUpdate>
+    for EliminatedUnconfirmedOrdersHandler<TOrd, TOrdId, TStore, P>
+where
+    TOrdId: From<BoxId> + Clone,
+    TOrd: OnChainOrder<TOrderId = TOrdId>,
+    TStore: BacklogStore<TOrd>,
+    P: TryFromBox<TOrd>,
+{
+    async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
+        match ev {
+            MempoolUpdate::TxAccepted(tx) => {
+                // order is spent by another tx in mempool
+                let mut is_success = false;
+                for i in tx.clone().inputs {
+                    let ord_id = TOrdId::from(i.box_id);
+                    if let Some(BacklogOrder { .. }) = self.store.get(ord_id.clone()).await {
+                        is_success = true;
+                        let _ = self.topic.send(EliminatedOrder { order_id: ord_id });
+                    }
+                }
+                if is_success {
+                    return None;
+                }
+                Some(MempoolUpdate::TxAccepted(tx))
+            }
+            MempoolUpdate::TxWithdrawn(tx) => {
+                // order tx is dropped from mempool
+                let mut is_success = false;
+                for bx in &tx.outputs {
+                    if let Some(order) = self.parser.try_from(bx.clone()) {
+                        is_success = true;
+                        let _ = self.topic.send(EliminatedOrder {
+                            order_id: order.get_self_ref(),
+                        });
+                    }
+                }
+                if is_success {
+                    return None;
+                }
+                Some(MempoolUpdate::TxWithdrawn(tx))
+            }
         }
     }
 }
