@@ -2,7 +2,8 @@
 members = [
     "ergo-chain-sync",
     "ergo-mempool-sync",
-    "spectrum-offchain"
+    "spectrum-offchain",
+    "spectrum-offchain-lm"
 ]
 
 [profile.release]

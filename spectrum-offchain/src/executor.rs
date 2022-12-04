@@ -22,11 +22,12 @@ pub enum RunOrderFailure<TOrd: OnChainOrder> {
     NonFatal(String, TOrd),
 }
 
+#[async_trait]
 pub trait RunOrder<TEntity, TCtx>: OnChainOrder + Sized {
     /// Try to run the given `TOrd` against the given `TEntity`.
     /// Returns transaction and the next state of the persistent entity in the case of success.
     /// Returns `RunOrderError<TOrd>` otherwise.
-    fn try_run(
+    async fn try_run(
         self,
         entity: TEntity,
         ctx: TCtx,
@@ -47,25 +48,23 @@ pub struct OrderExecutor<TNetwork, TBacklog, TResolver, TCtx> {
     ctx: TCtx,
 }
 
-#[derive(Debug, Clone)]
-pub struct OrderExecCtx {}
-
 #[async_trait(?Send)]
-impl<TOrd, TEntity, TNetwork, TBacklog, TResolver> Executor<TOrd, TEntity>
-    for OrderExecutor<TNetwork, TBacklog, TResolver, OrderExecCtx>
+impl<TOrd, TEntity, TNetwork, TBacklog, TResolver, TCtx> Executor<TOrd, TEntity>
+    for OrderExecutor<TNetwork, TBacklog, TResolver, TCtx>
 where
-    TOrd: OnChainOrder + RunOrder<TEntity, OrderExecCtx> + Clone + Display,
+    TOrd: OnChainOrder + RunOrder<TEntity, TCtx> + Clone + Display,
     TEntity: OnChainEntity + Clone,
     TOrd::TEntityId: IsEqual<TEntity::TEntityId>,
     TNetwork: ErgoNetwork,
     TBacklog: Backlog<TOrd>,
     TResolver: BoxResolver<TEntity>,
+    TCtx: Clone,
 {
     async fn execute_next(&mut self) {
         if let Some(ord) = self.backlog.try_pop().await {
             let entity_id = ord.get_entity_ref();
             if let Some(entity) = self.resolver.get(trivial_eq().coerce(entity_id)).await {
-                match ord.clone().try_run(entity.clone(), self.ctx.clone()) {
+                match ord.clone().try_run(entity.clone(), self.ctx.clone()).await {
                     Ok((tx, next_entity_state)) => {
                         if let Err(err) = self.network.submit_tx(tx).await {
                             warn!("Execution failed while submitting tx due to {}", err);
@@ -87,7 +86,7 @@ where
                         self.backlog.suspend(ord).await;
                     }
                     Err(RunOrderFailure::Fatal(err, ord_id)) => {
-                        warn!("Order dropped due to non-fatal error {}", err);
+                        warn!("Order dropped due to fatal error {}", err);
                         self.backlog.remove(ord_id).await;
                     }
                 }
