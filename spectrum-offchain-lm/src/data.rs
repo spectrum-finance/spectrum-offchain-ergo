@@ -5,26 +5,25 @@ use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use spectrum_offchain::domain::TypedAsset;
 
 use crate::data::assets::{BundleKey, PoolNft};
-use crate::data::bundle::StakingBundle;
 
 pub mod assets;
 pub mod bundle;
 pub mod order;
 pub mod pool;
 
-#[derive(Debug, Eq, PartialEq, Clone, Hash, From)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
 pub struct OrderId(BoxId);
 
-#[derive(Debug, Eq, PartialEq, Clone, Hash, From)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
 pub struct PoolId(TypedAsset<PoolNft>);
 
-#[derive(Debug, Eq, PartialEq, Clone, Hash, From)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
 pub struct PoolStateId(BoxId);
 
-#[derive(Debug, Eq, PartialEq, Clone, Hash, From)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
 pub struct BundleId(TypedAsset<BundleKey>);
 
-#[derive(Debug, Eq, PartialEq, Clone, Hash, From)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
 pub struct BundleStateId(BoxId);
 
 #[derive(Debug, Eq, PartialEq, Clone)]

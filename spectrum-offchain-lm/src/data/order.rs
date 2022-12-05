@@ -1,9 +1,13 @@
 use ergo_lib::chain::transaction::Transaction;
+use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
+use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
+use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::ProveDlog;
 use type_equalities::IsEqual;
 
 use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::{Has, OnChainOrder};
 use spectrum_offchain::domain::TypedAssetAmount;
+use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 use spectrum_offchain::executor::RunOrderFailure;
 
 use crate::data::assets::{BundleKey, Lq};
@@ -16,15 +20,39 @@ use crate::executor::RunOrder;
 pub struct Deposit {
     pub order_id: OrderId,
     pub pool_id: PoolId,
+    pub redeemer_prop: ErgoTree,
+    pub refund_pk: ProveDlog,
     pub lq: TypedAssetAmount<Lq>,
+}
+
+pub struct DepositParser {
+    deposit_validator_template: Vec<u8>,
+}
+
+impl TryFromBox<Deposit> for DepositParser {
+    fn try_from(&self, bx: ErgoBox) -> Option<Deposit> {
+        todo!()
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Redeem {
     pub order_id: OrderId,
     pub pool_id: PoolId,
+    pub redeemer_prop: ErgoTree,
+    pub refund_pk: ProveDlog,
     pub bundle_key: TypedAssetAmount<BundleKey>,
     pub expected_lq: TypedAssetAmount<Lq>,
+}
+
+pub struct RedeemParser {
+    redeem_validator_template: Vec<u8>,
+}
+
+impl TryFromBox<Redeem> for RedeemParser {
+    fn try_from(&self, bx: ErgoBox) -> Option<Redeem> {
+        todo!()
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -68,6 +96,14 @@ impl RunOrder for Order {
         bundle: Option<StakingBundle>,
         ctx: LmContext,
     ) -> Result<(Transaction, Predicted<Pool>, Option<Predicted<StakingBundle>>), RunOrderFailure<Self>> {
+        todo!()
+    }
+}
+
+pub struct OrderParser {}
+
+impl TryFromBox<Order> for OrderParser {
+    fn try_from(&self, bx: ErgoBox) -> Option<Order> {
         todo!()
     }
 }
