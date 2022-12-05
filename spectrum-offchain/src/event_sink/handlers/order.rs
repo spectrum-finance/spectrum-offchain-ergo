@@ -15,16 +15,15 @@ use crate::event_sink::handlers::types::TryFromBox;
 use crate::event_sink::types::EventHandler;
 use crate::event_source::data::LedgerTxEvent;
 
-pub struct PendingOrdersHandler<TOrd, P> {
+pub struct PendingOrdersHandler<TOrd> {
     topic: UnboundedSender<PendingOrder<TOrd>>,
     order_lifespan: Duration,
-    parser: P,
 }
 
 #[async_trait(?Send)]
-impl<TOrd, P> EventHandler<LedgerTxEvent> for PendingOrdersHandler<TOrd, P>
+impl<TOrd> EventHandler<LedgerTxEvent> for PendingOrdersHandler<TOrd>
 where
-    P: TryFromBox<TOrd>,
+    TOrd: TryFromBox,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
         match ev {
@@ -33,7 +32,7 @@ where
                 if ts_now - timestamp <= self.order_lifespan.num_milliseconds() {
                     let mut is_success = false;
                     for bx in &tx.outputs {
-                        if let Some(order) = self.parser.try_from(bx.clone()) {
+                        if let Some(order) = TOrd::try_from_box(bx.clone()) {
                             is_success = true;
                             let _ = self.topic.send(PendingOrder {
                                 order,
@@ -53,22 +52,21 @@ where
 }
 
 /// Tracks unconfirmed order.
-pub struct PendingUnconfirmedOrdersHandler<TOrd, P> {
+pub struct PendingUnconfirmedOrdersHandler<TOrd> {
     topic: UnboundedSender<PendingOrder<TOrd>>,
-    parser: P,
 }
 
 #[async_trait(?Send)]
-impl<TOrd, P> EventHandler<MempoolUpdate> for PendingUnconfirmedOrdersHandler<TOrd, P>
+impl<TOrd> EventHandler<MempoolUpdate> for PendingUnconfirmedOrdersHandler<TOrd>
 where
-    P: TryFromBox<TOrd>,
+    TOrd: TryFromBox,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
         match ev {
             MempoolUpdate::TxAccepted(tx) => {
                 let mut is_success = false;
                 for bx in &tx.outputs {
-                    if let Some(order) = self.parser.try_from(bx.clone()) {
+                    if let Some(order) = TOrd::try_from_box(bx.clone()) {
                         is_success = true;
                         let _ = self.topic.send(PendingOrder {
                             order,
@@ -120,21 +118,19 @@ where
     }
 }
 
-pub struct EliminatedUnconfirmedOrdersHandler<TOrd, TOrdId, TStore, P> {
+pub struct EliminatedUnconfirmedOrdersHandler<TOrd, TOrdId, TStore> {
     topic: UnboundedSender<EliminatedOrder<TOrdId>>,
     store: TStore,
-    parser: P,
     pd: PhantomData<TOrd>,
 }
 
 #[async_trait(?Send)]
-impl<TOrd, TOrdId, TStore, P> EventHandler<MempoolUpdate>
-    for EliminatedUnconfirmedOrdersHandler<TOrd, TOrdId, TStore, P>
+impl<TOrd, TOrdId, TStore> EventHandler<MempoolUpdate>
+    for EliminatedUnconfirmedOrdersHandler<TOrd, TOrdId, TStore>
 where
     TOrdId: From<BoxId> + Clone,
-    TOrd: OnChainOrder<TOrderId = TOrdId>,
+    TOrd: OnChainOrder<TOrderId = TOrdId> + TryFromBox,
     TStore: BacklogStore<TOrd>,
-    P: TryFromBox<TOrd>,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
         match ev {
@@ -157,7 +153,7 @@ where
                 // order tx is dropped from mempool
                 let mut is_success = false;
                 for bx in &tx.outputs {
-                    if let Some(order) = self.parser.try_from(bx.clone()) {
+                    if let Some(order) = TOrd::try_from_box(bx.clone()) {
                         is_success = true;
                         let _ = self.topic.send(EliminatedOrder {
                             order_id: order.get_self_ref(),
