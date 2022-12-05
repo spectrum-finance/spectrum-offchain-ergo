@@ -1,9 +1,9 @@
 use async_trait::async_trait;
 
 use crate::box_resolver::{Predicted, Traced};
-use crate::data::reprod_entity::state::{Confirmed, Unconfirmed};
+use crate::data::unique_entity::{Confirmed, Unconfirmed};
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait EntityRepo<TEntity, TEntityId, TStateId> {
     async fn get_prediction(&self, id: TStateId) -> Option<Traced<Predicted<TEntity>, TStateId>>;
     async fn get_last_predicted(&self, id: TEntityId) -> Option<Predicted<TEntity>>;
