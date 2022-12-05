@@ -1,27 +1,32 @@
-use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
+use ergo_lib::ergo_chain_types::Digest32;
+use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
+use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
+use ergo_lib::ergotree_ir::mir::constant::TryExtractInto;
+use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
 
 use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::domain::{TypedAsset, TypedAssetAmount};
 use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 
-use crate::data::assets::{BundleKey, PoolNft, Tmp, VirtLq};
-use crate::data::{BundleId, BundleStateId};
+use crate::data::assets::{BundleKey, Tmp, VirtLq};
+use crate::data::{BundleId, BundleStateId, PoolId};
+use crate::validators::bundle_validator;
 
 /// Guards virtual liquidity and temporal tokens.
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct StakingBundle {
-    bundle_key: TypedAsset<BundleKey>,
+    bundle_key_id: TypedAsset<BundleKey>,
     state_id: BundleStateId,
-    pool_id: TypedAsset<PoolNft>,
+    pool_id: PoolId,
     vlq: TypedAssetAmount<VirtLq>,
     tmp: TypedAssetAmount<Tmp>,
-    redeemer: ErgoTree,
+    redeemer_prop: ErgoTree,
 }
 
 impl StakingBundle {
     pub fn bundle_id(&self) -> BundleId {
-        BundleId::from(self.bundle_key.clone()) // todo: remove .clone() when sigma is updated.
+        BundleId::from(self.bundle_key_id.token_id)
     }
 }
 
@@ -34,16 +39,60 @@ impl OnChainEntity for StakingBundle {
     }
 
     fn get_self_state_ref(&self) -> Self::TStateId {
-        self.state_id.clone() // todo: remove .clone() when sigma is updated.
+        self.state_id
     }
 }
 
-pub struct BundleParser {
-    bundle_validator_template: Vec<u8>,
-}
-
-impl TryFromBox<StakingBundle> for BundleParser {
-    fn try_from(&self, bx: ErgoBox) -> Option<StakingBundle> {
-        todo!()
+impl TryFromBox for StakingBundle {
+    fn try_from_box(bx: ErgoBox) -> Option<StakingBundle> {
+        if let Some(ref tokens) = bx.tokens {
+            if tokens.len() == 2 && bx.ergo_tree == bundle_validator() {
+                let redeemer_prop = ErgoTree::sigma_parse_bytes(
+                    &*bx.additional_registers
+                        .get(NonMandatoryRegisterId::R4)?
+                        .as_option_constant()?
+                        .v
+                        .clone()
+                        .try_extract_into::<Vec<u8>>()
+                        .ok()?,
+                )
+                .ok()?;
+                let bundle_key = TokenId::from(
+                    Digest32::try_from(
+                        bx.additional_registers
+                            .get(NonMandatoryRegisterId::R5)?
+                            .as_option_constant()?
+                            .v
+                            .clone()
+                            .try_extract_into::<Vec<u8>>()
+                            .ok()?,
+                    )
+                    .ok()?,
+                );
+                let pool_id = TokenId::from(
+                    Digest32::try_from(
+                        bx.additional_registers
+                            .get(NonMandatoryRegisterId::R6)?
+                            .as_option_constant()?
+                            .v
+                            .clone()
+                            .try_extract_into::<Vec<u8>>()
+                            .ok()?,
+                    )
+                    .ok()?,
+                );
+                let vlq = tokens.get(0)?.clone();
+                let tmp = tokens.get(1)?.clone();
+                return Some(StakingBundle {
+                    bundle_key_id: TypedAsset::<BundleKey>::new(bundle_key),
+                    state_id: BundleStateId::from(bx.box_id()),
+                    pool_id: PoolId::from(pool_id),
+                    vlq: TypedAssetAmount::<VirtLq>::from_token(vlq),
+                    tmp: TypedAssetAmount::<Tmp>::from_token(tmp),
+                    redeemer_prop,
+                });
+            }
+        }
+        None
     }
 }

@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use ergo_lib::ergotree_ir::chain::token::TokenId;
+use ergo_lib::ergotree_ir::chain::token::{Token, TokenId};
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 pub struct TypedAsset<T> {
@@ -54,5 +54,9 @@ impl<T> TypedAssetAmount<T> {
             token_id: self.token_id,
             pd: PhantomData::default(),
         }
+    }
+
+    pub fn from_token(token: Token) -> Self {
+        TypedAssetAmount::new(token.token_id, *token.amount.as_u64())
     }
 }

@@ -11,22 +11,21 @@ use crate::event_sink::handlers::types::TryFromBox;
 use crate::event_sink::types::EventHandler;
 use crate::event_source::data::LedgerTxEvent;
 
-pub struct ConfirmedUpgradeHandler<TEntity, P> {
+pub struct ConfirmedUpgradeHandler<TEntity> {
     topic: UnboundedSender<Upgrade<Confirmed<TEntity>>>,
-    parser: P,
 }
 
 #[async_trait(?Send)]
-impl<TEntity, P> EventHandler<LedgerTxEvent> for ConfirmedUpgradeHandler<TEntity, P>
+impl<TEntity> EventHandler<LedgerTxEvent> for ConfirmedUpgradeHandler<TEntity>
 where
-    P: TryFromBox<TEntity>,
+    TEntity: TryFromBox,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
         match ev {
             LedgerTxEvent::AppliedTx { tx, timestamp } => {
                 let mut is_success = false;
                 for bx in &tx.outputs {
-                    if let Some(order) = self.parser.try_from(bx.clone()) {
+                    if let Some(order) = TEntity::try_from_box(bx.clone()) {
                         is_success = true;
                         let _ = self.topic.send(Upgrade(Confirmed(order)));
                     }
@@ -41,22 +40,21 @@ where
     }
 }
 
-pub struct UnconfirmedUpgradeHandler<TEntity, P> {
+pub struct UnconfirmedUpgradeHandler<TEntity> {
     topic: UnboundedSender<Upgrade<Unconfirmed<TEntity>>>,
-    parser: P,
 }
 
 #[async_trait(?Send)]
-impl<TEntity, P> EventHandler<MempoolUpdate> for UnconfirmedUpgradeHandler<TEntity, P>
+impl<TEntity> EventHandler<MempoolUpdate> for UnconfirmedUpgradeHandler<TEntity>
 where
-    P: TryFromBox<TEntity>,
+    TEntity: TryFromBox,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
         match ev {
             MempoolUpdate::TxAccepted(tx) => {
                 let mut is_success = false;
                 for bx in &tx.outputs {
-                    if let Some(order) = self.parser.try_from(bx.clone()) {
+                    if let Some(order) = TEntity::try_from_box(bx.clone()) {
                         is_success = true;
                         let _ = self.topic.send(Upgrade(Unconfirmed(order)));
                     }
@@ -104,19 +102,17 @@ where
     }
 }
 
-pub struct UnconfirmedRollbackHandler<TEntity, TRepo, P> {
+pub struct UnconfirmedRollbackHandler<TEntity, TRepo> {
     topic: UnboundedSender<UpgradeRollback<TEntity>>,
     repo: TRepo,
-    parser: P,
 }
 
 #[async_trait(?Send)]
-impl<TEntity, TRepo, P> EventHandler<MempoolUpdate> for UnconfirmedRollbackHandler<TEntity, TRepo, P>
+impl<TEntity, TRepo> EventHandler<MempoolUpdate> for UnconfirmedRollbackHandler<TEntity, TRepo>
 where
-    TEntity: OnChainEntity,
+    TEntity: OnChainEntity + TryFromBox,
     TEntity::TStateId: From<BoxId>,
     TRepo: EntityRepo<TEntity>,
-    P: TryFromBox<TEntity>,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
         match ev {
@@ -139,7 +135,7 @@ where
                 // entity tx is dropped from mempool
                 let mut is_success = false;
                 for bx in tx.clone().outputs {
-                    if let Some(entity) = self.parser.try_from(bx) {
+                    if let Some(entity) = TEntity::try_from_box(bx) {
                         is_success = true;
                         let _ = self.topic.send(UpgradeRollback(entity));
                     }
