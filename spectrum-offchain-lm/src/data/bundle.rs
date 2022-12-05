@@ -1,7 +1,9 @@
+use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 
 use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::domain::{TypedAsset, TypedAssetAmount};
+use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 
 use crate::data::assets::{BundleKey, PoolNft, Tmp, VirtLq};
 use crate::data::{BundleId, BundleStateId};
@@ -33,5 +35,15 @@ impl OnChainEntity for StakingBundle {
 
     fn get_self_state_ref(&self) -> Self::TStateId {
         self.state_id.clone() // todo: remove .clone() when sigma is updated.
+    }
+}
+
+pub struct BundleParser {
+    bundle_validator_template: Vec<u8>,
+}
+
+impl TryFromBox<StakingBundle> for BundleParser {
+    fn try_from(&self, bx: ErgoBox) -> Option<StakingBundle> {
+        todo!()
     }
 }

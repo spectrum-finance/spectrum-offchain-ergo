@@ -18,4 +18,4 @@ pub struct BundleKey;
 pub struct PoolNft;
 /// Reward token (what we distribute in the program)
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
-pub struct Rew;
+pub struct Budget;
