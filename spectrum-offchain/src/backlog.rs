@@ -10,7 +10,7 @@ use rand::Rng;
 use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
 use crate::backlog::persistence::BacklogStore;
 use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
-use crate::data::{Has, OnChainOrder};
+use crate::data::OnChainOrder;
 
 pub mod data;
 pub mod persistence;
@@ -25,13 +25,15 @@ where
     async fn put(&mut self, ord: PendingOrder<TOrd>);
     /// Suspend order that temporarily failed.
     /// Potentially retry later.
-    async fn suspend(&mut self, ord: SuspendedOrder<TOrd>) -> bool;
+    async fn suspend(&mut self, ord: TOrd) -> bool;
     /// Register successfull order to check if it settled later.
     async fn check_later(&mut self, ord: ProgressingOrder<TOrd>) -> bool;
     /// Pop best order.
     async fn try_pop(&mut self) -> Option<TOrd>;
     /// Remove order from backlog.
     async fn remove(&mut self, ord_id: TOrd::TOrderId);
+    /// Return order back to backlog.
+    async fn recharge(&mut self, org: TOrd);
 }
 
 pub struct BacklogConfig {
@@ -48,11 +50,11 @@ struct WeightedOrder<TOrderId> {
 
 impl<TOrd> From<BacklogOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrder + Has<TOrd::TOrderId>,
+    TOrd: OnChainOrder,
 {
     fn from(bo: BacklogOrder<TOrd>) -> Self {
         Self {
-            order_id: bo.order.get::<TOrd::TOrderId>(),
+            order_id: bo.order.get_self_ref(),
             timestamp: bo.timestamp,
         }
     }
@@ -60,11 +62,11 @@ where
 
 impl<TOrd> From<PendingOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrder + Has<TOrd::TOrderId>,
+    TOrd: OnChainOrder,
 {
     fn from(po: PendingOrder<TOrd>) -> Self {
         Self {
-            order_id: po.order.get::<TOrd::TOrderId>(),
+            order_id: po.order.get_self_ref(),
             timestamp: po.timestamp,
         }
     }
@@ -72,11 +74,11 @@ where
 
 impl<TOrd> From<ProgressingOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrder + Has<TOrd::TOrderId>,
+    TOrd: OnChainOrder,
 {
     fn from(po: ProgressingOrder<TOrd>) -> Self {
         Self {
-            order_id: po.order.get::<TOrd::TOrderId>(),
+            order_id: po.order.get_self_ref(),
             timestamp: po.timestamp,
         }
     }
@@ -84,11 +86,11 @@ where
 
 impl<TOrd> From<SuspendedOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrder + Has<TOrd::TOrderId>,
+    TOrd: OnChainOrder,
 {
     fn from(so: SuspendedOrder<TOrd>) -> Self {
         Self {
-            order_id: so.order.get::<TOrd::TOrderId>(),
+            order_id: so.order.get_self_ref(),
             timestamp: so.timestamp,
         }
     }
@@ -112,7 +114,7 @@ where
 
 impl<TOrd, TStore> BacklogService<TOrd, TStore>
 where
-    TOrd: OnChainOrder + Weighted + Has<TOrd::TOrderId> + Hash + Eq,
+    TOrd: OnChainOrder + Weighted + Hash + Eq,
     TStore: BacklogStore<TOrd>,
 {
     pub fn new(store: TStore, conf: BacklogConfig) -> Self {
@@ -151,7 +153,7 @@ async fn try_pop_max_order<TOrd, TStore>(
     pq: &mut PriorityQueue<WeightedOrder<TOrd::TOrderId>, OrderWeight>,
 ) -> Option<TOrd>
 where
-    TOrd: OnChainOrder + Weighted + Has<TOrd::TOrderId> + Hash + Eq,
+    TOrd: OnChainOrder + Weighted + Hash + Eq,
     TStore: BacklogStore<TOrd>,
 {
     while let Some((ord, _)) = pq.pop() {
@@ -170,7 +172,7 @@ where
 impl<TOrd, TStore> Backlog<TOrd> for BacklogService<TOrd, TStore>
 where
     TStore: BacklogStore<TOrd>,
-    TOrd: OnChainOrder + Weighted + Has<TOrd::TOrderId> + Hash + Eq + Clone,
+    TOrd: OnChainOrder + Weighted + Hash + Eq + Clone,
 {
     async fn put(&mut self, ord: PendingOrder<TOrd>) {
         self.store
@@ -183,11 +185,19 @@ where
         self.pending_pq.push(ord.into(), wt);
     }
 
-    async fn suspend(&mut self, ord: SuspendedOrder<TOrd>) -> bool {
-        if self.store.exists(ord.order.clone()).await {
-            let wt = ord.order.weight();
-            self.suspended_pq.push(ord.into(), wt);
-            return true;
+    async fn suspend(&mut self, ord: TOrd) -> bool {
+        if self.store.exists(ord.clone()).await {
+            let wt = ord.weight();
+            if let Some(backlog_ord) = self.store.get(ord.get_self_ref()).await {
+                self.suspended_pq.push(
+                    WeightedOrder {
+                        order_id: ord.get_self_ref(),
+                        timestamp: backlog_ord.timestamp,
+                    },
+                    wt,
+                );
+                return true;
+            }
         }
         false
     }
@@ -212,6 +222,19 @@ where
 
     async fn remove(&mut self, ord_id: TOrd::TOrderId) {
         self.store.drop(ord_id).await;
+    }
+
+    async fn recharge(&mut self, org: TOrd) {
+        let wt = org.weight();
+        if let Some(backlog_ord) = self.store.get(org.get_self_ref()).await {
+            self.pending_pq.push(
+                WeightedOrder {
+                    order_id: org.get_self_ref(),
+                    timestamp: backlog_ord.timestamp,
+                },
+                wt,
+            );
+        }
     }
 }
 
@@ -280,6 +303,15 @@ mod tests {
 
     impl OnChainOrder for MockOrder {
         type TOrderId = MockOrderId;
+        type TEntityId = ();
+
+        fn get_self_ref(&self) -> Self::TOrderId {
+            self.order_id
+        }
+
+        fn get_entity_ref(&self) -> Self::TEntityId {
+            ()
+        }
     }
 
     struct MockBacklogStore {
@@ -342,7 +374,7 @@ mod tests {
         let mut backlog = setup_backlog(10, 5, 50);
         let ord = make_order(1, 1);
         backlog.put(ord.clone().into()).await;
-        let suspended = backlog.suspend(ord.into()).await;
+        let suspended = backlog.suspend(ord.order).await;
         assert!(suspended)
     }
 
@@ -359,12 +391,7 @@ mod tests {
     async fn should_not_suspend_non_existent_order() {
         let mut backlog = setup_backlog(10, 5, 50);
         let ord = make_order(1, 1);
-        let suspended = backlog
-            .suspend(SuspendedOrder {
-                order: ord.order,
-                timestamp: ord.timestamp,
-            })
-            .await;
+        let suspended = backlog.suspend(ord.order).await;
         assert!(!suspended)
     }
 
@@ -405,7 +432,7 @@ mod tests {
         backlog.put(ord2.into()).await;
         backlog.put(ord3.clone().into()).await;
         let _ = backlog.try_pop().await;
-        backlog.suspend(ord3.clone().into()).await;
+        backlog.suspend(ord3.clone().order).await;
 
         let res = backlog.try_pop().await;
         assert_eq!(res, Some(ord3.order))
@@ -421,7 +448,7 @@ mod tests {
         backlog.put(ord2.clone().into()).await;
         backlog.put(ord3.clone().into()).await;
         let _ = backlog.try_pop().await;
-        backlog.suspend(ord3.clone().into()).await;
+        backlog.suspend(ord3.clone().order).await;
 
         let res = backlog.try_pop().await;
         assert_eq!(res, Some(ord2.order))

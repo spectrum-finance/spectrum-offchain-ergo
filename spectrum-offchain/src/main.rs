@@ -13,6 +13,8 @@ pub mod data;
 pub mod event_sink;
 pub mod event_source;
 pub mod backlog;
+pub mod executor;
+pub mod network;
 
 #[tokio::main]
 async fn main() {
