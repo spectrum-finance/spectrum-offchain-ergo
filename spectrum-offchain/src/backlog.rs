@@ -33,7 +33,7 @@ where
     /// Remove order from backlog.
     async fn remove(&mut self, ord_id: TOrd::TOrderId);
     /// Return order back to backlog.
-    async fn recharge(&mut self, org: TOrd);
+    async fn recharge(&mut self, ord: TOrd);
 }
 
 pub struct BacklogConfig {
@@ -224,12 +224,12 @@ where
         self.store.drop(ord_id).await;
     }
 
-    async fn recharge(&mut self, org: TOrd) {
-        let wt = org.weight();
-        if let Some(backlog_ord) = self.store.get(org.get_self_ref()).await {
+    async fn recharge(&mut self, ord: TOrd) {
+        let wt = ord.weight();
+        if let Some(backlog_ord) = self.store.get(ord.get_self_ref()).await {
             self.pending_pq.push(
                 WeightedOrder {
-                    order_id: org.get_self_ref(),
+                    order_id: ord.get_self_ref(),
                     timestamp: backlog_ord.timestamp,
                 },
                 wt,
