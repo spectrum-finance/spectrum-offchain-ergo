@@ -11,7 +11,7 @@ use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::{Has, OnChainOrder};
 use spectrum_offchain::domain::TypedAssetAmount;
 use spectrum_offchain::event_sink::handlers::types::TryFromBox;
-use spectrum_offchain::executor::RunOrderFailure;
+use spectrum_offchain::executor::RunOrderError;
 
 use crate::data::assets::{BundleKey, Lq};
 use crate::data::bundle::StakingBundle;
@@ -170,7 +170,7 @@ impl RunOrder for Order {
         pool: Pool,
         bundle: Option<StakingBundle>,
         ctx: LmContext,
-    ) -> Result<(Transaction, Predicted<Pool>, Option<Predicted<StakingBundle>>), RunOrderFailure<Self>> {
+    ) -> Result<(Transaction, Predicted<Pool>, Option<Predicted<StakingBundle>>), RunOrderError<Self>> {
         todo!()
     }
 }
