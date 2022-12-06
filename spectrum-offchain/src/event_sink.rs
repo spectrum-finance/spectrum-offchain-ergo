@@ -24,11 +24,11 @@ pub async fn process_events<'a, TUpstream, TEvent, TDefHan>(
             let hans = handlers_arc.clone();
             let def_han = def_handler_arc.clone();
             async move {
-                let mut unhandled_ev = None;
+                let mut unhandled_ev = Some(ev.clone());
                 let mut hans_guard = hans.lock().unwrap();
                 for han in hans_guard.iter_mut() {
                     let maybe_unhandled_ev = han.try_handle(ev.clone()).await;
-                    if unhandled_ev.is_none() {
+                    if unhandled_ev.is_some() {
                         unhandled_ev = maybe_unhandled_ev;
                     }
                 }

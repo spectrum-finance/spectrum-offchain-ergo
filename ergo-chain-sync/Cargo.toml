@@ -24,5 +24,5 @@ concat-string = "1.0.1"
 
 [dev-dependencies]
 async-std = {version = "1.12.0", features = ["attributes"] }
-ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "5a3826fed9164d5ec183612a330fe19cf9994c65", features = ["json", "arbitrary"] }
+ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "7dd8b2d45706a6991e378092cb03e19ab4cbf77a", features = ["json", "arbitrary"] }
 sigma-test-util = { git = "https://github.com/ergoplatform/sigma-rust", rev = "5a3826fed9164d5ec183612a330fe19cf9994c65" }
