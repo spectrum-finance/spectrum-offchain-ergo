@@ -35,6 +35,19 @@ pub struct StakingBundle {
 }
 
 impl StakingBundle {
+    pub fn from_proto(p: StakingBundleProto, state_id: BundleStateId) -> Self {
+        Self {
+            bundle_key_id: p.bundle_key_id,
+            state_id,
+            pool_id: p.pool_id,
+            vlq: p.vlq,
+            tmp: p.tmp,
+            redeemer_prop: p.redeemer_prop,
+        }
+    }
+}
+
+impl StakingBundle {
     pub fn bundle_id(&self) -> BundleId {
         BundleId::from(self.bundle_key_id.token_id)
     }

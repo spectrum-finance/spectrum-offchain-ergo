@@ -22,16 +22,19 @@ pub struct ProgramConfig {
     pub program_budget: TypedAssetAmount<Reward>,
 }
 
+#[derive(Debug)]
 pub enum PoolOperationError {
     Permanent(PermanentError),
     Temporal(TemporalError),
 }
 
+#[derive(Debug)]
 pub enum PermanentError {
     LiqudityMismatch,
     ProgramExhausted,
 }
 
+#[derive(Debug)]
 pub enum TemporalError {
     LiquidityMoveBlocked,
 }
@@ -50,6 +53,9 @@ pub struct Pool {
 }
 
 impl Pool {
+    /// Apply deposit operation to the pool.
+    /// Returns pool state after deposit, new staking bundle and user output in the case of success.
+    /// Returns `PoolOperationError` otherwise.
     pub fn apply_deposit(
         self,
         deposit: Deposit,
@@ -83,6 +89,9 @@ impl Pool {
         Ok((next_pool, bundle, user_output))
     }
 
+    /// Apply redeem operation to the pool.
+    /// Returns pool state after redeem and user output in the case of success.
+    /// Returns `PoolOperationError` otherwise.
     pub fn apply_redeem(
         self,
         redeem: Redeem,
@@ -106,6 +115,8 @@ impl Pool {
         Ok((next_pool, user_output))
     }
 
+    /// Distribute rewards in batch.
+    /// Returns state of the pool after distribution, subtracted bundlesa and reward outputs.
     pub fn distribute_rewards(
         self,
         bundles: Vec<StakingBundle>,
@@ -224,5 +235,166 @@ impl TryFromBox for Pool {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ergo_lib::ergo_chain_types::Digest32;
+    use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
+    use ergo_lib::ergotree_ir::chain::token::TokenId;
+    use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
+    use ergo_lib::ergotree_ir::mir::constant::Constant;
+    use ergo_lib::ergotree_ir::mir::expr::Expr;
+    use rand::Rng;
+
+    use spectrum_offchain::domain::TypedAssetAmount;
+
+    use crate::data::bundle::StakingBundle;
+    use crate::data::context::ExecutionContext;
+    use crate::data::order::{Deposit, Redeem};
+    use crate::data::pool::{Pool, ProgramConfig};
+    use crate::data::{BundleStateId, OrderId, PoolId, PoolStateId};
+    use crate::ergo::MAX_VALUE;
+
+    fn make_pool(epoch_len: u32, epoch_num: u32, program_start: u32, program_budget: u64) -> Pool {
+        Pool {
+            pool_id: PoolId::from(TokenId::from(random_digest())),
+            state_id: PoolStateId::from(BoxId::from(random_digest())),
+            budget_rem: TypedAssetAmount::new(TokenId::from(random_digest()), program_budget),
+            reserves_lq: TypedAssetAmount::new(TokenId::from(random_digest()), 0),
+            reserves_vlq: TypedAssetAmount::new(TokenId::from(random_digest()), MAX_VALUE),
+            reserves_tmp: TypedAssetAmount::new(TokenId::from(random_digest()), MAX_VALUE),
+            epoch_ix: None,
+            max_error: 0,
+            conf: ProgramConfig {
+                epoch_len,
+                epoch_num,
+                program_start,
+                program_budget: TypedAssetAmount::new(TokenId::from(random_digest()), program_budget),
+            },
+        }
+    }
+
+    fn random_digest() -> Digest32 {
+        let mut rng = rand::thread_rng();
+        Digest32::try_from(
+            (0..32)
+                .map(|_| (rng.gen_range(0..=256) % 256) as u8)
+                .collect::<Vec<_>>(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn deposit() {
+        let budget = 1000000000;
+        let pool = make_pool(10, 10, 10, budget);
+        let deposit = TypedAssetAmount::new(pool.reserves_lq.token_id, 1000);
+        let deposit = Deposit {
+            order_id: OrderId::from(BoxId::from(random_digest())),
+            pool_id: pool.pool_id,
+            redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
+            lq: deposit,
+        };
+        let ctx = ExecutionContext {
+            height: 10,
+            mintable_token_id: TokenId::from(random_digest()),
+        };
+        let (pool2, bundle, _output) = pool.clone().apply_deposit(deposit.clone(), ctx).unwrap();
+        assert_eq!(bundle.vlq, deposit.lq.coerce());
+        assert_eq!(pool2.reserves_lq, deposit.lq);
+        assert_eq!(pool2.reserves_lq - pool.reserves_lq, deposit.lq);
+        assert_eq!(pool2.reserves_vlq, pool.reserves_vlq - bundle.vlq);
+        assert_eq!(pool2.reserves_tmp, pool.reserves_tmp - bundle.tmp);
+    }
+
+    #[test]
+    fn deposit_redeem() {
+        let budget = 1000000000;
+        let pool = make_pool(10, 10, 10, budget);
+        let deposit = TypedAssetAmount::new(pool.reserves_lq.token_id, 1000);
+        let deposit = Deposit {
+            order_id: OrderId::from(BoxId::from(random_digest())),
+            pool_id: pool.pool_id,
+            redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
+            lq: deposit,
+        };
+        let ctx = ExecutionContext {
+            height: 10,
+            mintable_token_id: TokenId::from(random_digest()),
+        };
+        let (pool2, bundle, output) = pool.clone().apply_deposit(deposit.clone(), ctx.clone()).unwrap();
+        let redeem = Redeem {
+            order_id: OrderId::from(BoxId::from(random_digest())),
+            pool_id: pool.pool_id,
+            redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
+            bundle_key: output.bundle_key,
+            expected_lq: deposit.lq,
+        };
+        let (pool3, output) = pool2
+            .clone()
+            .apply_redeem(
+                redeem.clone(),
+                StakingBundle::from_proto(bundle.clone(), BundleStateId::from(BoxId::from(random_digest()))),
+            )
+            .unwrap();
+
+        assert_eq!(pool.reserves_lq, pool3.reserves_lq);
+        assert_eq!(pool.reserves_vlq, pool3.reserves_vlq);
+        assert_eq!(pool.reserves_tmp, pool3.reserves_tmp);
+        assert_eq!(output.lq, deposit.lq);
+    }
+
+    #[test]
+    fn distribute_rewards() {
+        let budget = 1000000000;
+        let pool = make_pool(10, 10, 10, budget);
+        let deposit_amt_a = TypedAssetAmount::new(pool.reserves_lq.token_id, 1000);
+        let deposit_a = Deposit {
+            order_id: OrderId::from(BoxId::from(random_digest())),
+            pool_id: pool.pool_id,
+            redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
+            lq: deposit_amt_a,
+        };
+        let deposit_disproportion = 2;
+        let deposit_amt_b = TypedAssetAmount::new(
+            pool.reserves_lq.token_id,
+            deposit_amt_a.amount * deposit_disproportion,
+        );
+        let deposit_b = Deposit {
+            order_id: OrderId::from(BoxId::from(random_digest())),
+            pool_id: pool.pool_id,
+            redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
+            lq: deposit_amt_b,
+        };
+        let ctx_1 = ExecutionContext {
+            height: 10,
+            mintable_token_id: TokenId::from(random_digest()),
+        };
+        let (pool_2, bundle_a, _output_a) = pool.clone().apply_deposit(deposit_a.clone(), ctx_1).unwrap();
+        let (pool_3, bundle_b, _output_b) = pool_2.clone().apply_deposit(deposit_b.clone(), ctx_1).unwrap();
+
+        let ctx_2 = ExecutionContext {
+            height: 21,
+            mintable_token_id: TokenId::from(random_digest()),
+        };
+
+        let (pool_4, bundles, rewards) = pool_3.distribute_rewards(Vec::from([
+            StakingBundle::from_proto(
+                bundle_a.clone(),
+                BundleStateId::from(BoxId::from(random_digest())),
+            ),
+            StakingBundle::from_proto(
+                bundle_b.clone(),
+                BundleStateId::from(BoxId::from(random_digest())),
+            ),
+        ]));
+        assert_eq!(
+            rewards[0].reward.amount * deposit_disproportion,
+            rewards[1].reward.amount
+        );
+        assert_eq!(bundles[0].tmp, bundle_a.tmp - bundle_a.vlq.coerce());
+        assert_eq!(bundles[1].tmp, bundle_b.tmp - bundle_b.vlq.coerce());
     }
 }
