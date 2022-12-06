@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::ops::{Add, Sub};
 
 use ergo_lib::ergotree_ir::chain::token::{Token, TokenId};
 
@@ -58,5 +59,37 @@ impl<T> TypedAssetAmount<T> {
 
     pub fn from_token(token: Token) -> Self {
         TypedAssetAmount::new(token.token_id, *token.amount.as_u64())
+    }
+
+    pub fn coerce<U>(self) -> TypedAssetAmount<U> {
+        TypedAssetAmount {
+            token_id: self.token_id,
+            amount: self.amount,
+            pd: PhantomData::default(),
+        }
+    }
+}
+
+impl<T> Add<TypedAssetAmount<T>> for TypedAssetAmount<T> {
+    type Output = Self;
+
+    fn add(self, rhs: TypedAssetAmount<T>) -> Self::Output {
+        TypedAssetAmount {
+            token_id: self.token_id,
+            amount: self.amount + rhs.amount,
+            pd: self.pd,
+        }
+    }
+}
+
+impl<T> Sub<TypedAssetAmount<T>> for TypedAssetAmount<T> {
+    type Output = Self;
+
+    fn sub(self, rhs: TypedAssetAmount<T>) -> Self::Output {
+        TypedAssetAmount {
+            token_id: self.token_id,
+            amount: self.amount - rhs.amount,
+            pd: self.pd,
+        }
     }
 }

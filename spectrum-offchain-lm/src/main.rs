@@ -1,16 +1,16 @@
-pub mod data;
-pub mod executor;
-pub mod validators;
-
 use std::time::Duration;
 
-use futures::prelude::*;
 use isahc::{prelude::*, HttpClient};
 
 use ergo_chain_sync::cache::chain_cache::InMemoryCache;
 use ergo_chain_sync::client::node::ErgoNodeHttpClient;
 use ergo_chain_sync::client::types::Url;
-use ergo_chain_sync::{ChainSync, ChainUpgrade};
+use ergo_chain_sync::ChainSync;
+
+pub mod data;
+pub mod ergo;
+pub mod executor;
+pub mod validators;
 
 #[tokio::main]
 async fn main() {
