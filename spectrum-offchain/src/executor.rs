@@ -16,7 +16,7 @@ use crate::data::{OnChainEntity, OnChainOrder};
 use crate::network::ErgoNetwork;
 
 /// Indicated the kind of failure on at attempt to execute an order offline.
-pub enum RunOrderFailure<TOrd: OnChainOrder> {
+pub enum RunOrderError<TOrd: OnChainOrder> {
     /// Discard order in the case of fatal failure.
     Fatal(String, TOrd::TOrderId),
     /// Return order in the case of non-fatal failure.
@@ -31,7 +31,7 @@ pub trait RunOrder<TEntity, TCtx>: OnChainOrder + Sized {
         self,
         entity: TEntity,
         ctx: TCtx, // can be used to pass extra deps
-    ) -> Result<(Transaction, Predicted<TEntity>), RunOrderFailure<Self>>;
+    ) -> Result<(Transaction, Predicted<TEntity>), RunOrderError<Self>>;
 }
 
 #[async_trait(?Send)]
@@ -84,11 +84,11 @@ where
                                 .await;
                         }
                     }
-                    Err(RunOrderFailure::NonFatal(err, ord)) => {
+                    Err(RunOrderError::NonFatal(err, ord)) => {
                         warn!("Order suspended due to non-fatal error {}", err);
                         self.backlog.suspend(ord).await;
                     }
-                    Err(RunOrderFailure::Fatal(err, ord_id)) => {
+                    Err(RunOrderError::Fatal(err, ord_id)) => {
                         warn!("Order dropped due to fatal error {}", err);
                         self.backlog.remove(ord_id).await;
                     }

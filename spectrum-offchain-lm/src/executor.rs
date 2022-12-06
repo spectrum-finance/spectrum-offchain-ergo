@@ -8,7 +8,7 @@ use spectrum_offchain::box_resolver::BoxResolver;
 use spectrum_offchain::data::unique_entity::{Predicted, Traced};
 use spectrum_offchain::data::{Has, OnChainEntity, OnChainOrder};
 use spectrum_offchain::executor::Executor;
-use spectrum_offchain::executor::RunOrderFailure;
+use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::network::ErgoNetwork;
 
 use crate::data::bundle::StakingBundle;
@@ -25,7 +25,7 @@ pub trait RunOrder: OnChainOrder + Sized {
         pool: Pool,
         bundle: Option<StakingBundle>,
         ctx: LmContext,
-    ) -> Result<(Transaction, Predicted<Pool>, Option<Predicted<StakingBundle>>), RunOrderFailure<Self>>;
+    ) -> Result<(Transaction, Predicted<Pool>, Option<Predicted<StakingBundle>>), RunOrderError<Self>>;
 }
 
 pub struct OrderExecutor<TNetwork, TBacklog, TPoolResolver, TBundleResolver> {
@@ -87,11 +87,11 @@ where
                             }
                         }
                     }
-                    Err(RunOrderFailure::NonFatal(err, ord)) => {
+                    Err(RunOrderError::NonFatal(err, ord)) => {
                         warn!("Order suspended due to non-fatal error {}", err);
                         self.backlog.suspend(ord).await;
                     }
-                    Err(RunOrderFailure::Fatal(err, ord_id)) => {
+                    Err(RunOrderError::Fatal(err, ord_id)) => {
                         warn!("Order dropped due to fatal error {}", err);
                         self.backlog.remove(ord_id).await;
                     }
