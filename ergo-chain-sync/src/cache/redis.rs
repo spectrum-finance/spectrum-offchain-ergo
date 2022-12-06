@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use concat_string::concat_string;
 use deadpool_redis::{Config, Pool, Runtime};
 use ergo_lib::{
@@ -7,7 +8,6 @@ use ergo_lib::{
 use redis::cmd;
 
 use crate::model::{Block, BlockRecord};
-use async_trait::async_trait;
 
 use super::chain_cache::ChainCache;
 
@@ -225,8 +225,9 @@ impl ChainCache for RedisClient {
                             id: block_id,
                             parent_id,
                             height,
+                            timestamp: 0, // todo: DEV-573
                             transactions,
-                        })
+                        });
                     }
                     Err(e) => {
                         if e.kind() == redis::ErrorKind::ExecAbortError {
