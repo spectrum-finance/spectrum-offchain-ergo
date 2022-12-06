@@ -5,16 +5,16 @@ use spectrum_offchain::domain::TypedAssetAmount;
 use crate::data::assets::{BundleKey, Lq, Reward};
 
 pub struct RewardOutput {
-    reward: TypedAssetAmount<Reward>,
-    redeemer_prop: ErgoTree,
+    pub reward: TypedAssetAmount<Reward>,
+    pub redeemer_prop: ErgoTree,
 }
 
 pub struct DepositOutput {
-    bundle_key: TypedAssetAmount<BundleKey>,
-    redeemer_prop: ErgoTree,
+    pub bundle_key: TypedAssetAmount<BundleKey>,
+    pub redeemer_prop: ErgoTree,
 }
 
 pub struct RedeemOutput {
-    lq: TypedAssetAmount<Lq>,
-    redeemer_prop: ErgoTree,
+    pub lq: TypedAssetAmount<Lq>,
+    pub redeemer_prop: ErgoTree,
 }

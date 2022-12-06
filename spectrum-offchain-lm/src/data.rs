@@ -4,13 +4,11 @@ use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 
 use spectrum_offchain::data::{OnChainEntity, OnChainOrder};
-use spectrum_offchain::domain::TypedAsset;
 use spectrum_offchain::event_sink::handlers::types::TryFromBox;
-
-use crate::data::assets::{BundleKey, PoolNft};
 
 pub mod assets;
 pub mod bundle;
+pub mod context;
 pub mod order;
 pub mod pool;
 pub mod redeemer;

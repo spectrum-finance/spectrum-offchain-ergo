@@ -13,15 +13,25 @@ use crate::data::assets::{BundleKey, Tmp, VirtLq};
 use crate::data::{BundleId, BundleStateId, PoolId};
 use crate::validators::bundle_validator;
 
+/// Prototype of StakeingBundle which guards virtual liquidity and temporal tokens.
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct StakingBundleProto {
+    pub bundle_key_id: TypedAsset<BundleKey>,
+    pub pool_id: PoolId,
+    pub vlq: TypedAssetAmount<VirtLq>,
+    pub tmp: TypedAssetAmount<Tmp>,
+    pub redeemer_prop: ErgoTree,
+}
+
 /// Guards virtual liquidity and temporal tokens.
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct StakingBundle {
-    bundle_key_id: TypedAsset<BundleKey>,
-    state_id: BundleStateId,
-    pool_id: PoolId,
-    vlq: TypedAssetAmount<VirtLq>,
-    tmp: TypedAssetAmount<Tmp>,
-    redeemer_prop: ErgoTree,
+    pub bundle_key_id: TypedAsset<BundleKey>,
+    pub state_id: BundleStateId,
+    pub pool_id: PoolId,
+    pub vlq: TypedAssetAmount<VirtLq>,
+    pub tmp: TypedAssetAmount<Tmp>,
+    pub redeemer_prop: ErgoTree,
 }
 
 impl StakingBundle {
