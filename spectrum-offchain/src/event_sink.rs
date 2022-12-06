@@ -28,7 +28,7 @@ pub async fn process_events<'a, TUpstream, TEvent, TDefHan>(
                 let mut hans_guard = hans.lock().unwrap();
                 for han in hans_guard.iter_mut() {
                     let maybe_unhandled_ev = han.try_handle(ev.clone()).await;
-                    if unhandled_ev.is_some() {
+                    if unhandled_ev.is_none() {
                         unhandled_ev = maybe_unhandled_ev;
                     }
                 }
