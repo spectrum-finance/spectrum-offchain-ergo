@@ -1,4 +1,4 @@
-use ergo_lib::chain::transaction::Transaction;
+use ergo_lib::chain::transaction::{Input, Transaction, TxIoVec};
 use ergo_lib::ergo_chain_types::Digest32;
 use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::chain::token::TokenId;
@@ -10,14 +10,16 @@ use type_equalities::IsEqual;
 use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::{Has, OnChainOrder};
 use spectrum_offchain::domain::TypedAssetAmount;
-use spectrum_offchain::event_sink::handlers::types::TryFromBox;
+use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 use spectrum_offchain::executor::RunOrderError;
 
 use crate::data::assets::{BundleKey, Lq};
 use crate::data::bundle::StakingBundle;
-use crate::data::pool::Pool;
-use crate::data::{BundleId, LmContext, OrderId, PoolId};
-use crate::executor::RunOrder;
+use crate::data::context::ExecutionContext;
+use crate::data::pool::{Pool, PoolOperationError};
+use crate::data::{AsBox, BundleId, BundleStateId, OrderId, PoolId};
+use crate::ergo::empty_prover_result;
+use crate::executor::{ConsumeBundle, ProduceBundle, RunOrder};
 use crate::validators::{deposit_validator_temp, redeem_validator_temp};
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -26,6 +28,70 @@ pub struct Deposit {
     pub pool_id: PoolId,
     pub redeemer_prop: ErgoTree,
     pub lq: TypedAssetAmount<Lq>,
+}
+
+impl ConsumeBundle for Deposit {
+    type TBundleIn = ();
+}
+
+impl ProduceBundle for Deposit {
+    type TBundleOut = Predicted<AsBox<StakingBundle>>;
+}
+
+impl OnChainOrder for Deposit {
+    type TOrderId = OrderId;
+    type TEntityId = PoolId;
+
+    fn get_self_ref(&self) -> Self::TOrderId {
+        self.order_id
+    }
+
+    fn get_entity_ref(&self) -> Self::TEntityId {
+        self.pool_id
+    }
+}
+
+impl RunOrder for AsBox<Deposit> {
+    fn try_run(
+        self,
+        AsBox(pool_in, pool): AsBox<Pool>,
+        _bundle: (),
+        ctx: ExecutionContext,
+    ) -> Result<
+        (
+            Transaction,
+            Predicted<AsBox<Pool>>,
+            Predicted<AsBox<StakingBundle>>,
+        ),
+        RunOrderError<Self>,
+    > {
+        let AsBox(self_in, self_order) = self.clone();
+        match pool.apply_deposit(self_order, ctx) {
+            Ok((next_pool, bundle_proto, user_out)) => {
+                let inputs = TxIoVec::from_vec(
+                    vec![pool_in, self_in]
+                        .iter()
+                        .map(|bx| Input::new(bx.box_id(), empty_prover_result()))
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap();
+                let outputs = TxIoVec::from_vec(vec![
+                    next_pool.clone().into_candidate(),
+                    bundle_proto.clone().into_candidate(),
+                    user_out.into_candidate(),
+                ])
+                .unwrap();
+                let tx = Transaction::new(inputs, None, outputs).unwrap();
+                let next_pool_as_box = AsBox(tx.outputs.get(0).unwrap().clone(), next_pool);
+                let bundle_box = tx.outputs.get(1).unwrap().clone();
+                let bundle = bundle_proto.finalize(BundleStateId::from(bundle_box.box_id()));
+                let bundle_as_box = AsBox(bundle_box, bundle);
+                Ok((tx, Predicted(next_pool_as_box), Predicted(bundle_as_box)))
+            }
+            Err(PoolOperationError::Temporal(te)) => Err(RunOrderError::NonFatal(format!("{}", te), self)),
+            Err(PoolOperationError::Permanent(pe)) => Err(RunOrderError::Fatal(format!("{}", pe), self)),
+        }
+    }
 }
 
 impl TryFromBox for Deposit {
@@ -71,6 +137,59 @@ pub struct Redeem {
     pub redeemer_prop: ErgoTree,
     pub bundle_key: TypedAssetAmount<BundleKey>,
     pub expected_lq: TypedAssetAmount<Lq>,
+}
+
+impl ConsumeBundle for Redeem {
+    type TBundleIn = AsBox<StakingBundle>;
+}
+
+impl ProduceBundle for Redeem {
+    type TBundleOut = ();
+}
+
+impl OnChainOrder for Redeem {
+    type TOrderId = OrderId;
+    type TEntityId = PoolId;
+
+    fn get_self_ref(&self) -> Self::TOrderId {
+        self.order_id
+    }
+
+    fn get_entity_ref(&self) -> Self::TEntityId {
+        self.pool_id
+    }
+}
+
+impl RunOrder for AsBox<Redeem> {
+    fn try_run(
+        self,
+        AsBox(pool_in, pool): AsBox<Pool>,
+        AsBox(bundle_in, bundle): AsBox<StakingBundle>,
+        _ctx: ExecutionContext,
+    ) -> Result<(Transaction, Predicted<AsBox<Pool>>, ()), RunOrderError<Self>> {
+        let AsBox(self_in, self_order) = self.clone();
+        match pool.apply_redeem(self_order, bundle) {
+            Ok((next_pool, user_out)) => {
+                let inputs = TxIoVec::from_vec(
+                    vec![pool_in, bundle_in, self_in]
+                        .iter()
+                        .map(|bx| Input::new(bx.box_id(), empty_prover_result()))
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap();
+                let outputs = TxIoVec::from_vec(vec![
+                    next_pool.clone().into_candidate(),
+                    user_out.into_candidate(),
+                ])
+                .unwrap();
+                let tx = Transaction::new(inputs, None, outputs).unwrap();
+                let next_pool_as_box = AsBox(tx.outputs.get(0).unwrap().clone(), next_pool);
+                Ok((tx, Predicted(next_pool_as_box), ()))
+            }
+            Err(PoolOperationError::Temporal(te)) => Err(RunOrderError::NonFatal(format!("{}", te), self)),
+            Err(PoolOperationError::Permanent(pe)) => Err(RunOrderError::Fatal(format!("{}", pe), self)),
+        }
+    }
 }
 
 impl TryFromBox for Redeem {
@@ -161,17 +280,6 @@ impl Has<Option<BundleId>> for Order {
             Order::Deposit(_) => None,
             Order::Redeem(redeem) => Some(BundleId::from(redeem.bundle_key.token_id)),
         }
-    }
-}
-
-impl RunOrder for Order {
-    fn try_run(
-        self,
-        pool: Pool,
-        bundle: Option<StakingBundle>,
-        ctx: LmContext,
-    ) -> Result<(Transaction, Predicted<Pool>, Option<Predicted<StakingBundle>>), RunOrderError<Self>> {
-        todo!()
     }
 }
 

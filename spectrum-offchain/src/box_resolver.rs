@@ -38,8 +38,21 @@ impl<TRepo> BoxResolverImpl<TRepo> {
         loop {
             match self.persistence.get_prediction(head_sid).await {
                 None => return false,
-                Some(Traced { prev_state_id, .. }) if prev_state_id == anchoring_sid => return true,
-                Some(Traced { prev_state_id, .. }) => head_sid = prev_state_id,
+                Some(Traced { prev_state_id, .. })
+                    if prev_state_id
+                        .as_ref()
+                        .map(|prev_sid| *prev_sid == anchoring_sid)
+                        .unwrap_or(false) =>
+                {
+                    return true
+                }
+                Some(Traced { prev_state_id, .. }) => {
+                    if let Some(prev_sid) = prev_state_id {
+                        head_sid = prev_sid
+                    } else {
+                        return false;
+                    }
+                }
             }
         }
     }

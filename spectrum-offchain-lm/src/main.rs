@@ -23,5 +23,5 @@ async fn main() {
 
     let node = ErgoNodeHttpClient::new(client, Url::from("http://213.239.193.208:9053"));
     let cache = InMemoryCache::new();
-    let mut chain_sync = ChainSync::init(500000, node, cache).await;
+    let mut _chain_sync = ChainSync::init(500000, node, cache).await;
 }

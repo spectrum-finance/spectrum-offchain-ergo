@@ -1,5 +1,5 @@
 use ergo_lib::ergo_chain_types::Digest32;
-use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
+use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::TryExtractInto;
@@ -7,7 +7,7 @@ use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
 
 use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::domain::{TypedAsset, TypedAssetAmount};
-use spectrum_offchain::event_sink::handlers::types::TryFromBox;
+use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 
 use crate::data::assets::{BundleKey, Tmp, VirtLq};
 use crate::data::{BundleId, BundleStateId, PoolId};
@@ -21,6 +21,25 @@ pub struct StakingBundleProto {
     pub vlq: TypedAssetAmount<VirtLq>,
     pub tmp: TypedAssetAmount<Tmp>,
     pub redeemer_prop: ErgoTree,
+}
+
+impl StakingBundleProto {
+    pub fn finalize(self, state_id: BundleStateId) -> StakingBundle {
+        StakingBundle {
+            bundle_key_id: self.bundle_key_id,
+            state_id,
+            pool_id: self.pool_id,
+            vlq: self.vlq,
+            tmp: self.tmp,
+            redeemer_prop: self.redeemer_prop,
+        }
+    }
+}
+
+impl IntoBoxCandidate for StakingBundleProto {
+    fn into_candidate(self) -> ErgoBoxCandidate {
+        todo!()
+    }
 }
 
 /// Guards virtual liquidity and temporal tokens.

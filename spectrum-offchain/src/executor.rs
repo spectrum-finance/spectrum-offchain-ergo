@@ -16,11 +16,23 @@ use crate::data::{OnChainEntity, OnChainOrder};
 use crate::network::ErgoNetwork;
 
 /// Indicated the kind of failure on at attempt to execute an order offline.
-pub enum RunOrderError<TOrd: OnChainOrder> {
+pub enum RunOrderError<TOrd> {
     /// Discard order in the case of fatal failure.
-    Fatal(String, TOrd::TOrderId),
+    Fatal(String, TOrd),
     /// Return order in the case of non-fatal failure.
     NonFatal(String, TOrd),
+}
+
+impl<O> RunOrderError<O> {
+    pub fn map<F, O2>(self, f: F) -> RunOrderError<O2>
+    where
+        F: FnOnce(O) -> O2,
+    {
+        match self {
+            RunOrderError::Fatal(rn, o) => RunOrderError::Fatal(rn, f(o)),
+            RunOrderError::NonFatal(rn, o) => RunOrderError::NonFatal(rn, f(o)),
+        }
+    }
 }
 
 pub trait RunOrder<TEntity, TCtx>: OnChainOrder + Sized {
@@ -79,7 +91,7 @@ where
                             self.resolver
                                 .put(Traced {
                                     state: next_entity_state,
-                                    prev_state_id: entity.get_self_state_ref(),
+                                    prev_state_id: Some(entity.get_self_state_ref()),
                                 })
                                 .await;
                         }
@@ -88,9 +100,9 @@ where
                         warn!("Order suspended due to non-fatal error {}", err);
                         self.backlog.suspend(ord).await;
                     }
-                    Err(RunOrderError::Fatal(err, ord_id)) => {
+                    Err(RunOrderError::Fatal(err, ord)) => {
                         warn!("Order dropped due to fatal error {}", err);
-                        self.backlog.remove(ord_id).await;
+                        self.backlog.remove(ord.get_self_ref()).await;
                     }
                 }
             }

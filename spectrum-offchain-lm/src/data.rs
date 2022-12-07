@@ -1,10 +1,12 @@
 use derive_more::From;
 use ergo_lib::ergotree_ir::chain::ergo_box::{BoxId, ErgoBox};
 use ergo_lib::ergotree_ir::chain::token::TokenId;
-use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
+use type_equalities::IsEqual;
 
-use spectrum_offchain::data::{OnChainEntity, OnChainOrder};
+use spectrum_offchain::data::{Has, OnChainEntity, OnChainOrder};
 use spectrum_offchain::event_sink::handlers::types::TryFromBox;
+
+use crate::executor::{ConsumeBundle, ProduceBundle};
 
 pub mod assets;
 pub mod bundle;
@@ -28,14 +30,46 @@ pub struct BundleId(TokenId);
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
 pub struct BundleStateId(BoxId);
 
+/// Something that is represented as an `ErgoBox` on-chain.
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub struct LmContext {
-    pub executor_prop: ErgoTree,
+pub struct AsBox<T>(pub ErgoBox, pub T);
+
+impl<T> ConsumeBundle for AsBox<T>
+where
+    T: ConsumeBundle,
+{
+    type TBundleIn = T::TBundleIn;
 }
 
-/// Something that is represented with an `ErgoBox` on-chain.
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub struct AsBox<T>(ErgoBox, T);
+impl<T> ProduceBundle for AsBox<T>
+where
+    T: ProduceBundle,
+{
+    type TBundleOut = T::TBundleOut;
+}
+
+impl<T> AsBox<T> {
+    pub fn box_id(&self) -> BoxId {
+        self.0.box_id()
+    }
+
+    pub fn map<F, U>(self, f: F) -> AsBox<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        let AsBox(bx, t) = self;
+        AsBox(bx, f(t))
+    }
+}
+
+impl<T, K> Has<K> for AsBox<T>
+where
+    T: Has<K>,
+{
+    fn get<U: IsEqual<K>>(&self) -> K {
+        self.1.get::<K>()
+    }
+}
 
 impl<T> TryFromBox for AsBox<T>
 where

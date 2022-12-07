@@ -1,9 +1,10 @@
-use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
+use derive_more::Display;
+use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::mir::constant::TryExtractInto;
 
 use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::domain::TypedAssetAmount;
-use spectrum_offchain::event_sink::handlers::types::TryFromBox;
+use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 
 use crate::data::assets::{Lq, Reward, Tmp, VirtLq};
 use crate::data::bundle::{StakingBundle, StakingBundleProto};
@@ -22,19 +23,19 @@ pub struct ProgramConfig {
     pub program_budget: TypedAssetAmount<Reward>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Display)]
 pub enum PoolOperationError {
     Permanent(PermanentError),
     Temporal(TemporalError),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Display)]
 pub enum PermanentError {
     LiqudityMismatch,
     ProgramExhausted,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Display)]
 pub enum TemporalError {
     LiquidityMoveBlocked,
 }
@@ -238,6 +239,12 @@ impl TryFromBox for Pool {
     }
 }
 
+impl IntoBoxCandidate for Pool {
+    fn into_candidate(self) -> ErgoBoxCandidate {
+        todo!()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ergo_lib::ergo_chain_types::Digest32;
@@ -300,6 +307,7 @@ mod tests {
         let ctx = ExecutionContext {
             height: 10,
             mintable_token_id: TokenId::from(random_digest()),
+            executor_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
         };
         let (pool2, bundle, _output) = pool.clone().apply_deposit(deposit.clone(), ctx).unwrap();
         assert_eq!(bundle.vlq, deposit.lq.coerce());
@@ -323,6 +331,7 @@ mod tests {
         let ctx = ExecutionContext {
             height: 10,
             mintable_token_id: TokenId::from(random_digest()),
+            executor_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
         };
         let (pool2, bundle, output) = pool.clone().apply_deposit(deposit.clone(), ctx.clone()).unwrap();
         let redeem = Redeem {
@@ -371,16 +380,12 @@ mod tests {
         let ctx_1 = ExecutionContext {
             height: 10,
             mintable_token_id: TokenId::from(random_digest()),
+            executor_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
         };
-        let (pool_2, bundle_a, _output_a) = pool.clone().apply_deposit(deposit_a.clone(), ctx_1).unwrap();
+        let (pool_2, bundle_a, _output_a) = pool.clone().apply_deposit(deposit_a.clone(), ctx_1.clone()).unwrap();
         let (pool_3, bundle_b, _output_b) = pool_2.clone().apply_deposit(deposit_b.clone(), ctx_1).unwrap();
 
-        let ctx_2 = ExecutionContext {
-            height: 21,
-            mintable_token_id: TokenId::from(random_digest()),
-        };
-
-        let (pool_4, bundles, rewards) = pool_3.distribute_rewards(Vec::from([
+        let (_pool_4, bundles, rewards) = pool_3.distribute_rewards(Vec::from([
             StakingBundle::from_proto(
                 bundle_a.clone(),
                 BundleStateId::from(BoxId::from(random_digest())),

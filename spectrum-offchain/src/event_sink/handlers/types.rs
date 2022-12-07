@@ -1,4 +1,4 @@
-use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
+use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, ErgoBoxCandidate};
 
 /// Used to convert `ErgoBox` to domain entity.
 pub trait TryFromBox: Sized {
@@ -6,7 +6,7 @@ pub trait TryFromBox: Sized {
     fn try_from_box(bx: ErgoBox) -> Option<Self>;
 }
 
-/// Used to convert some domain entity to `ErgoBox`.
-pub trait IntoBox {
-    fn into_box(self) -> ErgoBox;
+/// Used to convert some domain entity to `ErgoBoxCandidate`.
+pub trait IntoBoxCandidate {
+    fn into_candidate(self) -> ErgoBoxCandidate;
 }

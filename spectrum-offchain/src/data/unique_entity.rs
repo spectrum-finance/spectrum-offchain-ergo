@@ -4,7 +4,7 @@ use crate::data::OnChainEntity;
 #[derive(Debug, Clone)]
 pub struct Traced<TEntity: OnChainEntity> {
     pub state: TEntity,
-    pub prev_state_id: TEntity::TStateId,
+    pub prev_state_id: Option<TEntity::TStateId>,
 }
 
 /// Entity contexts:
