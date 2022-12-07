@@ -25,7 +25,7 @@ static BEST_BLOCK: &str = "best_block";
 ///  - {BEST_BLOCK} is a key which maps to a Redis list of length 2, containing the
 ///    hex-representations of the best block's ID and its parent ID, in that order.
 pub struct RedisClient {
-    pool: Pool,
+    pub pool: Pool,
 }
 
 impl RedisClient {

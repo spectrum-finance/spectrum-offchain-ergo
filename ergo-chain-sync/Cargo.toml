@@ -21,6 +21,7 @@ deadpool-redis = { version = "0.11.0", features = [ "rt_async-std_1" ] }
 redis = { version = "0.22", default-features = false }
 # Fast string concatenation (benchmarks: https://github.com/hoodie/concatenation_benchmarks-rs)
 concat-string = "1.0.1"
+chrono = "0.4.23"
 
 [dev-dependencies]
 async-std = {version = "1.12.0", features = ["attributes"] }

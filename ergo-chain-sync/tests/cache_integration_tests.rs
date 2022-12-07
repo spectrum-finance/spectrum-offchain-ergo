@@ -1,3 +1,4 @@
+use chrono::Utc;
 use ergo_chain_sync::{
     cache::{
         chain_cache::{ChainCache, InMemoryCache},
@@ -38,10 +39,12 @@ async fn test_client<C: ChainCache>(mut client: C) {
         let transactions = force_any_val::<[Transaction; 10]>().to_vec();
         let parent_id = block_ids[i - 1].clone();
         let id = block_ids[i].clone();
+        let timestamp = Utc::now().timestamp() as u64;
         let block = Block {
             id: id.clone(),
             parent_id,
             height,
+            timestamp,
             transactions,
         };
         blocks.push(block.clone());

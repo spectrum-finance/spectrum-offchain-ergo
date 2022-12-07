@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use deadpool_redis::{Config, Pool, Runtime};
+use ergo_chain_sync::cache::redis::RedisClient;
 use redis::cmd;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -41,24 +42,6 @@ static PREDICTED_KEY_PREFIX: &str = "predicted:prevState:";
 static LAST_PREDICTED_KEY_PREFIX: &str = "predicted:last:";
 static LAST_CONFIRMED_KEY_PREFIX: &str = "confirmed:last:";
 static LAST_UNCONFIRMED_KEY_PREFIX: &str = "unconfirmed:last:";
-
-pub struct RedisClient {
-    pool: Pool,
-}
-
-impl RedisClient {
-    pub fn new(url: &str) -> Self {
-        let cfg = Config::from_url(url);
-        let pool = cfg.create_pool(Some(Runtime::AsyncStd1)).unwrap();
-        Self { pool }
-    }
-
-    /// Clears out the entire redis DB
-    pub async fn flush_db(&self) {
-        let mut conn = self.pool.get().await.unwrap();
-        let _: () = cmd("FLUSHDB").query_async(&mut conn).await.unwrap();
-    }
-}
 
 #[async_trait(?Send)]
 impl<TEntity> EntityRepo<TEntity> for RedisClient
