@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use deadpool_redis::{Config, Pool, Runtime};
 use ergo_chain_sync::cache::redis::RedisClient;
 use redis::cmd;
 use serde::de::DeserializeOwned;
