@@ -1,4 +1,7 @@
-use derive_more::From;
+use std::fmt::{Debug, Display, Formatter};
+
+use derive_more::{From, Into};
+use ergo_lib::ergo_chain_types::Digest32;
 use ergo_lib::ergotree_ir::chain::ergo_box::{BoxId, ErgoBox};
 use ergo_lib::ergotree_ir::chain::token::TokenId;
 use type_equalities::IsEqual;
@@ -16,10 +19,22 @@ pub mod pool;
 pub mod redeemer;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
-pub struct OrderId(BoxId);
+pub struct OrderId(Digest32);
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
+impl From<BoxId> for OrderId {
+    fn from(bx_id: BoxId) -> Self {
+        OrderId(bx_id.into())
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Into)]
 pub struct PoolId(TokenId);
+
+impl Display for PoolId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&Digest32::from(self.0), f)
+    }
+}
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
 pub struct PoolStateId(BoxId);

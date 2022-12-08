@@ -1,5 +1,5 @@
 use ergo_lib::chain::transaction::{Input, Transaction, TxIoVec};
-use ergo_lib::ergo_chain_types::Digest32;
+use ergo_lib::ergo_chain_types::{blake2b256_hash, Digest32};
 use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
@@ -24,10 +24,49 @@ use crate::validators::{deposit_validator_temp, redeem_validator_temp};
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Compound {
-    pub order_id: OrderId,
     pub pool_id: PoolId,
+    pub epoch_ix: u32,
+    pub queue_ix: usize,
     pub stakers: Vec<BundleId>,
-    pub executor_input: Option<ErgoBox>,
+}
+
+impl Compound {
+    pub fn order_id(&self) -> OrderId {
+        let preimage = format!("{}{}{}", self.pool_id, self.epoch_ix, self.queue_ix);
+        OrderId::from(blake2b256_hash(preimage.as_bytes()))
+    }
+}
+
+impl ConsumeBundle for Compound {
+    type TBundleIn = Vec<AsBox<StakingBundle>>;
+}
+
+impl ProduceBundle for Compound {
+    type TBundleOut = Vec<Predicted<AsBox<StakingBundle>>>;
+}
+
+impl OnChainOrder for Compound {
+    type TOrderId = OrderId;
+    type TEntityId = PoolId;
+
+    fn get_self_ref(&self) -> Self::TOrderId {
+        todo!()
+    }
+
+    fn get_entity_ref(&self) -> Self::TEntityId {
+        self.pool_id
+    }
+}
+
+impl RunOrder for Compound {
+    fn try_run(
+        self,
+        pool: AsBox<Pool>,
+        bundle: Self::TBundleIn,
+        ctx: ExecutionContext,
+    ) -> Result<(Transaction, Predicted<AsBox<Pool>>, Self::TBundleOut), RunOrderError<Self>> {
+        todo!()
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -259,8 +298,9 @@ impl TryFromBox for Redeem {
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Order {
-    Deposit(Deposit),
-    Redeem(Redeem),
+    Deposit(AsBox<Deposit>),
+    Redeem(AsBox<Redeem>),
+    Compound(Compound),
 }
 
 impl OnChainOrder for Order {
@@ -269,24 +309,27 @@ impl OnChainOrder for Order {
 
     fn get_self_ref(&self) -> Self::TOrderId {
         match self {
-            Order::Deposit(deposit) => deposit.order_id,
-            Order::Redeem(redeem) => redeem.order_id,
+            Order::Deposit(AsBox(_, deposit)) => deposit.order_id,
+            Order::Redeem(AsBox(_, redeem)) => redeem.order_id,
+            Order::Compound(compound) => compound.order_id(),
         }
     }
 
     fn get_entity_ref(&self) -> Self::TEntityId {
         match self {
-            Order::Deposit(deposit) => deposit.pool_id,
-            Order::Redeem(redeem) => redeem.pool_id,
+            Order::Deposit(AsBox(_, deposit)) => deposit.pool_id,
+            Order::Redeem(AsBox(_, redeem)) => redeem.pool_id,
+            Order::Compound(compound) => compound.pool_id,
         }
     }
 }
 
-impl Has<Option<BundleId>> for Order {
-    fn get<U: IsEqual<Option<BundleId>>>(&self) -> Option<BundleId> {
+impl Has<Vec<BundleId>> for Order {
+    fn get<U: IsEqual<Vec<BundleId>>>(&self) -> Vec<BundleId> {
         match self {
-            Order::Deposit(_) => None,
-            Order::Redeem(redeem) => Some(BundleId::from(redeem.bundle_key.token_id)),
+            Order::Redeem(AsBox(_, redeem)) => vec![BundleId::from(redeem.bundle_key.token_id)],
+            Order::Compound(compound) => compound.clone().stakers,
+            _ => Vec::new(),
         }
     }
 }
@@ -294,7 +337,7 @@ impl Has<Option<BundleId>> for Order {
 impl TryFromBox for Order {
     fn try_from_box(bx: ErgoBox) -> Option<Order> {
         Deposit::try_from_box(bx.clone())
-            .map(Order::Deposit)
-            .or_else(|| Redeem::try_from_box(bx).map(Order::Redeem))
+            .map(|d| Order::Deposit(AsBox(bx.clone(), d)))
+            .or_else(|| Redeem::try_from_box(bx.clone()).map(|r| Order::Redeem(AsBox(bx, r))))
     }
 }

@@ -1,34 +1,18 @@
-use std::cell::RefCell;
-use std::future::Future;
-use std::pin::Pin;
-use std::rc::Rc;
 use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use futures::{stream, Stream, StreamExt};
+use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
-use pin_project::pin_project;
+use stream_throttle::{ThrottlePool, ThrottleRate, ThrottledStream};
 
 use spectrum_offchain::backlog::Backlog;
+use spectrum_offchain::data::order::PendingOrder;
 
-use crate::data::bundle::StakingBundle;
+use crate::bundle_resolver::BundleRepo;
 use crate::data::order::{Compound, Order};
-use crate::data::{BundleId, PoolId};
-
-pub struct ScheduledBundle {
-    pub epoch_ix: u32,
-    bundle: StakingBundle,
-}
-
-#[async_trait]
-pub trait DistributionHistory {
-    /// Mark given stakers as processed for the given epoch.
-    async fn processed(&mut self, epoch_ix: u32, stakers: Vec<BundleId>);
-    /// Un-mark given stakers as processed for the given epoch.
-    async fn revert(&mut self, epoch_ix: u32, stakers: Vec<BundleId>);
-}
+use crate::data::PoolId;
 
 #[async_trait]
 pub trait ScheduleStore {
@@ -37,10 +21,15 @@ pub trait ScheduleStore {
     /// Persist one tick.
     async fn put_tick(&mut self, tick: Tick);
     /// Get closest tick.
-    async fn pop(&mut self) -> Option<Tick>;
+    async fn peek(&mut self) -> Option<Tick>;
+    /// Mark this tick as temporarily processed.
+    async fn check_later(&mut self, tick: Tick);
+    /// Remove tick from storage.
+    async fn remove(&mut self, tick: Tick);
 }
 
 /// Time point when a particular poolshould distribute rewards.
+#[derive(Copy, Clone, Debug)]
 pub struct Tick {
     pub pool_id: PoolId,
     pub epoch_ix: u32,
@@ -54,65 +43,65 @@ pub struct PoolSchedule {
     pub ticks: Vec<i64>,
 }
 
-#[async_trait]
-pub trait BundleRegistry {
-    async fn register(&mut self, bundle: StakingBundle);
-    async fn derigister(&mut self, bundle_id: BundleId);
-    async fn select_by_pool(&self, pool_id: PoolId) -> Vec<BundleId>;
-}
-
-#[pin_project]
-pub struct RewardDistributionScheduler<TBacklog, TSchedules, TBundles> {
-    #[pin]
-    backlog: TBacklog,
-    #[pin]
-    schedules: TSchedules,
-    #[pin]
-    bundles: TBundles,
-}
-
-impl<TBacklog, TSchedules, TBundles> Stream for RewardDistributionScheduler<TBacklog, TSchedules, TBundles>
+pub fn distribution_scheduler_stream<'a, TBacklog, TSchedules, TBundles>(
+    backlog: Arc<Mutex<TBacklog>>,
+    schedules: Arc<Mutex<TSchedules>>,
+    bundles: Arc<Mutex<TBundles>>,
+    batch_size: usize,
+    poll_interval: Duration,
+) -> impl Stream<Item = ()> + 'a
 where
-    TBacklog: Backlog<Order>,
-    TSchedules: ScheduleStore + Send,
-    TBundles: BundleRegistry,
+    TBacklog: Backlog<Order> + 'a,
+    TSchedules: ScheduleStore + 'a,
+    TBundles: BundleRepo + 'a,
 {
-    type Item = Compound;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        let this = self.project();
-        let mut pop_tick_fut = this.schedules.pop();
-        loop {
-            match pop_tick_fut.as_mut().poll(cx) {
-                Poll::Ready(Some(tick)) => {}
-                Poll::Ready(None) => break,
-                Poll::Pending => {}
+    let rate = ThrottleRate::new(5, poll_interval);
+    let pool = ThrottlePool::new(rate);
+    futures::stream::repeat(()).throttle(pool).then(move |_| {
+        let schedules = Arc::clone(&schedules);
+        let bundles = Arc::clone(&bundles);
+        let backlog = Arc::clone(&backlog);
+        async move {
+            let mut schedules = schedules.lock();
+            if let Some(
+                tick @ Tick {
+                    pool_id,
+                    epoch_ix,
+                    timestamp,
+                },
+            ) = schedules.peek().await
+            {
+                let ts_now = Utc::now().timestamp();
+                if timestamp >= ts_now {
+                    let bundles_guard = bundles.lock();
+                    let stakers = bundles_guard.select(pool_id, epoch_ix).await;
+                    if stakers.is_empty() {
+                        schedules.remove(tick).await;
+                    } else {
+                        let orders =
+                            stakers
+                                .chunks(batch_size)
+                                .into_iter()
+                                .enumerate()
+                                .map(|(queue_ix, xs)| Compound {
+                                    pool_id,
+                                    epoch_ix,
+                                    queue_ix,
+                                    stakers: Vec::from(xs),
+                                });
+                        let mut backlog = backlog.lock();
+                        for order in orders {
+                            backlog
+                                .put(PendingOrder {
+                                    order: Order::Compound(order),
+                                    timestamp: ts_now,
+                                })
+                                .await
+                        }
+                        schedules.check_later(tick).await;
+                    }
+                }
             }
         }
-        Poll::Pending
-    }
+    })
 }
-
-// pub fn reward_distribution_stream<TBacklog, TStore>(
-//     backlog: TBacklog,
-//     schedules: TStore,
-// ) -> impl Stream<Item = Compound>
-// where
-//     TBacklog: Backlog<Order>,
-//     TStore: ScheduleStore,
-// {
-//     let backlog = Arc::new(Mutex::new(backlog));
-//     let schedules = Arc::new(Mutex::new(schedules));
-//     stream::iter(0..).then(move |_| {
-//         let schedules = Arc::clone(&schedules);
-//         async move {
-//             let mut schedules_guard = schedules.lock();
-//             if let Some(Tick { pool_id, timestamp }) = schedules_guard.pop().await {
-//                 let ts_now = Utc::now().timestamp();
-//                 if timestamp >= ts_now {
-//
-//                 }
-//             }
-//         }
-//     })
-// }
