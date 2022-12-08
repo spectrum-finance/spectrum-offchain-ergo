@@ -11,6 +11,7 @@ pub mod data;
 pub mod ergo;
 pub mod executor;
 pub mod validators;
+pub mod scheduler;
 
 #[tokio::main]
 async fn main() {

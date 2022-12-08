@@ -16,6 +16,8 @@ pub mod data;
 pub mod persistence;
 pub mod process;
 
+/// Backlog manages orders on all stages of their life.
+/// Usually in the order defined by some weighting function (e.g. orders with higher fee are preferred).
 #[async_trait(?Send)]
 pub trait Backlog<TOrd>
 where

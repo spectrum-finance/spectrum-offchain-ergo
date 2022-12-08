@@ -23,6 +23,14 @@ use crate::executor::{ConsumeBundle, ProduceBundle, RunOrder};
 use crate::validators::{deposit_validator_temp, redeem_validator_temp};
 
 #[derive(Debug, Eq, PartialEq, Clone)]
+pub struct Compound {
+    pub order_id: OrderId,
+    pub pool_id: PoolId,
+    pub stakers: Vec<BundleId>,
+    pub executor_input: Option<ErgoBox>,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Deposit {
     pub order_id: OrderId,
     pub pool_id: PoolId,
