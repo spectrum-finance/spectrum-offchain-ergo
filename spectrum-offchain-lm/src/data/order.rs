@@ -50,7 +50,7 @@ impl OnChainOrder for Compound {
     type TEntityId = PoolId;
 
     fn get_self_ref(&self) -> Self::TOrderId {
-        todo!()
+        self.order_id()
     }
 
     fn get_entity_ref(&self) -> Self::TEntityId {
@@ -61,11 +61,49 @@ impl OnChainOrder for Compound {
 impl RunOrder for Compound {
     fn try_run(
         self,
-        pool: AsBox<Pool>,
-        bundle: Self::TBundleIn,
-        ctx: ExecutionContext,
-    ) -> Result<(Transaction, Predicted<AsBox<Pool>>, Self::TBundleOut), RunOrderError<Self>> {
-        todo!()
+        AsBox(pool_in, pool): AsBox<Pool>,
+        bundles: Vec<AsBox<StakingBundle>>,
+        _ctx: ExecutionContext,
+    ) -> Result<
+        (
+            Transaction,
+            Predicted<AsBox<Pool>>,
+            Vec<Predicted<AsBox<StakingBundle>>>,
+        ),
+        RunOrderError<Self>,
+    > {
+        let unwrapped_bundles = bundles.clone().into_iter().map(|AsBox(_, b)| b).collect();
+        match pool.distribute_rewards(unwrapped_bundles) {
+            Ok((next_pool, next_bundles, rewards)) => {
+                let inputs = TxIoVec::from_vec(
+                    vec![pool_in]
+                        .into_iter()
+                        .chain(bundles.iter().map(|AsBox(bx, _)| bx.clone()))
+                        .map(|bx| Input::new(bx.box_id(), empty_prover_result()))
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap();
+                let outputs = TxIoVec::from_vec(
+                    vec![next_pool.clone().into_candidate()]
+                        .into_iter()
+                        .chain(next_bundles.clone().into_iter().map(|b| b.into_candidate()))
+                        .chain(rewards.into_iter().map(|r| r.into_candidate()))
+                        .collect(),
+                )
+                .unwrap();
+                let tx = Transaction::new(inputs, None, outputs).unwrap();
+                let next_pool_as_box = AsBox(tx.outputs.get(0).unwrap().clone(), next_pool);
+                let bundle_outs = &tx.outputs.clone()[1..next_bundles.len()];
+                let bundles_as_box = next_bundles
+                    .into_iter()
+                    .zip(Vec::from(bundle_outs).into_iter())
+                    .map(|(bn, out)| Predicted(AsBox(out, bn)))
+                    .collect();
+                Ok((tx, Predicted(next_pool_as_box), bundles_as_box))
+            }
+            Err(PoolOperationError::Permanent(e)) => Err(RunOrderError::Fatal(format!("{}", e), self)),
+            Err(PoolOperationError::Temporal(e)) => Err(RunOrderError::NonFatal(format!("{}", e), self)),
+        }
     }
 }
 

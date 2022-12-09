@@ -33,6 +33,7 @@ pub enum PoolOperationError {
 pub enum PermanentError {
     LiqudityMismatch,
     ProgramExhausted,
+    OrderPoisoned,
 }
 
 #[derive(Debug, Display)]
@@ -121,31 +122,40 @@ impl Pool {
     pub fn distribute_rewards(
         self,
         bundles: Vec<StakingBundle>,
-    ) -> (Pool, Vec<StakingBundle>, Vec<RewardOutput>) {
+    ) -> Result<(Pool, Vec<StakingBundle>, Vec<RewardOutput>), PoolOperationError> {
         let epoch_alloc = self.epoch_alloc();
-        let epoch_to_process = if self.epoch_completed() {
-            self.conf.epoch_num as u64 - (self.budget_rem.amount / epoch_alloc)
+        let epoch_ix = if self.epoch_completed() {
+            ((self.conf.epoch_num + 1) as u64 - (self.budget_rem.amount / epoch_alloc)) as u32
         } else {
-            self.conf.epoch_num as u64 - (self.budget_rem.amount / epoch_alloc) - 1
+            ((self.conf.epoch_num + 1) as u64 - (self.budget_rem.amount / epoch_alloc) - 1) as u32
         };
+        let epochs_remain = self.conf.epoch_num - epoch_ix;
+        let lq_reserves_0 = self.reserves_lq;
         let mut next_pool = self;
         let mut next_bundles = bundles;
         let mut reward_outputs = Vec::new();
         for mut bundle in &mut next_bundles {
-            let reward_amt = next_pool.epoch_alloc() * bundle.vlq.amount / next_pool.reserves_lq.amount;
+            let epochs_burned = (bundle.tmp.amount / bundle.vlq.amount).saturating_sub(epochs_remain as u64);
+            if epochs_burned < 1 {
+                return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned));
+            }
+            let reward_amt =
+                (next_pool.epoch_alloc() as u128 * bundle.vlq.amount as u128 * epochs_burned as u128
+                    / lq_reserves_0.amount as u128) as u64;
             let reward = TypedAssetAmount::new(next_pool.budget_rem.token_id, reward_amt);
             let reward_output = RewardOutput {
                 reward,
                 redeemer_prop: bundle.redeemer_prop.clone(),
             };
-            let charged_tmp = bundle.vlq.coerce();
+            let charged_tmp_amt = bundle.tmp.amount - epochs_remain as u64 * bundle.vlq.amount;
+            let charged_tmp = TypedAssetAmount::new(bundle.tmp.token_id, charged_tmp_amt);
             reward_outputs.push(reward_output);
             bundle.tmp = bundle.tmp - charged_tmp;
             next_pool.reserves_tmp = next_pool.reserves_tmp + charged_tmp;
             next_pool.budget_rem = next_pool.budget_rem - reward;
         }
-        next_pool.epoch_ix = Some(epoch_to_process as u32);
-        (next_pool, next_bundles, reward_outputs)
+        next_pool.epoch_ix = Some(epoch_ix);
+        Ok((next_pool, next_bundles, reward_outputs))
     }
 
     fn epoch_alloc(&self) -> u64 {
@@ -153,17 +163,21 @@ impl Pool {
     }
 
     fn num_epochs_remain(&self, height: u32) -> u32 {
-        self.conf.epoch_num - self.current_epoch(height)
+        self.conf.epoch_num - self.current_epoch_ix(height)
     }
 
-    fn current_epoch(&self, height: u32) -> u32 {
-        let cur_block_ix = height - self.conf.program_start + 1;
-        let cur_epoch_ix_rem = cur_block_ix % self.conf.epoch_len;
-        let cur_epoch_ix_r = cur_block_ix / self.conf.epoch_len;
-        if cur_epoch_ix_rem > 0 {
-            cur_epoch_ix_r + 1
+    fn current_epoch_ix(&self, height: u32) -> u32 {
+        let cur_block_ix = height as i64 - self.conf.program_start as i64 + 1;
+        let cur_epoch_ix_rem = cur_block_ix % self.conf.epoch_len as i64;
+        let cur_epoch_ix_r = cur_block_ix / self.conf.epoch_len as i64;
+        if cur_epoch_ix_rem == 0 && cur_epoch_ix_r == 0 {
+            0
         } else {
-            cur_epoch_ix_r
+            if cur_epoch_ix_rem > 0 {
+                cur_epoch_ix_r as u32 + 1
+            } else {
+                cur_epoch_ix_r as u32
+            }
         }
     }
 
@@ -294,23 +308,24 @@ mod tests {
     }
 
     #[test]
-    fn deposit() {
+    fn early_deposit() {
         let budget = 1000000000;
         let pool = make_pool(10, 10, 10, budget);
-        let deposit = TypedAssetAmount::new(pool.reserves_lq.token_id, 1000);
+        let deposit_lq = TypedAssetAmount::new(pool.reserves_lq.token_id, 1000);
         let deposit = Deposit {
             order_id: OrderId::from(BoxId::from(random_digest())),
             pool_id: pool.pool_id,
             redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
-            lq: deposit,
+            lq: deposit_lq,
         };
         let ctx = ExecutionContext {
-            height: 10,
+            height: 9,
             mintable_token_id: TokenId::from(random_digest()),
             executor_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
         };
         let (pool2, bundle, _output) = pool.clone().apply_deposit(deposit.clone(), ctx).unwrap();
         assert_eq!(bundle.vlq, deposit.lq.coerce());
+        assert_eq!(bundle.tmp.amount, pool.conf.epoch_num as u64 * deposit_lq.amount);
         assert_eq!(pool2.reserves_lq, deposit.lq);
         assert_eq!(pool2.reserves_lq - pool.reserves_lq, deposit.lq);
         assert_eq!(pool2.reserves_vlq, pool.reserves_vlq - bundle.vlq);
@@ -378,23 +393,31 @@ mod tests {
             lq: deposit_amt_b,
         };
         let ctx_1 = ExecutionContext {
-            height: 10,
+            height: 9,
             mintable_token_id: TokenId::from(random_digest()),
             executor_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
         };
-        let (pool_2, bundle_a, _output_a) = pool.clone().apply_deposit(deposit_a.clone(), ctx_1.clone()).unwrap();
+        let (pool_2, bundle_a, _output_a) = pool
+            .clone()
+            .apply_deposit(deposit_a.clone(), ctx_1.clone())
+            .unwrap();
         let (pool_3, bundle_b, _output_b) = pool_2.clone().apply_deposit(deposit_b.clone(), ctx_1).unwrap();
 
-        let (_pool_4, bundles, rewards) = pool_3.distribute_rewards(Vec::from([
-            StakingBundle::from_proto(
-                bundle_a.clone(),
-                BundleStateId::from(BoxId::from(random_digest())),
-            ),
-            StakingBundle::from_proto(
-                bundle_b.clone(),
-                BundleStateId::from(BoxId::from(random_digest())),
-            ),
-        ]));
+        println!("A: {:?}", bundle_a);
+        println!("B: {:?}", bundle_b);
+
+        let (_pool_4, bundles, rewards) = pool_3
+            .distribute_rewards(Vec::from([
+                StakingBundle::from_proto(
+                    bundle_a.clone(),
+                    BundleStateId::from(BoxId::from(random_digest())),
+                ),
+                StakingBundle::from_proto(
+                    bundle_b.clone(),
+                    BundleStateId::from(BoxId::from(random_digest())),
+                ),
+            ]))
+            .unwrap();
         assert_eq!(
             rewards[0].reward.amount * deposit_disproportion,
             rewards[1].reward.amount

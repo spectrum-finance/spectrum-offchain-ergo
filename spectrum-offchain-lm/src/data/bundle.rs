@@ -64,11 +64,15 @@ impl StakingBundle {
             redeemer_prop: p.redeemer_prop,
         }
     }
-}
 
-impl StakingBundle {
     pub fn bundle_id(&self) -> BundleId {
         BundleId::from(self.bundle_key_id.token_id)
+    }
+}
+
+impl IntoBoxCandidate for StakingBundle {
+    fn into_candidate(self) -> ErgoBoxCandidate {
+        todo!()
     }
 }
 
