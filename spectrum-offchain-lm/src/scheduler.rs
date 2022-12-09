@@ -10,7 +10,7 @@ use stream_throttle::{ThrottlePool, ThrottleRate, ThrottledStream};
 use spectrum_offchain::backlog::Backlog;
 use spectrum_offchain::data::order::PendingOrder;
 
-use crate::bundle_resolver::BundleRepo;
+use crate::bundle_repo::BundleRepo;
 use crate::data::order::{Compound, Order};
 use crate::data::PoolId;
 

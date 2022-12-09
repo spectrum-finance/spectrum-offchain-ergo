@@ -17,7 +17,7 @@ use spectrum_offchain::executor::Executor;
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::network::ErgoNetwork;
 
-use crate::bundle_resolver::BundleRepo;
+use crate::bundle_repo::BundleRepo;
 use crate::data::context::ExecutionContext;
 use crate::data::order::Order;
 use crate::data::pool::Pool;
