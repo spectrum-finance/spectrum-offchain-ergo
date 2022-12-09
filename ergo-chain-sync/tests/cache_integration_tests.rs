@@ -1,8 +1,11 @@
+use std::sync::Arc;
+
 use chrono::Utc;
 use ergo_chain_sync::{
     cache::{
         chain_cache::{ChainCache, InMemoryCache},
         redis::RedisClient,
+        rocksdb::RocksDBClient,
     },
     model::Block,
 };
@@ -16,6 +19,14 @@ use sigma_test_util::force_any_val;
 async fn test_redis() {
     let mut client = RedisClient::new("redis://127.0.0.1/");
     test_client(client).await;
+}
+
+#[tokio::test]
+async fn test_rocksdb() {
+    test_client(RocksDBClient {
+        db: Arc::new(rocksdb::OptimisticTransactionDB::open_default("./tmp").unwrap()),
+    })
+    .await;
 }
 
 #[async_std::test]
@@ -58,6 +69,7 @@ async fn test_client<C: ChainCache>(mut client: C) {
 
     // Now pop off best blocks
     while let Some(b0) = client.take_best_block().await {
+        println!("WORKS");
         let b1 = blocks.pop().unwrap();
         assert_eq!(b0.id, b1.id);
         assert_eq!(b0.parent_id, b1.parent_id);

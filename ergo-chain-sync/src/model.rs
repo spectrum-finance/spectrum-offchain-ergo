@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::client::model::FullBlock;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Block {
     pub id: BlockId,
     pub parent_id: BlockId,
