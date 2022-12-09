@@ -44,7 +44,26 @@ impl StakingBundleProto {
 
 impl IntoBoxCandidate for StakingBundleProto {
     fn into_candidate(self, height: u32) -> ErgoBoxCandidate {
-        todo!()
+        let tokens = BoxTokens::from_vec(vec![Token::from(self.vlq), Token::from(self.tmp)]).unwrap();
+        let registers = NonMandatoryRegisters::try_from(vec![
+            RegisterValue::Parsed(Constant::from(
+                self.redeemer_prop.sigma_serialize_bytes().unwrap(),
+            )),
+            RegisterValue::Parsed(Constant::from(
+                self.bundle_key_id.token_id.sigma_serialize_bytes().unwrap(),
+            )),
+            RegisterValue::Parsed(Constant::from(
+                TokenId::from(self.pool_id).sigma_serialize_bytes().unwrap(),
+            )),
+        ])
+        .unwrap();
+        ErgoBoxCandidate {
+            value: BoxValue::from(self.erg_value),
+            ergo_tree: bundle_validator(),
+            tokens: Some(tokens),
+            additional_registers: registers,
+            creation_height: height,
+        }
     }
 }
 
@@ -78,6 +97,19 @@ impl StakingBundle {
     }
 }
 
+impl From<StakingBundle> for StakingBundleProto {
+    fn from(sb: StakingBundle) -> Self {
+        Self {
+            bundle_key_id: sb.bundle_key_id,
+            pool_id: sb.pool_id,
+            vlq: sb.vlq,
+            tmp: sb.tmp,
+            redeemer_prop: sb.redeemer_prop,
+            erg_value: sb.erg_value,
+        }
+    }
+}
+
 impl OnChainEntity for StakingBundle {
     type TEntityId = BundleId;
     type TStateId = BundleStateId;
@@ -93,26 +125,7 @@ impl OnChainEntity for StakingBundle {
 
 impl IntoBoxCandidate for StakingBundle {
     fn into_candidate(self, height: u32) -> ErgoBoxCandidate {
-        let tokens = BoxTokens::from_vec(vec![Token::from(self.vlq), Token::from(self.tmp)]).unwrap();
-        let registers = NonMandatoryRegisters::try_from(vec![
-            RegisterValue::Parsed(Constant::from(
-                self.redeemer_prop.sigma_serialize_bytes().unwrap(),
-            )),
-            RegisterValue::Parsed(Constant::from(
-                self.bundle_key_id.token_id.sigma_serialize_bytes().unwrap(),
-            )),
-            RegisterValue::Parsed(Constant::from(
-                TokenId::from(self.pool_id).sigma_serialize_bytes().unwrap(),
-            )),
-        ])
-        .unwrap();
-        ErgoBoxCandidate {
-            value: BoxValue::from(self.erg_value),
-            ergo_tree: bundle_validator(),
-            tokens: Some(tokens),
-            additional_registers: registers,
-            creation_height: height,
-        }
+        StakingBundleProto::from(self).into_candidate(height)
     }
 }
 

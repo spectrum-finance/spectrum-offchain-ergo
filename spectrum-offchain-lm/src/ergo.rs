@@ -1,4 +1,4 @@
-use derive_more::{Add, Display, Div, Mul, Sub};
+use derive_more::{Add, Display, Div, Mul, Sub, Into, From};
 use ergo_lib::chain::transaction::prover_result::ProverResult;
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::{ContextExtension, ProofBytes};
 use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
@@ -13,7 +13,7 @@ pub fn empty_prover_result() -> ProverResult {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Display, Add, Sub, Mul, Div)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Display, Add, Sub, Mul, Div, Into, From)]
 pub struct NanoErg(u64);
 
 impl From<BoxValue> for NanoErg {

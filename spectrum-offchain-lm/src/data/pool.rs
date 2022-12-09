@@ -1,13 +1,17 @@
 use derive_more::Display;
 use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
-use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId};
-use ergo_lib::ergotree_ir::mir::constant::TryExtractInto;
+use ergo_lib::ergotree_ir::chain::ergo_box::{
+    BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters, RegisterValue,
+};
+use ergo_lib::ergotree_ir::chain::token::{Token, TokenId};
+use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
+use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
 
 use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::domain::TypedAssetAmount;
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 
-use crate::data::assets::{Lq, Reward, Tmp, VirtLq};
+use crate::data::assets::{Lq, PoolNft, Reward, Tmp, VirtLq};
 use crate::data::bundle::{StakingBundle, StakingBundleProto};
 use crate::data::context::ExecutionContext;
 use crate::data::order::{Deposit, Redeem};
@@ -16,12 +20,24 @@ use crate::data::{PoolId, PoolStateId};
 use crate::ergo::{NanoErg, MAX_VALUE};
 use crate::validators::pool_validator;
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct ProgramConfig {
     pub epoch_len: u32,
     pub epoch_num: u32,
     pub program_start: u32,
+    pub redeem_blocks_delta: u32,
     pub program_budget: TypedAssetAmount<Reward>,
+}
+
+impl From<ProgramConfig> for Vec<i32> {
+    fn from(c: ProgramConfig) -> Self {
+        vec![
+            c.epoch_len as i32,
+            c.epoch_num as i32,
+            c.program_start as i32,
+            c.redeem_blocks_delta as i32,
+        ]
+    }
 }
 
 #[derive(Debug, Display)]
@@ -53,9 +69,14 @@ pub struct Pool {
     pub epoch_ix: Option<u32>,
     pub max_error: u64,
     pub conf: ProgramConfig,
+    pub erg_value: NanoErg,
 }
 
 impl Pool {
+    pub fn pool_nft(&self) -> TypedAssetAmount<PoolNft> {
+        TypedAssetAmount::new(self.pool_id.into(), MAX_VALUE)
+    }
+
     /// Apply deposit operation to the pool.
     /// Returns pool state after deposit, new staking bundle and user output in the case of success.
     /// Returns `PoolOperationError` otherwise.
@@ -236,6 +257,7 @@ impl TryFromBox for Pool {
                     epoch_len: *conf.get(0)? as u32,
                     epoch_num: *conf.get(1)? as u32,
                     program_start: *conf.get(2)? as u32,
+                    redeem_blocks_delta: *conf.get(3)? as u32,
                     program_budget: TypedAssetAmount::new(budget_rem.token_id, budget as u64),
                 };
                 return Some(Pool {
@@ -248,6 +270,7 @@ impl TryFromBox for Pool {
                     epoch_ix,
                     max_error,
                     conf,
+                    erg_value: bx.value.into(),
                 });
             }
         }
@@ -257,7 +280,37 @@ impl TryFromBox for Pool {
 
 impl IntoBoxCandidate for Pool {
     fn into_candidate(self, height: u32) -> ErgoBoxCandidate {
-        todo!()
+        let tokens = BoxTokens::from_vec(vec![
+            Token::from(self.pool_nft()),
+            Token::from(self.budget_rem),
+            Token::from(self.reserves_lq),
+            Token::from(self.reserves_vlq),
+            Token::from(self.reserves_tmp),
+        ])
+        .unwrap();
+        let registers = NonMandatoryRegisters::try_from(
+            vec![
+                Constant::from(<Vec<i32>>::from(self.conf)),
+                Constant::from(self.conf.program_budget.amount as i64),
+                Constant::from(self.max_error as i64),
+            ]
+            .into_iter()
+            .chain(
+                self.epoch_ix
+                    .map(|ix| vec![Constant::from(ix as i32)])
+                    .unwrap_or(Vec::new())
+                    .into_iter(),
+            )
+            .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        ErgoBoxCandidate {
+            value: self.erg_value.into(),
+            ergo_tree: pool_validator(),
+            tokens: Some(tokens),
+            additional_registers: registers,
+            creation_height: height,
+        }
     }
 }
 
@@ -278,7 +331,7 @@ mod tests {
     use crate::data::order::{Deposit, Redeem};
     use crate::data::pool::{Pool, ProgramConfig};
     use crate::data::{BundleStateId, OrderId, PoolId, PoolStateId};
-    use crate::ergo::MAX_VALUE;
+    use crate::ergo::{NanoErg, MAX_VALUE};
 
     fn make_pool(epoch_len: u32, epoch_num: u32, program_start: u32, program_budget: u64) -> Pool {
         Pool {
@@ -294,8 +347,10 @@ mod tests {
                 epoch_len,
                 epoch_num,
                 program_start,
+                redeem_blocks_delta: 0,
                 program_budget: TypedAssetAmount::new(TokenId::from(random_digest()), program_budget),
             },
+            erg_value: NanoErg::from(100000u64),
         }
     }
 
@@ -319,6 +374,7 @@ mod tests {
             pool_id: pool.pool_id,
             redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
             lq: deposit_lq,
+            erg_value: NanoErg::from(100000u64),
         };
         let ctx = ExecutionContext {
             height: 9,
@@ -344,6 +400,7 @@ mod tests {
             pool_id: pool.pool_id,
             redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
             lq: deposit,
+            erg_value: NanoErg::from(100000u64),
         };
         let ctx = ExecutionContext {
             height: 10,
@@ -357,6 +414,7 @@ mod tests {
             redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
             bundle_key: output.bundle_key,
             expected_lq: deposit.lq,
+            erg_value: NanoErg::from(100000u64),
         };
         let (pool3, output) = pool2
             .clone()
@@ -382,6 +440,7 @@ mod tests {
             pool_id: pool.pool_id,
             redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
             lq: deposit_amt_a,
+            erg_value: NanoErg::from(100000u64),
         };
         let deposit_disproportion = 2;
         let deposit_amt_b = TypedAssetAmount::new(
@@ -393,6 +452,7 @@ mod tests {
             pool_id: pool.pool_id,
             redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
             lq: deposit_amt_b,
+            erg_value: NanoErg::from(100000u64),
         };
         let ctx_1 = ExecutionContext {
             height: 9,
@@ -404,10 +464,6 @@ mod tests {
             .apply_deposit(deposit_a.clone(), ctx_1.clone())
             .unwrap();
         let (pool_3, bundle_b, _output_b) = pool_2.clone().apply_deposit(deposit_b.clone(), ctx_1).unwrap();
-
-        println!("A: {:?}", bundle_a);
-        println!("B: {:?}", bundle_b);
-
         let (_pool_4, bundles, rewards) = pool_3
             .distribute_rewards(Vec::from([
                 StakingBundle::from_proto(

@@ -18,7 +18,7 @@ use crate::data::bundle::StakingBundle;
 use crate::data::context::ExecutionContext;
 use crate::data::pool::{Pool, PoolOperationError};
 use crate::data::{AsBox, BundleId, BundleStateId, OrderId, PoolId};
-use crate::ergo::empty_prover_result;
+use crate::ergo::{empty_prover_result, NanoErg};
 use crate::executor::{ConsumeBundle, ProduceBundle, RunOrder};
 use crate::validators::{deposit_validator_temp, redeem_validator_temp};
 
@@ -86,7 +86,12 @@ impl RunOrder for Compound {
                 let outputs = TxIoVec::from_vec(
                     vec![next_pool.clone().into_candidate(ctx.height)]
                         .into_iter()
-                        .chain(next_bundles.clone().into_iter().map(|b| b.into_candidate(ctx.height)))
+                        .chain(
+                            next_bundles
+                                .clone()
+                                .into_iter()
+                                .map(|b| b.into_candidate(ctx.height)),
+                        )
                         .chain(rewards.into_iter().map(|r| r.into_candidate(ctx.height)))
                         .collect(),
                 )
@@ -113,6 +118,7 @@ pub struct Deposit {
     pub pool_id: PoolId,
     pub redeemer_prop: ErgoTree,
     pub lq: TypedAssetAmount<Lq>,
+    pub erg_value: NanoErg,
 }
 
 impl ConsumeBundle for Deposit {
@@ -208,6 +214,7 @@ impl TryFromBox for Deposit {
                     pool_id: PoolId::from(TokenId::from(pool_id)),
                     redeemer_prop,
                     lq,
+                    erg_value: bx.value.into(),
                 });
             }
         }
@@ -222,6 +229,7 @@ pub struct Redeem {
     pub redeemer_prop: ErgoTree,
     pub bundle_key: TypedAssetAmount<BundleKey>,
     pub expected_lq: TypedAssetAmount<Lq>,
+    pub erg_value: NanoErg,
 }
 
 impl ConsumeBundle for Redeem {
@@ -327,6 +335,7 @@ impl TryFromBox for Redeem {
                     redeemer_prop,
                     bundle_key,
                     expected_lq,
+                    erg_value: bx.value.into(),
                 });
             }
         }
