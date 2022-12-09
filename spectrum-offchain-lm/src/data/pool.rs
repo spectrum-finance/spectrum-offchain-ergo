@@ -1,4 +1,5 @@
 use derive_more::Display;
+use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
 use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::mir::constant::TryExtractInto;
 
@@ -12,7 +13,7 @@ use crate::data::context::ExecutionContext;
 use crate::data::order::{Deposit, Redeem};
 use crate::data::redeemer::{DepositOutput, RedeemOutput, RewardOutput};
 use crate::data::{PoolId, PoolStateId};
-use crate::ergo::MAX_VALUE;
+use crate::ergo::{NanoErg, MAX_VALUE};
 use crate::validators::pool_validator;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -83,6 +84,7 @@ impl Pool {
             vlq: release_vlq,
             tmp: release_tmp,
             redeemer_prop: deposit.redeemer_prop.clone(),
+            erg_value: NanoErg::from(BoxValue::SAFE_USER_MIN),
         };
         let user_output = DepositOutput {
             bundle_key,
@@ -254,7 +256,7 @@ impl TryFromBox for Pool {
 }
 
 impl IntoBoxCandidate for Pool {
-    fn into_candidate(self) -> ErgoBoxCandidate {
+    fn into_candidate(self, height: u32) -> ErgoBoxCandidate {
         todo!()
     }
 }

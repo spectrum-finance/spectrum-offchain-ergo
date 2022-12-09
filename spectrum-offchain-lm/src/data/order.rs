@@ -63,7 +63,7 @@ impl RunOrder for Compound {
         self,
         AsBox(pool_in, pool): AsBox<Pool>,
         bundles: Vec<AsBox<StakingBundle>>,
-        _ctx: ExecutionContext,
+        ctx: ExecutionContext,
     ) -> Result<
         (
             Transaction,
@@ -84,10 +84,10 @@ impl RunOrder for Compound {
                 )
                 .unwrap();
                 let outputs = TxIoVec::from_vec(
-                    vec![next_pool.clone().into_candidate()]
+                    vec![next_pool.clone().into_candidate(ctx.height)]
                         .into_iter()
-                        .chain(next_bundles.clone().into_iter().map(|b| b.into_candidate()))
-                        .chain(rewards.into_iter().map(|r| r.into_candidate()))
+                        .chain(next_bundles.clone().into_iter().map(|b| b.into_candidate(ctx.height)))
+                        .chain(rewards.into_iter().map(|r| r.into_candidate(ctx.height)))
                         .collect(),
                 )
                 .unwrap();
@@ -151,7 +151,7 @@ impl RunOrder for AsBox<Deposit> {
         RunOrderError<Self>,
     > {
         let AsBox(self_in, self_order) = self.clone();
-        match pool.apply_deposit(self_order, ctx) {
+        match pool.apply_deposit(self_order, ctx.clone()) {
             Ok((next_pool, bundle_proto, user_out)) => {
                 let inputs = TxIoVec::from_vec(
                     vec![pool_in, self_in]
@@ -161,9 +161,9 @@ impl RunOrder for AsBox<Deposit> {
                 )
                 .unwrap();
                 let outputs = TxIoVec::from_vec(vec![
-                    next_pool.clone().into_candidate(),
-                    bundle_proto.clone().into_candidate(),
-                    user_out.into_candidate(),
+                    next_pool.clone().into_candidate(ctx.height),
+                    bundle_proto.clone().into_candidate(ctx.height),
+                    user_out.into_candidate(ctx.height),
                 ])
                 .unwrap();
                 let tx = Transaction::new(inputs, None, outputs).unwrap();
@@ -250,7 +250,7 @@ impl RunOrder for AsBox<Redeem> {
         self,
         AsBox(pool_in, pool): AsBox<Pool>,
         AsBox(bundle_in, bundle): AsBox<StakingBundle>,
-        _ctx: ExecutionContext,
+        ctx: ExecutionContext,
     ) -> Result<(Transaction, Predicted<AsBox<Pool>>, ()), RunOrderError<Self>> {
         let AsBox(self_in, self_order) = self.clone();
         match pool.apply_redeem(self_order, bundle) {
@@ -263,8 +263,8 @@ impl RunOrder for AsBox<Redeem> {
                 )
                 .unwrap();
                 let outputs = TxIoVec::from_vec(vec![
-                    next_pool.clone().into_candidate(),
-                    user_out.into_candidate(),
+                    next_pool.clone().into_candidate(ctx.height),
+                    user_out.into_candidate(ctx.height),
                 ])
                 .unwrap();
                 let tx = Transaction::new(inputs, None, outputs).unwrap();

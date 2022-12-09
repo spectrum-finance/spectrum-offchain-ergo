@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::ops::{Add, Sub};
 
-use ergo_lib::ergotree_ir::chain::token::{Token, TokenId};
+use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount, TokenId};
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 pub struct TypedAsset<T> {
@@ -66,6 +66,15 @@ impl<T> TypedAssetAmount<T> {
             token_id: self.token_id,
             amount: self.amount,
             pd: PhantomData::default(),
+        }
+    }
+}
+
+impl<T> From<TypedAssetAmount<T>> for Token {
+    fn from(ta: TypedAssetAmount<T>) -> Self {
+        Token {
+            token_id: ta.token_id,
+            amount: TokenAmount::try_from(ta.amount).unwrap(),
         }
     }
 }

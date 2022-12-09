@@ -8,5 +8,5 @@ pub trait TryFromBox: Sized {
 
 /// Used to convert some domain entity to `ErgoBoxCandidate`.
 pub trait IntoBoxCandidate {
-    fn into_candidate(self) -> ErgoBoxCandidate;
+    fn into_candidate(self, height: u32) -> ErgoBoxCandidate;
 }

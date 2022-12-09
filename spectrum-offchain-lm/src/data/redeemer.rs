@@ -13,7 +13,7 @@ pub struct RewardOutput {
 }
 
 impl IntoBoxCandidate for RewardOutput {
-    fn into_candidate(self) -> ErgoBoxCandidate {
+    fn into_candidate(self, height: u32) -> ErgoBoxCandidate {
         todo!()
     }
 }
@@ -25,7 +25,7 @@ pub struct DepositOutput {
 }
 
 impl IntoBoxCandidate for DepositOutput {
-    fn into_candidate(self) -> ErgoBoxCandidate {
+    fn into_candidate(self, height: u32) -> ErgoBoxCandidate {
         todo!()
     }
 }
@@ -37,7 +37,7 @@ pub struct RedeemOutput {
 }
 
 impl IntoBoxCandidate for RedeemOutput {
-    fn into_candidate(self) -> ErgoBoxCandidate {
+    fn into_candidate(self, height: u32) -> ErgoBoxCandidate {
         todo!()
     }
 }
