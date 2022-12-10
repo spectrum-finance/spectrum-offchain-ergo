@@ -69,7 +69,6 @@ async fn test_client<C: ChainCache>(mut client: C) {
 
     // Now pop off best blocks
     while let Some(b0) = client.take_best_block().await {
-        println!("WORKS");
         let b1 = blocks.pop().unwrap();
         assert_eq!(b0.id, b1.id);
         assert_eq!(b0.parent_id, b1.parent_id);

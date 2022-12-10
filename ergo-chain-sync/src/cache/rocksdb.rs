@@ -19,9 +19,9 @@ pub struct RocksDBClient {
 /// `tokio::task::spawn_blocking`.
 ///
 /// Note in this implementation that we often use both `bincode` and `serde_json` in
-/// (de)serialization. We need to do this because `Transaction` from `ergo-lib` only provides JSON
-/// (de)serialization. So we to serialize a transaction we first serialize it to a JSON string, and
-/// serialize the String into binary with `bincode`. Ugly, but it works.
+/// (de)serialization. We need to do this because `Transaction` from `ergo-lib` provides only JSON
+/// (de)serialization. So we first serialize a transaction to a JSON string, and serialize the
+/// String into binary with `bincode`. Ugly, but it works.
 #[async_trait(?Send)]
 impl ChainCache for RocksDBClient {
     async fn append_block(&mut self, block: Block) {
@@ -95,74 +95,87 @@ impl ChainCache for RocksDBClient {
     async fn take_best_block(&mut self) -> Option<Block> {
         let db = self.db.clone();
         if let Some(block_bytes) = spawn_blocking::<_, Option<Vec<u8>>>(move || {
-            let tx = db.transaction();
             let best_block_key = bincode::serialize(BEST_BLOCK).unwrap();
 
-            // The call to `get_for_update` is crucial; it plays an identical role as the WATCH
-            // command in redis (refer to docs of `take_best_block` in impl of [`RedisClient`].
-            if let Some(best_block_bytes) = tx.get_for_update(&best_block_key, true).unwrap() {
-                let best_block_json_str: String = bincode::deserialize(&best_block_bytes).unwrap();
-                let BlockRecord { id, height } = serde_json::from_str(&best_block_json_str).unwrap();
+            loop {
+                let tx = db.transaction();
+                // The call to `get_for_update` is crucial; it plays an identical role as the WATCH
+                // command in redis (refer to docs of `take_best_block` in impl of [`RedisClient`].
+                if let Some(best_block_bytes) = tx.get_for_update(&best_block_key, true).unwrap() {
+                    let best_block_json_str: String = bincode::deserialize(&best_block_bytes).unwrap();
+                    let BlockRecord { id, height } = serde_json::from_str(&best_block_json_str).unwrap();
 
-                if let Some(tx_ids_bytes) = tx.get(&block_id_transaction_bytes(&id)).unwrap() {
-                    let mut transactions = vec![];
-                    let tx_ids: Vec<TxId> = bincode::deserialize(&tx_ids_bytes).unwrap();
-                    for tx_id in tx_ids {
-                        let tx_key = bincode::serialize(&tx_id).unwrap();
-                        let tx_bytes = tx.get(&tx_key).unwrap().unwrap();
-                        let block_tx_json_str: String = bincode::deserialize(&tx_bytes).unwrap();
+                    if let Some(tx_ids_bytes) = tx.get(&block_id_transaction_bytes(&id)).unwrap() {
+                        let mut transactions = vec![];
+                        let tx_ids: Vec<TxId> = bincode::deserialize(&tx_ids_bytes).unwrap();
+                        for tx_id in tx_ids {
+                            let tx_key = bincode::serialize(&tx_id).unwrap();
+                            let tx_bytes = tx.get(&tx_key).unwrap().unwrap();
+                            let block_tx_json_str: String = bincode::deserialize(&tx_bytes).unwrap();
 
-                        // Don't need transaction anymore, delete
-                        tx.delete(&tx_key).unwrap();
+                            // Don't need transaction anymore, delete
+                            tx.delete(&tx_key).unwrap();
 
-                        transactions.push(serde_json::from_str(&block_tx_json_str).unwrap());
-                    }
+                            transactions.push(serde_json::from_str(&block_tx_json_str).unwrap());
+                        }
 
-                    let parent_id_bytes = tx.get(&block_id_parent_bytes(&id)).unwrap().unwrap();
-                    let parent_id: BlockId = bincode::deserialize(&parent_id_bytes).unwrap();
+                        let parent_id_bytes = tx.get(&block_id_parent_bytes(&id)).unwrap().unwrap();
+                        let parent_id: BlockId = bincode::deserialize(&parent_id_bytes).unwrap();
 
-                    tx.delete(&best_block_key).unwrap();
+                        tx.delete(&best_block_key).unwrap();
 
-                    // The new best block will now be the parent of the old best block, if the parent
-                    // exists in the cache.
-                    if tx.get(&block_id_parent_bytes(&parent_id)).unwrap().is_some() {
-                        let parent_id_height_bytes =
-                            tx.get(&block_id_height_bytes(&parent_id)).unwrap().unwrap();
-                        let parent_id_height: u32 = bincode::deserialize(&parent_id_height_bytes).unwrap();
+                        // The new best block will now be the parent of the old best block, if the parent
+                        // exists in the cache.
+                        if tx.get(&block_id_parent_bytes(&parent_id)).unwrap().is_some() {
+                            let parent_id_height_bytes =
+                                tx.get(&block_id_height_bytes(&parent_id)).unwrap().unwrap();
+                            let parent_id_height: u32 =
+                                bincode::deserialize(&parent_id_height_bytes).unwrap();
 
-                        tx.put(
-                            &best_block_key,
-                            bincode::serialize(
-                                &serde_json::to_string(&BlockRecord {
-                                    id: parent_id.clone(),
-                                    height: parent_id_height,
-                                })
+                            tx.put(
+                                &best_block_key,
+                                bincode::serialize(
+                                    &serde_json::to_string(&BlockRecord {
+                                        id: parent_id.clone(),
+                                        height: parent_id_height,
+                                    })
+                                    .unwrap(),
+                                )
                                 .unwrap(),
                             )
-                            .unwrap(),
-                        )
-                        .unwrap();
+                            .unwrap();
+                        }
+                        match tx.commit() {
+                            Ok(_) => {
+                                // Note: we can't send `Block` across the boundary since `Transaction` can't be
+                                // sent between threads.
+                                let best_block_bytes = bincode::serialize(
+                                    &serde_json::to_string(&Block {
+                                        id,
+                                        parent_id,
+                                        height,
+                                        timestamp: 0, // todo: DEV-573
+                                        transactions,
+                                    })
+                                    .unwrap(),
+                                )
+                                .unwrap();
+                                return Some(best_block_bytes);
+                            }
+                            Err(e) => {
+                                if e.kind() == rocksdb::ErrorKind::Busy {
+                                    continue;
+                                } else {
+                                    panic!("Unexpected error: {}", e);
+                                }
+                            }
+                        }
+                    } else {
+                        return None;
                     }
-                    tx.commit().unwrap();
-                    // Note: we can't send `Block` across the boundary since `Transaction` can't be
-                    // sent between threads.
-                    let best_block_bytes = bincode::serialize(
-                        &serde_json::to_string(&Block {
-                            id,
-                            parent_id,
-                            height,
-                            timestamp: 0, // todo: DEV-573
-                            transactions,
-                        })
-                        .unwrap(),
-                    )
-                    .unwrap();
-                    Some(best_block_bytes)
                 } else {
-                    None
+                    return None;
                 }
-            } else {
-                None
             }
         })
         .await
