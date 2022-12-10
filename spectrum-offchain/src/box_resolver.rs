@@ -6,6 +6,7 @@ use crate::data::OnChainEntity;
 
 pub mod persistence;
 pub mod process;
+pub mod redis;
 
 #[async_trait(?Send)]
 pub trait BoxResolver<TEntity: OnChainEntity> {
