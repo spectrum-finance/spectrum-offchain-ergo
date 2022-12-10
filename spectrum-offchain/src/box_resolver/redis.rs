@@ -8,12 +8,10 @@ use crate::box_resolver::{Predicted, Traced};
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
 use crate::data::OnChainEntity;
 
-use super::persistence::EntityRepo;
-
-static PREDICTED_KEY_PREFIX: &str = "predicted:prevState:";
-static LAST_PREDICTED_KEY_PREFIX: &str = "predicted:last:";
-static LAST_CONFIRMED_KEY_PREFIX: &str = "confirmed:last:";
-static LAST_UNCONFIRMED_KEY_PREFIX: &str = "unconfirmed:last:";
+use super::persistence::{
+    last_confirmed_key_bytes, last_predicted_key_bytes, last_unconfirmed_key_bytes, predicted_key_bytes,
+    EntityRepo,
+};
 
 #[async_trait(?Send)]
 impl<TEntity> EntityRepo<TEntity> for RedisClient
@@ -199,32 +197,4 @@ where
             .await
             .unwrap();
     }
-}
-
-fn predicted_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(PREDICTED_KEY_PREFIX).unwrap();
-    let id_bytes = bincode::serialize(&id).unwrap();
-    key_bytes.extend_from_slice(&id_bytes);
-    key_bytes
-}
-
-fn last_predicted_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(LAST_PREDICTED_KEY_PREFIX).unwrap();
-    let id_bytes = bincode::serialize(&id).unwrap();
-    key_bytes.extend_from_slice(&id_bytes);
-    key_bytes
-}
-
-fn last_confirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(LAST_CONFIRMED_KEY_PREFIX).unwrap();
-    let id_bytes = bincode::serialize(&id).unwrap();
-    key_bytes.extend_from_slice(&id_bytes);
-    key_bytes
-}
-
-fn last_unconfirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(LAST_UNCONFIRMED_KEY_PREFIX).unwrap();
-    let id_bytes = bincode::serialize(&id).unwrap();
-    key_bytes.extend_from_slice(&id_bytes);
-    key_bytes
 }

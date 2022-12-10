@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use serde::Serialize;
 
 use crate::box_resolver::{Predicted, Traced};
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
@@ -33,8 +34,45 @@ pub trait EntityRepo<TEntity: OnChainEntity> {
         <TEntity as OnChainEntity>::TEntityId: 'a;
 }
 
+static PREDICTED_KEY_PREFIX: &str = "predicted:prevState:";
+static LAST_PREDICTED_KEY_PREFIX: &str = "predicted:last:";
+static LAST_CONFIRMED_KEY_PREFIX: &str = "confirmed:last:";
+static LAST_UNCONFIRMED_KEY_PREFIX: &str = "unconfirmed:last:";
+
+pub fn predicted_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
+    let mut key_bytes = bincode::serialize(PREDICTED_KEY_PREFIX).unwrap();
+    let id_bytes = bincode::serialize(&id).unwrap();
+    key_bytes.extend_from_slice(&id_bytes);
+    key_bytes
+}
+
+pub fn last_predicted_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
+    let mut key_bytes = bincode::serialize(LAST_PREDICTED_KEY_PREFIX).unwrap();
+    let id_bytes = bincode::serialize(&id).unwrap();
+    key_bytes.extend_from_slice(&id_bytes);
+    key_bytes
+}
+
+pub fn last_confirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
+    let mut key_bytes = bincode::serialize(LAST_CONFIRMED_KEY_PREFIX).unwrap();
+    let id_bytes = bincode::serialize(&id).unwrap();
+    key_bytes.extend_from_slice(&id_bytes);
+    key_bytes
+}
+
+pub fn last_unconfirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
+    let mut key_bytes = bincode::serialize(LAST_UNCONFIRMED_KEY_PREFIX).unwrap();
+    let id_bytes = bincode::serialize(&id).unwrap();
+    key_bytes.extend_from_slice(&id_bytes);
+    key_bytes
+}
+
+/// NOTE: do not run the tests in parallel! Rocksdb will complain about lock contention. Use the
+/// following command: cargo test -- --test-threads=1
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use ergo_chain_sync::cache::redis::RedisClient;
     use ergo_lib::{
         ergo_chain_types::Digest32,
@@ -44,7 +82,7 @@ mod tests {
     use sigma_test_util::force_any_val;
 
     use crate::{
-        box_resolver::persistence::EntityRepo,
+        box_resolver::{persistence::EntityRepo, rocksdb::RocksDBClient},
         data::{
             unique_entity::{Confirmed, Predicted, Traced, Unconfirmed},
             OnChainEntity,
@@ -92,6 +130,36 @@ mod tests {
     async fn test_redis_invalidate() {
         let client = RedisClient::new("redis://127.0.0.1/");
         test_entity_repo_invalidate(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_rocksdb_predicted() {
+        let client = rocks_db_client();
+        test_entity_repo_predicted(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_rocksdb_confirmed() {
+        let client = rocks_db_client();
+        test_entity_repo_confirmed(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_rocksdb_unconfirmed() {
+        let client = rocks_db_client();
+        test_entity_repo_unconfirmed(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_rocksdb_invalidate() {
+        let client = rocks_db_client();
+        test_entity_repo_invalidate(client).await;
+    }
+
+    fn rocks_db_client() -> RocksDBClient {
+        RocksDBClient {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default("./tmp").unwrap()),
+        }
     }
 
     async fn test_entity_repo_predicted<C: EntityRepo<ErgoEntity>>(mut client: C) {
