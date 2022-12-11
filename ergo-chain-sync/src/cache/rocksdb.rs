@@ -1,8 +1,13 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use ergo_lib::{chain::transaction::TxId, ergo_chain_types::BlockId};
+use ergo_lib::{
+    chain::transaction::{Transaction, TxId},
+    ergo_chain_types::BlockId,
+    ergotree_ir::serialization::SigmaSerializable,
+};
 use rocksdb::WriteBatchWithTransaction;
+use serde::{Deserialize, Serialize};
 use tokio::task::spawn_blocking;
 
 use crate::model::{Block, BlockRecord};
@@ -27,29 +32,23 @@ impl ChainCache for RocksDBClient {
     async fn append_block(&mut self, block: Block) {
         let db = self.db.clone();
 
-        // We need to do the processing here since we can't send `block.transactions` across threads.
-        let tx_ids: Vec<TxId> = block.transactions.iter().map(|t| t.id()).collect();
-        let serialized_transactions: Vec<_> = block
-            .transactions
-            .iter()
-            .map(|t| bincode::serialize(&serde_json::to_string(t).unwrap()).unwrap())
-            .collect();
-        let best_block = BlockRecord {
-            id: block.id.clone(),
-            height: block.height,
-        };
+        let block_send = BlockSend::from(block);
 
         spawn_blocking(move || {
             let mut batch = WriteBatchWithTransaction::<true>::default();
             batch.put(
-                &block_id_parent_bytes(&block.id),
-                bincode::serialize(&block.parent_id).unwrap(),
+                &block_id_parent_bytes(&block_send.id),
+                bincode::serialize(&block_send.parent_id).unwrap(),
             );
             batch.put(
-                &block_id_height_bytes(&block.id),
-                bincode::serialize(&block.height).unwrap(),
+                &block_id_height_bytes(&block_send.id),
+                bincode::serialize(&block_send.height).unwrap(),
             );
 
+            let serialized_transactions = block_send.transactions_in_bytes.clone();
+            let block = Block::from(block_send);
+
+            let tx_ids: Vec<TxId> = block.transactions.iter().map(|t| t.id()).collect();
             // We package together all transactions ids into a Vec.
             batch.put(
                 &block_id_transaction_bytes(&block.id),
@@ -63,7 +62,11 @@ impl ChainCache for RocksDBClient {
 
             batch.put(
                 bincode::serialize(BEST_BLOCK).unwrap(),
-                bincode::serialize(&best_block).unwrap(),
+                bincode::serialize(&BlockRecord {
+                    id: block.id,
+                    height: block.height,
+                })
+                .unwrap(),
             );
 
             assert!(db.write(batch).is_ok());
@@ -94,7 +97,7 @@ impl ChainCache for RocksDBClient {
 
     async fn take_best_block(&mut self) -> Option<Block> {
         let db = self.db.clone();
-        if let Some(block_bytes) = spawn_blocking::<_, Option<Vec<u8>>>(move || {
+        spawn_blocking::<_, Option<BlockSend>>(move || {
             let best_block_key = bincode::serialize(BEST_BLOCK).unwrap();
 
             loop {
@@ -105,17 +108,16 @@ impl ChainCache for RocksDBClient {
                     let BlockRecord { id, height } = bincode::deserialize(&best_block_bytes).unwrap();
 
                     if let Some(tx_ids_bytes) = tx.get(&block_id_transaction_bytes(&id)).unwrap() {
-                        let mut transactions = vec![];
+                        let mut transactions_in_bytes = vec![];
                         let tx_ids: Vec<TxId> = bincode::deserialize(&tx_ids_bytes).unwrap();
                         for tx_id in tx_ids {
                             let tx_key = bincode::serialize(&tx_id).unwrap();
                             let tx_bytes = tx.get(&tx_key).unwrap().unwrap();
-                            let block_tx_json_str: String = bincode::deserialize(&tx_bytes).unwrap();
 
                             // Don't need transaction anymore, delete
                             tx.delete(&tx_key).unwrap();
 
-                            transactions.push(serde_json::from_str(&block_tx_json_str).unwrap());
+                            transactions_in_bytes.push(tx_bytes);
                         }
 
                         let parent_id_bytes = tx.get(&block_id_parent_bytes(&id)).unwrap().unwrap();
@@ -143,20 +145,13 @@ impl ChainCache for RocksDBClient {
                         }
                         match tx.commit() {
                             Ok(_) => {
-                                // Note: we can't send `Block` across the boundary since `Transaction` can't be
-                                // sent between threads.
-                                let best_block_bytes = bincode::serialize(
-                                    &serde_json::to_string(&Block {
-                                        id,
-                                        parent_id,
-                                        height,
-                                        timestamp: 0, // todo: DEV-573
-                                        transactions,
-                                    })
-                                    .unwrap(),
-                                )
-                                .unwrap();
-                                return Some(best_block_bytes);
+                                return Some(BlockSend {
+                                    id,
+                                    parent_id,
+                                    height,
+                                    timestamp: 0, // todo: DEV-573
+                                    transactions_in_bytes,
+                                });
                             }
                             Err(e) => {
                                 if e.kind() == rocksdb::ErrorKind::Busy {
@@ -176,12 +171,50 @@ impl ChainCache for RocksDBClient {
         })
         .await
         .unwrap()
-        {
-            let best_block_json_str: String = bincode::deserialize(&block_bytes).unwrap();
-            let best_block = serde_json::from_str(&best_block_json_str).unwrap();
-            Some(best_block)
-        } else {
-            None
+        .map(Block::from)
+    }
+}
+
+/// A transformation of `Block` with Ergo-serialized byte representation for transactions. We use
+/// this type to efficiently get `Block` between thread boundaries, since `Block` doesn't impl
+/// `Send` since `Transaction` doesn't.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct BlockSend {
+    pub id: BlockId,
+    pub parent_id: BlockId,
+    pub height: u32,
+    pub timestamp: u64,
+    pub transactions_in_bytes: Vec<Vec<u8>>,
+}
+
+impl From<BlockSend> for Block {
+    fn from(b: BlockSend) -> Self {
+        Self {
+            id: b.id,
+            parent_id: b.parent_id,
+            height: b.height,
+            timestamp: b.timestamp,
+            transactions: b
+                .transactions_in_bytes
+                .into_iter()
+                .map(|b| Transaction::sigma_parse_bytes(&b).unwrap())
+                .collect(),
+        }
+    }
+}
+
+impl From<Block> for BlockSend {
+    fn from(b: Block) -> Self {
+        Self {
+            id: b.id,
+            parent_id: b.parent_id,
+            height: b.height,
+            timestamp: b.timestamp,
+            transactions_in_bytes: b
+                .transactions
+                .into_iter()
+                .map(|t| t.sigma_serialize_bytes().unwrap())
+                .collect(),
         }
     }
 }
