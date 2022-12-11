@@ -1,10 +1,13 @@
-use ergo_lib::chain::transaction::{Input, Transaction, TxIoVec};
+use ergo_lib::chain::transaction::unsigned::UnsignedTransaction;
+use ergo_lib::chain::transaction::{Input, Transaction, TxIoVec, UnsignedInput};
 use ergo_lib::ergo_chain_types::{blake2b256_hash, Digest32};
+use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
 use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::TryExtractInto;
 use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
+use nonempty::NonEmpty;
 use type_equalities::IsEqual;
 
 use spectrum_offchain::data::unique_entity::Predicted;
@@ -12,14 +15,16 @@ use spectrum_offchain::data::{Has, OnChainOrder};
 use spectrum_offchain::domain::TypedAssetAmount;
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 use spectrum_offchain::executor::RunOrderError;
+use spectrum_offchain::transaction::IntoTx;
 
 use crate::data::assets::{BundleKey, Lq};
 use crate::data::bundle::StakingBundle;
 use crate::data::context::ExecutionContext;
+use crate::data::executor::DistributionFunding;
 use crate::data::pool::{Pool, PoolOperationError};
 use crate::data::{AsBox, BundleId, BundleStateId, OrderId, PoolId};
 use crate::ergo::{empty_prover_result, NanoErg};
-use crate::executor::{ConsumeBundle, ProduceBundle, RunOrder};
+use crate::executor::{ConsumeExtra, ProduceExtra, RunOrder};
 use crate::validators::{deposit_validator_temp, redeem_validator_temp};
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -35,14 +40,21 @@ impl Compound {
         let preimage = format!("{}{}{}", self.pool_id, self.epoch_ix, self.queue_ix);
         OrderId::from(blake2b256_hash(preimage.as_bytes()))
     }
+
+    pub fn estimated_min_value(&self) -> NanoErg {
+        todo!()
+    }
 }
 
-impl ConsumeBundle for Compound {
-    type TBundleIn = Vec<AsBox<StakingBundle>>;
+impl ConsumeExtra for Compound {
+    type TExtraIn = (Vec<AsBox<StakingBundle>>, NonEmpty<AsBox<DistributionFunding>>);
 }
 
-impl ProduceBundle for Compound {
-    type TBundleOut = Vec<Predicted<AsBox<StakingBundle>>>;
+impl ProduceExtra for Compound {
+    type TExtraOut = (
+        Vec<Predicted<AsBox<StakingBundle>>>,
+        Option<Predicted<AsBox<DistributionFunding>>>,
+    );
 }
 
 impl OnChainOrder for Compound {
@@ -62,30 +74,40 @@ impl RunOrder for Compound {
     fn try_run(
         self,
         AsBox(pool_in, pool): AsBox<Pool>,
-        bundles: Vec<AsBox<StakingBundle>>,
+        (bundles, funding): (Vec<AsBox<StakingBundle>>, NonEmpty<AsBox<DistributionFunding>>),
         ctx: ExecutionContext,
     ) -> Result<
         (
-            Transaction,
+            UnsignedTransaction,
             Predicted<AsBox<Pool>>,
-            Vec<Predicted<AsBox<StakingBundle>>>,
+            (
+                Vec<Predicted<AsBox<StakingBundle>>>,
+                Option<Predicted<AsBox<DistributionFunding>>>,
+            ),
         ),
         RunOrderError<Self>,
     > {
         let unwrapped_bundles = bundles.clone().into_iter().map(|AsBox(_, b)| b).collect();
-        match pool.distribute_rewards(unwrapped_bundles) {
-            Ok((next_pool, next_bundles, rewards)) => {
+        match pool.distribute_rewards(unwrapped_bundles, funding.clone().map(|AsBox(_, f)| f)) {
+            Ok((next_pool, next_bundles, next_funding, rewards)) => {
                 let inputs = TxIoVec::from_vec(
                     vec![pool_in]
                         .into_iter()
+                        .chain(funding.map(|AsBox(i, _)| i))
                         .chain(bundles.iter().map(|AsBox(bx, _)| bx.clone()))
-                        .map(|bx| Input::new(bx.box_id(), empty_prover_result()))
+                        .map(|bx| UnsignedInput::new(bx.box_id(), ContextExtension::empty())) // todo
                         .collect::<Vec<_>>(),
                 )
                 .unwrap();
                 let outputs = TxIoVec::from_vec(
                     vec![next_pool.clone().into_candidate(ctx.height)]
                         .into_iter()
+                        .chain(
+                            next_funding
+                                .clone()
+                                .map(|nf| vec![nf.clone().into_candidate(ctx.height)])
+                                .unwrap_or(Vec::new()),
+                        )
                         .chain(
                             next_bundles
                                 .clone()
@@ -96,15 +118,22 @@ impl RunOrder for Compound {
                         .collect(),
                 )
                 .unwrap();
-                let tx = Transaction::new(inputs, None, outputs).unwrap();
-                let next_pool_as_box = AsBox(tx.outputs.get(0).unwrap().clone(), next_pool);
-                let bundle_outs = &tx.outputs.clone()[1..next_bundles.len()];
+                let tx = UnsignedTransaction::new(inputs, None, outputs).unwrap();
+                let outputs = tx.clone().into_tx_without_proofs().outputs;
+                let next_pool_as_box = AsBox(outputs.get(0).unwrap().clone(), next_pool);
+                let bundle_outs = &outputs.clone()[2..next_bundles.len()];
                 let bundles_as_box = next_bundles
                     .into_iter()
                     .zip(Vec::from(bundle_outs).into_iter())
                     .map(|(bn, out)| Predicted(AsBox(out, bn)))
                     .collect();
-                Ok((tx, Predicted(next_pool_as_box), bundles_as_box))
+                let next_funding_as_box =
+                    next_funding.map(|nf| Predicted(AsBox(outputs.get(1).unwrap().clone(), nf)));
+                Ok((
+                    tx,
+                    Predicted(next_pool_as_box),
+                    (bundles_as_box, next_funding_as_box),
+                ))
             }
             Err(PoolOperationError::Permanent(e)) => Err(RunOrderError::Fatal(format!("{}", e), self)),
             Err(PoolOperationError::Temporal(e)) => Err(RunOrderError::NonFatal(format!("{}", e), self)),
@@ -121,12 +150,12 @@ pub struct Deposit {
     pub erg_value: NanoErg,
 }
 
-impl ConsumeBundle for Deposit {
-    type TBundleIn = ();
+impl ConsumeExtra for Deposit {
+    type TExtraIn = ();
 }
 
-impl ProduceBundle for Deposit {
-    type TBundleOut = Predicted<AsBox<StakingBundle>>;
+impl ProduceExtra for Deposit {
+    type TExtraOut = Predicted<AsBox<StakingBundle>>;
 }
 
 impl OnChainOrder for Deposit {
@@ -150,7 +179,7 @@ impl RunOrder for AsBox<Deposit> {
         ctx: ExecutionContext,
     ) -> Result<
         (
-            Transaction,
+            UnsignedTransaction,
             Predicted<AsBox<Pool>>,
             Predicted<AsBox<StakingBundle>>,
         ),
@@ -158,11 +187,11 @@ impl RunOrder for AsBox<Deposit> {
     > {
         let AsBox(self_in, self_order) = self.clone();
         match pool.apply_deposit(self_order, ctx.clone()) {
-            Ok((next_pool, bundle_proto, user_out)) => {
+            Ok((next_pool, bundle_proto, user_out, executor_out)) => {
                 let inputs = TxIoVec::from_vec(
                     vec![pool_in, self_in]
                         .iter()
-                        .map(|bx| Input::new(bx.box_id(), empty_prover_result()))
+                        .map(|bx| UnsignedInput::new(bx.box_id(), ContextExtension::empty()))
                         .collect::<Vec<_>>(),
                 )
                 .unwrap();
@@ -172,9 +201,10 @@ impl RunOrder for AsBox<Deposit> {
                     user_out.into_candidate(ctx.height),
                 ])
                 .unwrap();
-                let tx = Transaction::new(inputs, None, outputs).unwrap();
-                let next_pool_as_box = AsBox(tx.outputs.get(0).unwrap().clone(), next_pool);
-                let bundle_box = tx.outputs.get(1).unwrap().clone();
+                let tx = UnsignedTransaction::new(inputs, None, outputs).unwrap();
+                let outputs = tx.clone().into_tx_without_proofs().outputs;
+                let next_pool_as_box = AsBox(outputs.get(0).unwrap().clone(), next_pool);
+                let bundle_box = outputs.get(1).unwrap().clone();
                 let bundle = bundle_proto.finalize(BundleStateId::from(bundle_box.box_id()));
                 let bundle_as_box = AsBox(bundle_box, bundle);
                 Ok((tx, Predicted(next_pool_as_box), Predicted(bundle_as_box)))
@@ -232,12 +262,12 @@ pub struct Redeem {
     pub erg_value: NanoErg,
 }
 
-impl ConsumeBundle for Redeem {
-    type TBundleIn = AsBox<StakingBundle>;
+impl ConsumeExtra for Redeem {
+    type TExtraIn = AsBox<StakingBundle>;
 }
 
-impl ProduceBundle for Redeem {
-    type TBundleOut = ();
+impl ProduceExtra for Redeem {
+    type TExtraOut = ();
 }
 
 impl OnChainOrder for Redeem {
@@ -259,14 +289,14 @@ impl RunOrder for AsBox<Redeem> {
         AsBox(pool_in, pool): AsBox<Pool>,
         AsBox(bundle_in, bundle): AsBox<StakingBundle>,
         ctx: ExecutionContext,
-    ) -> Result<(Transaction, Predicted<AsBox<Pool>>, ()), RunOrderError<Self>> {
+    ) -> Result<(UnsignedTransaction, Predicted<AsBox<Pool>>, ()), RunOrderError<Self>> {
         let AsBox(self_in, self_order) = self.clone();
-        match pool.apply_redeem(self_order, bundle) {
-            Ok((next_pool, user_out)) => {
+        match pool.apply_redeem(self_order, bundle, ctx.clone()) {
+            Ok((next_pool, user_out, executor_out)) => {
                 let inputs = TxIoVec::from_vec(
                     vec![pool_in, bundle_in, self_in]
                         .iter()
-                        .map(|bx| Input::new(bx.box_id(), empty_prover_result()))
+                        .map(|bx| UnsignedInput::new(bx.box_id(), ContextExtension::empty()))
                         .collect::<Vec<_>>(),
                 )
                 .unwrap();
@@ -275,8 +305,9 @@ impl RunOrder for AsBox<Redeem> {
                     user_out.into_candidate(ctx.height),
                 ])
                 .unwrap();
-                let tx = Transaction::new(inputs, None, outputs).unwrap();
-                let next_pool_as_box = AsBox(tx.outputs.get(0).unwrap().clone(), next_pool);
+                let tx = UnsignedTransaction::new(inputs, None, outputs).unwrap();
+                let outputs = tx.clone().into_tx_without_proofs().outputs;
+                let next_pool_as_box = AsBox(outputs.get(0).unwrap().clone(), next_pool);
                 Ok((tx, Predicted(next_pool_as_box), ()))
             }
             Err(PoolOperationError::Temporal(te)) => Err(RunOrderError::NonFatal(format!("{}", te), self)),

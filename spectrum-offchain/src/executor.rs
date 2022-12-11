@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use ergo_lib::chain::transaction::unsigned::UnsignedTransaction;
 use ergo_lib::chain::transaction::Transaction;
 use futures::{stream, Stream, StreamExt};
 use log::warn;
@@ -14,6 +15,7 @@ use crate::box_resolver::BoxResolver;
 use crate::data::unique_entity::{Predicted, Traced};
 use crate::data::{OnChainEntity, OnChainOrder};
 use crate::network::ErgoNetwork;
+use crate::transaction::IntoTx;
 
 /// Indicated the kind of failure on at attempt to execute an order offline.
 pub enum RunOrderError<TOrd> {
@@ -43,7 +45,7 @@ pub trait RunOrder<TEntity, TCtx>: OnChainOrder + Sized {
         self,
         entity: TEntity,
         ctx: TCtx, // can be used to pass extra deps
-    ) -> Result<(Transaction, Predicted<TEntity>), RunOrderError<Self>>;
+    ) -> Result<(UnsignedTransaction, Predicted<TEntity>), RunOrderError<Self>>;
 }
 
 #[async_trait(?Send)]
@@ -64,7 +66,7 @@ pub struct OrderExecutor<TNetwork, TBacklog, TResolver, TCtx, TOrd, TEntity> {
 }
 
 #[async_trait(?Send)]
-impl<TNetwork, TBacklog, TResolver, TCtx, TOrd, TEntity> Executor
+impl<'a, TNetwork, TBacklog, TResolver, TCtx, TOrd, TEntity> Executor
     for OrderExecutor<TNetwork, TBacklog, TResolver, TCtx, TOrd, TEntity>
 where
     TOrd: OnChainOrder + RunOrder<TEntity, TCtx> + Clone + Display,
@@ -81,7 +83,7 @@ where
             if let Some(entity) = self.resolver.get(trivial_eq().coerce(entity_id)).await {
                 match ord.clone().try_run(entity.clone(), self.ctx.clone()) {
                     Ok((tx, next_entity_state)) => {
-                        if let Err(err) = self.network.submit_tx(tx).await {
+                        if let Err(err) = self.network.submit_tx(tx.into_tx_without_proofs()).await {
                             warn!("Execution failed while submitting tx due to {}", err);
                             self.resolver
                                 .invalidate(entity.get_self_ref(), entity.get_self_state_ref())

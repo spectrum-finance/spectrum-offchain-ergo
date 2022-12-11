@@ -9,7 +9,7 @@ use type_equalities::IsEqual;
 use spectrum_offchain::data::{Has, OnChainEntity, OnChainOrder};
 use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 
-use crate::executor::{ConsumeBundle, ProduceBundle};
+use crate::executor::{ConsumeExtra, ProduceExtra};
 
 pub mod assets;
 pub mod bundle;
@@ -17,6 +17,10 @@ pub mod context;
 pub mod order;
 pub mod pool;
 pub mod redeemer;
+pub mod executor;
+
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
+pub struct FundingId(BoxId);
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
 pub struct OrderId(Digest32);
@@ -49,18 +53,18 @@ pub struct BundleStateId(BoxId);
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct AsBox<T>(pub ErgoBox, pub T);
 
-impl<T> ConsumeBundle for AsBox<T>
+impl<T> ConsumeExtra for AsBox<T>
 where
-    T: ConsumeBundle,
+    T: ConsumeExtra,
 {
-    type TBundleIn = T::TBundleIn;
+    type TExtraIn = T::TExtraIn;
 }
 
-impl<T> ProduceBundle for AsBox<T>
+impl<T> ProduceExtra for AsBox<T>
 where
-    T: ProduceBundle,
+    T: ProduceExtra,
 {
-    type TBundleOut = T::TBundleOut;
+    type TExtraOut = T::TExtraOut;
 }
 
 impl<T> AsBox<T> {

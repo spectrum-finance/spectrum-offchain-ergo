@@ -12,7 +12,8 @@ pub mod ergo;
 pub mod executor;
 pub mod validators;
 pub mod scheduler;
-pub mod bundle_repo;
+pub mod bundle;
+pub mod funding;
 
 #[tokio::main]
 async fn main() {

@@ -1,11 +1,11 @@
 use derive_more::Display;
 use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
 use ergo_lib::ergotree_ir::chain::ergo_box::{
-    BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters, RegisterValue,
+    BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters,
 };
-use ergo_lib::ergotree_ir::chain::token::{Token, TokenId};
+use ergo_lib::ergotree_ir::chain::token::Token;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
-use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
+use nonempty::NonEmpty;
 
 use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::domain::TypedAssetAmount;
@@ -14,6 +14,7 @@ use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBo
 use crate::data::assets::{Lq, PoolNft, Reward, Tmp, VirtLq};
 use crate::data::bundle::{StakingBundle, StakingBundleProto};
 use crate::data::context::ExecutionContext;
+use crate::data::executor::{DistributionFunding, ExecutorOutput};
 use crate::data::order::{Deposit, Redeem};
 use crate::data::redeemer::{DepositOutput, RedeemOutput, RewardOutput};
 use crate::data::{PoolId, PoolStateId};
@@ -84,7 +85,7 @@ impl Pool {
         self,
         deposit: Deposit,
         ctx: ExecutionContext,
-    ) -> Result<(Pool, StakingBundleProto, DepositOutput), PoolOperationError> {
+    ) -> Result<(Pool, StakingBundleProto, DepositOutput, ExecutorOutput), PoolOperationError> {
         if self.num_epochs_remain(ctx.height) < 1 {
             return Err(PoolOperationError::Permanent(PermanentError::ProgramExhausted));
         }
@@ -110,8 +111,13 @@ impl Pool {
         let user_output = DepositOutput {
             bundle_key,
             redeemer_prop: deposit.redeemer_prop,
+            erg_value: NanoErg::from(BoxValue::SAFE_USER_MIN),
         };
-        Ok((next_pool, bundle, user_output))
+        let executor_output = ExecutorOutput {
+            executor_prop: ctx.executor_prop,
+            erg_value: deposit.erg_value - bundle.erg_value - user_output.erg_value,
+        };
+        Ok((next_pool, bundle, user_output, executor_output))
     }
 
     /// Apply redeem operation to the pool.
@@ -121,7 +127,8 @@ impl Pool {
         self,
         redeem: Redeem,
         bundle: StakingBundle,
-    ) -> Result<(Pool, RedeemOutput), PoolOperationError> {
+        ctx: ExecutionContext,
+    ) -> Result<(Pool, RedeemOutput, ExecutorOutput), PoolOperationError> {
         if redeem.expected_lq.amount != bundle.vlq.amount {
             return Err(PoolOperationError::Permanent(PermanentError::LiqudityMismatch));
         }
@@ -136,8 +143,13 @@ impl Pool {
         let user_output = RedeemOutput {
             lq: release_lq,
             redeemer_prop: redeem.redeemer_prop,
+            erg_value: NanoErg::from(BoxValue::SAFE_USER_MIN),
         };
-        Ok((next_pool, user_output))
+        let executor_output = ExecutorOutput {
+            executor_prop: ctx.executor_prop,
+            erg_value: redeem.erg_value - user_output.erg_value,
+        };
+        Ok((next_pool, user_output, executor_output))
     }
 
     /// Distribute rewards in batch.
@@ -145,7 +157,16 @@ impl Pool {
     pub fn distribute_rewards(
         self,
         bundles: Vec<StakingBundle>,
-    ) -> Result<(Pool, Vec<StakingBundle>, Vec<RewardOutput>), PoolOperationError> {
+        funding: NonEmpty<DistributionFunding>,
+    ) -> Result<
+        (
+            Pool,
+            Vec<StakingBundle>,
+            Option<DistributionFunding>,
+            Vec<RewardOutput>,
+        ),
+        PoolOperationError,
+    > {
         let epoch_alloc = self.epoch_alloc();
         let epoch_ix = if self.epoch_completed() {
             ((self.conf.epoch_num + 1) as u64 - (self.budget_rem.amount / epoch_alloc)) as u32
@@ -157,6 +178,7 @@ impl Pool {
         let mut next_pool = self;
         let mut next_bundles = bundles;
         let mut reward_outputs = Vec::new();
+        let mut accumulated_cost = NanoErg::from(0u64);
         for mut bundle in &mut next_bundles {
             let epochs_burned = (bundle.tmp.amount / bundle.vlq.amount).saturating_sub(epochs_remain as u64);
             if epochs_burned < 1 {
@@ -169,16 +191,28 @@ impl Pool {
             let reward_output = RewardOutput {
                 reward,
                 redeemer_prop: bundle.redeemer_prop.clone(),
+                erg_value: NanoErg::from(BoxValue::SAFE_USER_MIN),
             };
             let charged_tmp_amt = bundle.tmp.amount - epochs_remain as u64 * bundle.vlq.amount;
             let charged_tmp = TypedAssetAmount::new(bundle.tmp.token_id, charged_tmp_amt);
+            accumulated_cost = accumulated_cost + reward_output.erg_value;
             reward_outputs.push(reward_output);
             bundle.tmp = bundle.tmp - charged_tmp;
             next_pool.reserves_tmp = next_pool.reserves_tmp + charged_tmp;
             next_pool.budget_rem = next_pool.budget_rem - reward;
         }
         next_pool.epoch_ix = Some(epoch_ix);
-        Ok((next_pool, next_bundles, reward_outputs))
+        let funds_total: NanoErg = funding.iter().map(|f| f.erg_value).sum();
+        let funds_remain = funds_total - accumulated_cost;
+        let next_funding_box = if funds_remain >= NanoErg::from(BoxValue::SAFE_USER_MIN) {
+            Some(DistributionFunding {
+                prop: funding.head.prop,
+                erg_value: funds_remain,
+            })
+        } else {
+            None
+        };
+        Ok((next_pool, next_bundles, next_funding_box, reward_outputs))
     }
 
     fn epoch_alloc(&self) -> u64 {
@@ -322,12 +356,14 @@ mod tests {
     use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
     use ergo_lib::ergotree_ir::mir::constant::Constant;
     use ergo_lib::ergotree_ir::mir::expr::Expr;
+    use nonempty::nonempty;
     use rand::Rng;
 
     use spectrum_offchain::domain::TypedAssetAmount;
 
     use crate::data::bundle::StakingBundle;
     use crate::data::context::ExecutionContext;
+    use crate::data::executor::DistributionFunding;
     use crate::data::order::{Deposit, Redeem};
     use crate::data::pool::{Pool, ProgramConfig};
     use crate::data::{BundleStateId, OrderId, PoolId, PoolStateId};
@@ -364,6 +400,10 @@ mod tests {
         .unwrap()
     }
 
+    fn trivial_prop() -> ErgoTree {
+        ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap()
+    }
+
     #[test]
     fn early_deposit() {
         let budget = 1000000000;
@@ -372,16 +412,16 @@ mod tests {
         let deposit = Deposit {
             order_id: OrderId::from(BoxId::from(random_digest())),
             pool_id: pool.pool_id,
-            redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
+            redeemer_prop: trivial_prop(),
             lq: deposit_lq,
             erg_value: NanoErg::from(100000u64),
         };
         let ctx = ExecutionContext {
             height: 9,
             mintable_token_id: TokenId::from(random_digest()),
-            executor_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
+            executor_prop: trivial_prop(),
         };
-        let (pool2, bundle, _output) = pool.clone().apply_deposit(deposit.clone(), ctx).unwrap();
+        let (pool2, bundle, _output, rew) = pool.clone().apply_deposit(deposit.clone(), ctx).unwrap();
         assert_eq!(bundle.vlq, deposit.lq.coerce());
         assert_eq!(bundle.tmp.amount, pool.conf.epoch_num as u64 * deposit_lq.amount);
         assert_eq!(pool2.reserves_lq, deposit.lq);
@@ -398,29 +438,30 @@ mod tests {
         let deposit = Deposit {
             order_id: OrderId::from(BoxId::from(random_digest())),
             pool_id: pool.pool_id,
-            redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
+            redeemer_prop: trivial_prop(),
             lq: deposit,
             erg_value: NanoErg::from(100000u64),
         };
         let ctx = ExecutionContext {
             height: 10,
             mintable_token_id: TokenId::from(random_digest()),
-            executor_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
+            executor_prop: trivial_prop(),
         };
-        let (pool2, bundle, output) = pool.clone().apply_deposit(deposit.clone(), ctx.clone()).unwrap();
+        let (pool2, bundle, output, rew) = pool.clone().apply_deposit(deposit.clone(), ctx.clone()).unwrap();
         let redeem = Redeem {
             order_id: OrderId::from(BoxId::from(random_digest())),
             pool_id: pool.pool_id,
-            redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
+            redeemer_prop: trivial_prop(),
             bundle_key: output.bundle_key,
             expected_lq: deposit.lq,
             erg_value: NanoErg::from(100000u64),
         };
-        let (pool3, output) = pool2
+        let (pool3, output, rew) = pool2
             .clone()
             .apply_redeem(
                 redeem.clone(),
                 StakingBundle::from_proto(bundle.clone(), BundleStateId::from(BoxId::from(random_digest()))),
+                ctx,
             )
             .unwrap();
 
@@ -438,7 +479,7 @@ mod tests {
         let deposit_a = Deposit {
             order_id: OrderId::from(BoxId::from(random_digest())),
             pool_id: pool.pool_id,
-            redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
+            redeemer_prop: trivial_prop(),
             lq: deposit_amt_a,
             erg_value: NanoErg::from(100000u64),
         };
@@ -450,31 +491,39 @@ mod tests {
         let deposit_b = Deposit {
             order_id: OrderId::from(BoxId::from(random_digest())),
             pool_id: pool.pool_id,
-            redeemer_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
+            redeemer_prop: trivial_prop(),
             lq: deposit_amt_b,
             erg_value: NanoErg::from(100000u64),
         };
         let ctx_1 = ExecutionContext {
             height: 9,
             mintable_token_id: TokenId::from(random_digest()),
-            executor_prop: ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap(),
+            executor_prop: trivial_prop(),
         };
-        let (pool_2, bundle_a, _output_a) = pool
+        let (pool_2, bundle_a, _output_a, rew) = pool
             .clone()
             .apply_deposit(deposit_a.clone(), ctx_1.clone())
             .unwrap();
-        let (pool_3, bundle_b, _output_b) = pool_2.clone().apply_deposit(deposit_b.clone(), ctx_1).unwrap();
-        let (_pool_4, bundles, rewards) = pool_3
-            .distribute_rewards(Vec::from([
-                StakingBundle::from_proto(
-                    bundle_a.clone(),
-                    BundleStateId::from(BoxId::from(random_digest())),
-                ),
-                StakingBundle::from_proto(
-                    bundle_b.clone(),
-                    BundleStateId::from(BoxId::from(random_digest())),
-                ),
-            ]))
+        let (pool_3, bundle_b, _output_b, rew) =
+            pool_2.clone().apply_deposit(deposit_b.clone(), ctx_1).unwrap();
+        let funding = nonempty![DistributionFunding {
+            prop: trivial_prop(),
+            erg_value: NanoErg::from(2000000u64),
+        }];
+        let (_pool_4, bundles, next_funding, rewards) = pool_3
+            .distribute_rewards(
+                Vec::from([
+                    StakingBundle::from_proto(
+                        bundle_a.clone(),
+                        BundleStateId::from(BoxId::from(random_digest())),
+                    ),
+                    StakingBundle::from_proto(
+                        bundle_b.clone(),
+                        BundleStateId::from(BoxId::from(random_digest())),
+                    ),
+                ]),
+                funding,
+            )
             .unwrap();
         assert_eq!(
             rewards[0].reward.amount * deposit_disproportion,
