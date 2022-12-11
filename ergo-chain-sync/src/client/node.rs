@@ -38,7 +38,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
                 .get_async(format!(
                     "{}/blocks/{}",
                     self.base_url,
-                    base16::encode_lower(&*blocks[0].0 .0)
+                    base16::encode_lower(&blocks[0].0 .0)
                 ))
                 .await
                 .ok()?;
