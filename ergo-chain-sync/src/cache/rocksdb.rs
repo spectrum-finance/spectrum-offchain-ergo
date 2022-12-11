@@ -179,12 +179,12 @@ impl ChainCache for RocksDBClient {
 /// this type to efficiently get `Block` between thread boundaries, since `Block` doesn't impl
 /// `Send` since `Transaction` doesn't.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct BlockSend {
-    pub id: BlockId,
-    pub parent_id: BlockId,
-    pub height: u32,
-    pub timestamp: u64,
-    pub transactions_in_bytes: Vec<Vec<u8>>,
+struct BlockSend {
+    id: BlockId,
+    parent_id: BlockId,
+    height: u32,
+    timestamp: u64,
+    transactions_in_bytes: Vec<Vec<u8>>,
 }
 
 impl From<BlockSend> for Block {
