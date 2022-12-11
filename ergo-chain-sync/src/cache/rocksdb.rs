@@ -63,7 +63,7 @@ impl ChainCache for RocksDBClient {
 
             batch.put(
                 bincode::serialize(BEST_BLOCK).unwrap(),
-                bincode::serialize(&serde_json::to_string(&best_block).unwrap()).unwrap(),
+                bincode::serialize(&best_block).unwrap(),
             );
 
             assert!(db.write(batch).is_ok());
@@ -102,8 +102,7 @@ impl ChainCache for RocksDBClient {
                 // The call to `get_for_update` is crucial; it plays an identical role as the WATCH
                 // command in redis (refer to docs of `take_best_block` in impl of [`RedisClient`].
                 if let Some(best_block_bytes) = tx.get_for_update(&best_block_key, true).unwrap() {
-                    let best_block_json_str: String = bincode::deserialize(&best_block_bytes).unwrap();
-                    let BlockRecord { id, height } = serde_json::from_str(&best_block_json_str).unwrap();
+                    let BlockRecord { id, height } = bincode::deserialize(&best_block_bytes).unwrap();
 
                     if let Some(tx_ids_bytes) = tx.get(&block_id_transaction_bytes(&id)).unwrap() {
                         let mut transactions = vec![];
@@ -134,13 +133,10 @@ impl ChainCache for RocksDBClient {
 
                             tx.put(
                                 &best_block_key,
-                                bincode::serialize(
-                                    &serde_json::to_string(&BlockRecord {
-                                        id: parent_id.clone(),
-                                        height: parent_id_height,
-                                    })
-                                    .unwrap(),
-                                )
+                                bincode::serialize(&BlockRecord {
+                                    id: parent_id.clone(),
+                                    height: parent_id_height,
+                                })
                                 .unwrap(),
                             )
                             .unwrap();
