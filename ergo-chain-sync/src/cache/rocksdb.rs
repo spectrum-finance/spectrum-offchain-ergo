@@ -136,7 +136,7 @@ impl ChainCache for RocksDBClient {
                                 .put(
                                     &best_block_key,
                                     bincode::serialize(&BlockRecord {
-                                        id: parent_id.clone(),
+                                        id: parent_id,
                                         height: parent_id_height,
                                     })
                                     .unwrap(),

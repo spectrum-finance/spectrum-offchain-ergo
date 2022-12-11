@@ -17,7 +17,7 @@ use sigma_test_util::force_any_val;
 
 #[async_std::test]
 async fn test_redis() {
-    let mut client = RedisClient::new("redis://127.0.0.1/");
+    let client = RedisClient::new("redis://127.0.0.1/");
     test_client(client).await;
 }
 
@@ -43,16 +43,16 @@ async fn test_client<C: ChainCache>(mut client: C) {
         .collect();
     let mut height = 1;
 
-    let first_id = block_ids[0].clone();
+    let first_id = block_ids[0];
     let mut blocks = vec![];
 
     for i in 1..30 {
         let transactions = force_any_val::<[Transaction; 10]>().to_vec();
-        let parent_id = block_ids[i - 1].clone();
-        let id = block_ids[i].clone();
+        let parent_id = block_ids[i - 1];
+        let id = block_ids[i];
         let timestamp = Utc::now().timestamp() as u64;
         let block = Block {
-            id: id.clone(),
+            id,
             parent_id,
             height,
             timestamp,

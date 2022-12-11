@@ -30,10 +30,10 @@ impl InMemoryCache {
 #[async_trait(?Send)]
 impl ChainCache for InMemoryCache {
     async fn append_block(&mut self, block: Block) {
-        let id = block.id.clone();
-        let parent_id = block.parent_id.clone();
-        let height = block.height.clone();
-        self.blocks.insert(id.clone().0, block);
+        let id = block.id;
+        let parent_id = block.parent_id;
+        let height = block.height;
+        self.blocks.insert(id.0, block);
         self.best_block = Some((id, parent_id, height))
     }
 
@@ -42,20 +42,15 @@ impl ChainCache for InMemoryCache {
     }
 
     async fn get_best_block(&mut self) -> Option<BlockRecord> {
-        self.best_block.as_ref().map(|(id, _, h)| BlockRecord {
-            id: id.clone(),
-            height: *h,
-        })
+        self.best_block
+            .as_ref()
+            .map(|(id, _, h)| BlockRecord { id: *id, height: *h })
     }
 
     async fn take_best_block(&mut self) -> Option<Block> {
         if let Some((id, parent_id, _)) = self.best_block.take() {
             if let Some(parent_blk) = self.blocks.get(&parent_id.0) {
-                self.best_block = Some((
-                    parent_blk.id.clone(),
-                    parent_blk.parent_id.clone(),
-                    parent_blk.height.clone(),
-                ));
+                self.best_block = Some((parent_blk.id, parent_blk.parent_id, parent_blk.height));
             }
             return self.blocks.remove(&id.0);
         }

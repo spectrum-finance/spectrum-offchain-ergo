@@ -309,9 +309,7 @@ mod tests {
             self.order_id
         }
 
-        fn get_entity_ref(&self) -> Self::TEntityId {
-            ()
-        }
+        fn get_entity_ref(&self) -> Self::TEntityId {}
     }
 
     struct MockBacklogStore {

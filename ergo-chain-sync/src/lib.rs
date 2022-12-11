@@ -105,8 +105,8 @@ where
                 api_blk.header.id.clone(),
                 state.next_height
             );
-            let parent_id = api_blk.header.parent_id.clone();
-            let linked = self.cache.exists(parent_id.clone()).await;
+            let parent_id = api_blk.header.parent_id;
+            let linked = self.cache.exists(parent_id).await;
             if linked || api_blk.header.height == self.starting_height {
                 trace!("Chain is linked, upgrading ..");
                 let blk = Block::from(api_blk);
