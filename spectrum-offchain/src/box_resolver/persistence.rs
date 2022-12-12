@@ -1,7 +1,4 @@
 use async_trait::async_trait;
-use ergo_chain_sync::cache::redis::RedisClient;
-use redis::cmd;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::box_resolver::{Predicted, Traced};
@@ -42,222 +39,41 @@ static LAST_PREDICTED_KEY_PREFIX: &str = "predicted:last:";
 static LAST_CONFIRMED_KEY_PREFIX: &str = "confirmed:last:";
 static LAST_UNCONFIRMED_KEY_PREFIX: &str = "unconfirmed:last:";
 
-#[async_trait(?Send)]
-impl<TEntity> EntityRepo<TEntity> for RedisClient
-where
-    TEntity: OnChainEntity + Clone + Serialize + DeserializeOwned,
-    <TEntity as OnChainEntity>::TStateId: Clone + Serialize + DeserializeOwned,
-    <TEntity as OnChainEntity>::TEntityId: Clone + Serialize + DeserializeOwned,
-{
-    async fn get_prediction<'a>(
-        &self,
-        id: <TEntity as OnChainEntity>::TStateId,
-    ) -> Option<Traced<Predicted<TEntity>>>
-    where
-        <TEntity as OnChainEntity>::TStateId: 'a,
-    {
-        let mut conn = self.pool.get().await.unwrap();
-        if let Ok(entity_bytes) = cmd("GET")
-            .arg(predicted_key_bytes(&id))
-            .query_async::<_, Vec<u8>>(&mut conn)
-            .await
-        {
-            match bincode::deserialize(&entity_bytes) {
-                Ok(predicted) => Some(predicted),
-                Err(_) => None,
-            }
-        } else {
-            None
-        }
-    }
-
-    async fn get_last_predicted<'a>(
-        &self,
-        id: <TEntity as OnChainEntity>::TEntityId,
-    ) -> Option<Predicted<TEntity>>
-    where
-        <TEntity as OnChainEntity>::TEntityId: 'a,
-    {
-        let mut conn = self.pool.get().await.unwrap();
-        if let Ok(entity_bytes) = cmd("GET")
-            .arg(last_predicted_key_bytes(&id))
-            .query_async::<_, Vec<u8>>(&mut conn)
-            .await
-        {
-            match bincode::deserialize(&entity_bytes) {
-                Ok(predicted) => Some(predicted),
-                Err(_) => None,
-            }
-        } else {
-            None
-        }
-    }
-
-    async fn get_last_confirmed<'a>(
-        &self,
-        id: <TEntity as OnChainEntity>::TEntityId,
-    ) -> Option<Confirmed<TEntity>>
-    where
-        <TEntity as OnChainEntity>::TEntityId: 'a,
-    {
-        let mut conn = self.pool.get().await.unwrap();
-        if let Ok(entity_bytes) = cmd("GET")
-            .arg(last_confirmed_key_bytes(&id))
-            .query_async::<_, Vec<u8>>(&mut conn)
-            .await
-        {
-            match bincode::deserialize(&entity_bytes) {
-                Ok(confirmed) => Some(confirmed),
-                Err(_) => None,
-            }
-        } else {
-            None
-        }
-    }
-
-    async fn get_last_unconfirmed<'a>(
-        &self,
-        id: <TEntity as OnChainEntity>::TEntityId,
-    ) -> Option<Unconfirmed<TEntity>>
-    where
-        <TEntity as OnChainEntity>::TEntityId: 'a,
-    {
-        let mut conn = self.pool.get().await.unwrap();
-        if let Ok(entity_bytes) = cmd("GET")
-            .arg(last_unconfirmed_key_bytes(&id))
-            .query_async::<_, Vec<u8>>(&mut conn)
-            .await
-        {
-            match bincode::deserialize(&entity_bytes) {
-                Ok(unconfirmed) => Some(unconfirmed),
-                Err(_) => None,
-            }
-        } else {
-            None
-        }
-    }
-
-    async fn put_predicted<'a>(&mut self, entity: Traced<Predicted<TEntity>>)
-    where
-        Traced<Predicted<TEntity>>: 'a,
-    {
-        let mut conn = self.pool.get().await.unwrap();
-        let mut pipe = redis::pipe();
-        let _: () = pipe
-            .atomic() // Start transaction
-            .cmd("SET")
-            .arg(last_predicted_key_bytes(&entity.state.get_self_ref()))
-            .arg(bincode::serialize(&entity.state.0).unwrap())
-            .ignore()
-            .cmd("SET")
-            .arg(predicted_key_bytes(&entity.state.get_self_state_ref()))
-            .arg(bincode::serialize(&entity).unwrap())
-            .query_async(&mut conn)
-            .await
-            .unwrap();
-    }
-
-    async fn put_confirmed<'a>(&mut self, entity: Confirmed<TEntity>)
-    where
-        Traced<Predicted<TEntity>>: 'a,
-    {
-        let mut conn = self.pool.get().await.unwrap();
-        let _: () = cmd("SET")
-            .arg(last_confirmed_key_bytes(&entity.0.get_self_ref()))
-            .arg(bincode::serialize(&entity).unwrap())
-            .query_async(&mut conn)
-            .await
-            .unwrap();
-    }
-
-    async fn put_unconfirmed<'a>(&mut self, entity: Unconfirmed<TEntity>)
-    where
-        Traced<Predicted<TEntity>>: 'a,
-    {
-        let mut conn = self.pool.get().await.unwrap();
-        let _: () = cmd("SET")
-            .arg(last_unconfirmed_key_bytes(&entity.0.get_self_ref()))
-            .arg(bincode::serialize(&entity).unwrap())
-            .query_async(&mut conn)
-            .await
-            .unwrap();
-    }
-
-    async fn invalidate<'a>(
-        &mut self,
-        eid: <TEntity as OnChainEntity>::TEntityId,
-        sid: <TEntity as OnChainEntity>::TStateId,
-    ) where
-        <TEntity as OnChainEntity>::TEntityId: 'a,
-        <TEntity as OnChainEntity>::TStateId: 'a,
-    {
-        let mut conn = self.pool.get().await.unwrap();
-        let mut pipe = redis::pipe();
-
-        let mut first_cmd = false;
-        let last_predicted_state: Option<Predicted<TEntity>> = self.get_last_predicted(eid.clone()).await;
-        if let Some(last_predicted_state) = last_predicted_state {
-            if last_predicted_state.get_self_state_ref() == sid {
-                first_cmd = true;
-
-                pipe.atomic() // Start transaction
-                    .cmd("DEL")
-                    .arg(last_predicted_key_bytes(&eid))
-                    .ignore();
-            }
-        }
-
-        let last_unconfirmed_state: Option<Unconfirmed<TEntity>> =
-            self.get_last_unconfirmed(eid.clone()).await;
-        if let Some(last_unconfirmed_state) = last_unconfirmed_state {
-            if last_unconfirmed_state.0.get_self_state_ref() == sid {
-                if !first_cmd {
-                    pipe.atomic();
-                }
-
-                pipe.cmd("DEL").arg(last_unconfirmed_key_bytes(&eid)).ignore();
-            }
-        }
-
-        let _: () = pipe
-            .cmd("DEL")
-            .arg(predicted_key_bytes(&sid))
-            .query_async(&mut conn)
-            .await
-            .unwrap();
-    }
-}
-
-fn predicted_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
+pub fn predicted_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
     let mut key_bytes = bincode::serialize(PREDICTED_KEY_PREFIX).unwrap();
     let id_bytes = bincode::serialize(&id).unwrap();
     key_bytes.extend_from_slice(&id_bytes);
     key_bytes
 }
 
-fn last_predicted_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
+pub fn last_predicted_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
     let mut key_bytes = bincode::serialize(LAST_PREDICTED_KEY_PREFIX).unwrap();
     let id_bytes = bincode::serialize(&id).unwrap();
     key_bytes.extend_from_slice(&id_bytes);
     key_bytes
 }
 
-fn last_confirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
+pub fn last_confirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
     let mut key_bytes = bincode::serialize(LAST_CONFIRMED_KEY_PREFIX).unwrap();
     let id_bytes = bincode::serialize(&id).unwrap();
     key_bytes.extend_from_slice(&id_bytes);
     key_bytes
 }
 
-fn last_unconfirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
+pub fn last_unconfirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
     let mut key_bytes = bincode::serialize(LAST_UNCONFIRMED_KEY_PREFIX).unwrap();
     let id_bytes = bincode::serialize(&id).unwrap();
     key_bytes.extend_from_slice(&id_bytes);
     key_bytes
 }
 
+/// NOTE: do not run the tests in parallel! Rocksdb will complain about lock contention. Use the
+/// following command: cargo test -- --test-threads=1
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use ergo_chain_sync::cache::{redis::RedisClient, rocksdb::RocksDBClient};
     use ergo_lib::{
         ergo_chain_types::Digest32,
         ergotree_ir::chain::{ergo_box::BoxId, token::TokenId},
@@ -272,8 +88,6 @@ mod tests {
             OnChainEntity,
         },
     };
-
-    use super::RedisClient;
 
     #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
     struct ErgoEntity {
@@ -295,8 +109,60 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_entity_repo_predicted() {
-        let mut client = RedisClient::new("redis://127.0.0.1/");
+    async fn test_redis_predicted() {
+        let client = RedisClient::new("redis://127.0.0.1/");
+        test_entity_repo_predicted(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_redis_confirmed() {
+        let client = RedisClient::new("redis://127.0.0.1/");
+        test_entity_repo_confirmed(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_redis_unconfirmed() {
+        let client = RedisClient::new("redis://127.0.0.1/");
+        test_entity_repo_unconfirmed(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_redis_invalidate() {
+        let client = RedisClient::new("redis://127.0.0.1/");
+        test_entity_repo_invalidate(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_rocksdb_predicted() {
+        let client = rocks_db_client();
+        test_entity_repo_predicted(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_rocksdb_confirmed() {
+        let client = rocks_db_client();
+        test_entity_repo_confirmed(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_rocksdb_unconfirmed() {
+        let client = rocks_db_client();
+        test_entity_repo_unconfirmed(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_rocksdb_invalidate() {
+        let client = rocks_db_client();
+        test_entity_repo_invalidate(client).await;
+    }
+
+    fn rocks_db_client() -> RocksDBClient {
+        RocksDBClient {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default("./tmp").unwrap()),
+        }
+    }
+
+    async fn test_entity_repo_predicted<C: EntityRepo<ErgoEntity>>(mut client: C) {
         let (box_ids, token_ids, n) = gen_box_and_token_ids();
         let mut entities = vec![];
         for i in 1..n {
@@ -318,9 +184,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_entity_repo_confirmed() {
-        let mut client = RedisClient::new("redis://127.0.0.1/");
+    async fn test_entity_repo_confirmed<C: EntityRepo<ErgoEntity>>(mut client: C) {
         let (box_ids, token_ids, n) = gen_box_and_token_ids();
         let mut entities = vec![];
         for i in 0..n {
@@ -337,9 +201,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_entity_repo_unconfirmed() {
-        let mut client = RedisClient::new("redis://127.0.0.1/");
+    async fn test_entity_repo_unconfirmed<C: EntityRepo<ErgoEntity>>(mut client: C) {
         let (box_ids, token_ids, n) = gen_box_and_token_ids();
         let mut entities = vec![];
         for i in 0..n {
@@ -356,9 +218,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_entity_repo_invalidate() {
-        let mut client = RedisClient::new("redis://127.0.0.1/");
+    async fn test_entity_repo_invalidate<C: EntityRepo<ErgoEntity>>(mut client: C) {
         let (box_ids, token_ids, n) = gen_box_and_token_ids();
         for i in 1..n {
             let ee = ErgoEntity {
@@ -373,7 +233,7 @@ mod tests {
             client.put_unconfirmed(Unconfirmed(ee)).await;
 
             // Invalidate
-            <RedisClient as EntityRepo<ErgoEntity>>::invalidate(&mut client, token_ids[i], box_ids[i]).await;
+            <C as EntityRepo<ErgoEntity>>::invalidate(&mut client, token_ids[i], box_ids[i]).await;
             let predicted: Option<Predicted<ErgoEntity>> = client.get_last_predicted(token_ids[i]).await;
             let unconfirmed: Option<Unconfirmed<ErgoEntity>> =
                 client.get_last_unconfirmed(token_ids[i]).await;

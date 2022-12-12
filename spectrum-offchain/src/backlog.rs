@@ -408,7 +408,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_pop_best_order() {
-        let mut backlog = setup_backlog(10, 5, 50);
+        let mut backlog = setup_backlog(10, 5, 0);
         let ord1 = make_order(1, 1);
         let ord2 = make_order(2, 2);
         let ord3 = make_order(3, 3);
