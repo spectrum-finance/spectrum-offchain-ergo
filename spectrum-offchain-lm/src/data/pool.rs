@@ -52,6 +52,7 @@ pub enum PermanentError {
     LiqudityMismatch,
     ProgramExhausted,
     OrderPoisoned,
+    LowExFee,
 }
 
 #[derive(Debug, Display)]
@@ -113,6 +114,11 @@ impl Pool {
             redeemer_prop: deposit.redeemer_prop,
             erg_value: NanoErg::from(BoxValue::SAFE_USER_MIN),
         };
+        if deposit.erg_value
+            < bundle.erg_value + user_output.erg_value + NanoErg::from(BoxValue::SAFE_USER_MIN)
+        {
+            return Err(PoolOperationError::Permanent(PermanentError::LowExFee));
+        }
         let executor_output = ExecutorOutput {
             executor_prop: ctx.executor_prop,
             erg_value: deposit.erg_value - bundle.erg_value - user_output.erg_value,
@@ -145,6 +151,11 @@ impl Pool {
             redeemer_prop: redeem.redeemer_prop,
             erg_value: NanoErg::from(BoxValue::SAFE_USER_MIN),
         };
+        if redeem.erg_value
+            < bundle.erg_value + user_output.erg_value + NanoErg::from(BoxValue::SAFE_USER_MIN)
+        {
+            return Err(PoolOperationError::Permanent(PermanentError::LowExFee));
+        }
         let executor_output = ExecutorOutput {
             executor_prop: ctx.executor_prop,
             erg_value: redeem.erg_value - user_output.erg_value,
@@ -386,7 +397,7 @@ mod tests {
                 redeem_blocks_delta: 0,
                 program_budget: TypedAssetAmount::new(TokenId::from(random_digest()), program_budget),
             },
-            erg_value: NanoErg::from(100000u64),
+            erg_value: NanoErg::from(100000000000u64),
         }
     }
 
@@ -414,7 +425,7 @@ mod tests {
             pool_id: pool.pool_id,
             redeemer_prop: trivial_prop(),
             lq: deposit_lq,
-            erg_value: NanoErg::from(100000u64),
+            erg_value: NanoErg::from(100000000000u64),
         };
         let ctx = ExecutionContext {
             height: 9,
@@ -440,7 +451,7 @@ mod tests {
             pool_id: pool.pool_id,
             redeemer_prop: trivial_prop(),
             lq: deposit,
-            erg_value: NanoErg::from(100000u64),
+            erg_value: NanoErg::from(100000000000u64),
         };
         let ctx = ExecutionContext {
             height: 10,
@@ -454,7 +465,7 @@ mod tests {
             redeemer_prop: trivial_prop(),
             bundle_key: output.bundle_key,
             expected_lq: deposit.lq,
-            erg_value: NanoErg::from(100000u64),
+            erg_value: NanoErg::from(100000000000u64),
         };
         let (pool3, output, rew) = pool2
             .clone()
@@ -481,7 +492,7 @@ mod tests {
             pool_id: pool.pool_id,
             redeemer_prop: trivial_prop(),
             lq: deposit_amt_a,
-            erg_value: NanoErg::from(100000u64),
+            erg_value: NanoErg::from(100000000000u64),
         };
         let deposit_disproportion = 2;
         let deposit_amt_b = TypedAssetAmount::new(
@@ -493,7 +504,7 @@ mod tests {
             pool_id: pool.pool_id,
             redeemer_prop: trivial_prop(),
             lq: deposit_amt_b,
-            erg_value: NanoErg::from(100000u64),
+            erg_value: NanoErg::from(100000000000u64),
         };
         let ctx_1 = ExecutionContext {
             height: 9,
@@ -508,7 +519,7 @@ mod tests {
             pool_2.clone().apply_deposit(deposit_b.clone(), ctx_1).unwrap();
         let funding = nonempty![DistributionFunding {
             prop: trivial_prop(),
-            erg_value: NanoErg::from(2000000u64),
+            erg_value: NanoErg::from(2000000000u64),
         }];
         let (_pool_4, bundles, next_funding, rewards) = pool_3
             .distribute_rewards(

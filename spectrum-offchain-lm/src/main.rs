@@ -14,6 +14,7 @@ pub mod validators;
 pub mod scheduler;
 pub mod bundle;
 pub mod funding;
+pub mod prover;
 
 #[tokio::main]
 async fn main() {

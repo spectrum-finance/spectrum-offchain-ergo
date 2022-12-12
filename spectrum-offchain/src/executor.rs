@@ -3,8 +3,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use ergo_lib::chain::transaction::unsigned::UnsignedTransaction;
-use ergo_lib::chain::transaction::Transaction;
 use futures::{stream, Stream, StreamExt};
 use log::warn;
 use parking_lot::Mutex;
@@ -15,7 +13,7 @@ use crate::box_resolver::BoxResolver;
 use crate::data::unique_entity::{Predicted, Traced};
 use crate::data::{OnChainEntity, OnChainOrder};
 use crate::network::ErgoNetwork;
-use crate::transaction::IntoTx;
+use crate::transaction::{TransactionCandidate, UnsignedTransactionOps};
 
 /// Indicated the kind of failure on at attempt to execute an order offline.
 pub enum RunOrderError<TOrd> {
@@ -45,7 +43,7 @@ pub trait RunOrder<TEntity, TCtx>: OnChainOrder + Sized {
         self,
         entity: TEntity,
         ctx: TCtx, // can be used to pass extra deps
-    ) -> Result<(UnsignedTransaction, Predicted<TEntity>), RunOrderError<Self>>;
+    ) -> Result<(TransactionCandidate, Predicted<TEntity>), RunOrderError<Self>>;
 }
 
 #[async_trait(?Send)]

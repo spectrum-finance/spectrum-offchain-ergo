@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use ergo_lib::chain::transaction::unsigned::UnsignedTransaction;
-use ergo_lib::chain::transaction::Transaction;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use futures::{stream, StreamExt};
@@ -18,7 +16,7 @@ use spectrum_offchain::data::{Has, OnChainEntity, OnChainOrder};
 use spectrum_offchain::executor::Executor;
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::network::ErgoNetwork;
-use spectrum_offchain::transaction::IntoTx;
+use spectrum_offchain::transaction::TransactionCandidate;
 
 use crate::bundle::BundleRepo;
 use crate::data::context::ExecutionContext;
@@ -26,6 +24,7 @@ use crate::data::order::Order;
 use crate::data::pool::Pool;
 use crate::data::{AsBox, BundleId};
 use crate::funding::FundingRepo;
+use crate::prover::SigmaProver;
 
 /// Defines additional inputs required to execute the operation.
 pub trait ConsumeExtra {
@@ -46,20 +45,21 @@ pub trait RunOrder: OnChainOrder + ConsumeExtra + ProduceExtra + Sized {
         pool: AsBox<Pool>,
         extra: Self::TExtraIn,
         ctx: ExecutionContext,
-    ) -> Result<(UnsignedTransaction, Predicted<AsBox<Pool>>, Self::TExtraOut), RunOrderError<Self>>;
+    ) -> Result<(TransactionCandidate, Predicted<AsBox<Pool>>, Self::TExtraOut), RunOrderError<Self>>;
 }
 
-pub struct OrderExecutor<TNetwork, TBacklog, TPoolResolver, TBundleResolver, TFunding> {
+pub struct OrderExecutor<TNetwork, TBacklog, TPoolResolver, TBundleResolver, TFunding, TProver> {
     network: TNetwork,
     backlog: Arc<Mutex<TBacklog>>,
     pool_repo: Arc<Mutex<TPoolResolver>>,
     bundle_repo: Arc<Mutex<TBundleResolver>>,
     funding_repo: Arc<Mutex<TFunding>>,
+    prover: TProver,
     executor_prop: ErgoTree,
 }
 
-impl<TNetwork, TBacklog, TPools, TBundles, TFunding>
-    OrderExecutor<TNetwork, TBacklog, TPools, TBundles, TFunding>
+impl<TNetwork, TBacklog, TPools, TBundles, TFunding, TProver>
+    OrderExecutor<TNetwork, TBacklog, TPools, TBundles, TFunding, TProver>
 {
     async fn get_context(&self, first_input_id: BoxId) -> ExecutionContext {
         ExecutionContext {
@@ -71,18 +71,18 @@ impl<TNetwork, TBacklog, TPools, TBundles, TFunding>
 }
 
 #[async_trait(?Send)]
-impl<TNetwork, TBacklog, TPools, TBundles, TFunding> Executor
-    for OrderExecutor<TNetwork, TBacklog, TPools, TBundles, TFunding>
+impl<TNetwork, TBacklog, TPools, TBundles, TFunding, TProver> Executor
+    for OrderExecutor<TNetwork, TBacklog, TPools, TBundles, TFunding, TProver>
 where
     TNetwork: ErgoNetwork,
     TBacklog: Backlog<Order>,
     TPools: BoxResolver<AsBox<Pool>>,
     TBundles: BundleRepo,
     TFunding: FundingRepo,
+    TProver: SigmaProver,
 {
     async fn execute_next(&mut self) {
-        let mut backlog = self.backlog.lock();
-        if let Some(ord) = backlog.try_pop().await {
+        if let Some(ord) = self.backlog.lock().try_pop().await {
             let entity_id = ord.get_entity_ref();
             let mut pool_resolver = self.pool_repo.lock();
             if let Some(pool) = pool_resolver.get(entity_id).await {
@@ -123,9 +123,10 @@ where
                             return;
                         }
                     }
-                    (Order::Compound(_), _) => {
-                        Err(RunOrderError::Fatal(format!("No bundles found for Compound"), ord.clone()))
-                    }
+                    (Order::Compound(_), _) => Err(RunOrderError::Fatal(
+                        format!("No bundles found for Compound"),
+                        ord.clone(),
+                    )),
                     (Order::Redeem(redeem), None) => {
                         error!("Bunle not found for Redeem [{:?}]", redeem.get_self_ref());
                         return;
@@ -133,58 +134,68 @@ where
                 };
                 match run_result {
                     Ok((tx, next_pool, next_bundles, residual_funding)) => {
-                        if let Err(client_err) = self.network.submit_tx(tx.into_tx_without_proofs()).await {
-                            // Note, here `submit_tx(tx)` can fail not only bc pool state is consumed,
-                            // but also bc bundle is consumed, what is less possible though. That's why
-                            // we just invalidate pool.
-                            // todo: In the future more precise error handling may be possible if we
-                            // todo: implement a way to find out which input failed exactly.
-                            warn!("Execution failed while submitting tx due to {}", client_err);
-                            pool_resolver
-                                .invalidate(pool.get_self_ref(), pool.get_self_state_ref())
-                                .await;
-                            backlog.recharge(ord).await; // Return order to backlog
-                        } else {
-                            pool_resolver
-                                .put(Traced {
-                                    state: next_pool,
-                                    prev_state_id: Some(pool.get_self_state_ref()),
-                                })
-                                .await;
-                            if let Some(residual_funding) = residual_funding {
-                                self.funding_repo.lock().put_predicted(residual_funding).await;
-                            }
-                            let bundle_resolver = self.bundle_repo.lock();
-                            for bundle_st in next_bundles.into_iter().zip_longest(bundles) {
-                                match bundle_st {
-                                    EitherOrBoth::Both(next_bundle, prev_bundle) => {
-                                        bundle_resolver
-                                            .put_predicated(Traced {
-                                                state: next_bundle,
-                                                prev_state_id: Some(prev_bundle.1.get_self_state_ref()),
-                                            })
-                                            .await
+                        match self.prover.sign(tx) {
+                            Ok(tx) => {
+                                if let Err(client_err) = self.network.submit_tx(tx).await {
+                                    // Note, here `submit_tx(tx)` can fail not only bc pool state is consumed,
+                                    // but also bc bundle is consumed, what is less possible though. That's why
+                                    // we just invalidate pool.
+                                    // todo: In the future more precise error handling may be possible if we
+                                    // todo: implement a way to find out which input failed exactly.
+                                    warn!("Execution failed while submitting tx due to {}", client_err);
+                                    pool_resolver
+                                        .invalidate(pool.get_self_ref(), pool.get_self_state_ref())
+                                        .await;
+                                    self.backlog.lock().recharge(ord).await; // Return order to backlog
+                                } else {
+                                    pool_resolver
+                                        .put(Traced {
+                                            state: next_pool,
+                                            prev_state_id: Some(pool.get_self_state_ref()),
+                                        })
+                                        .await;
+                                    if let Some(residual_funding) = residual_funding {
+                                        self.funding_repo.lock().put_predicted(residual_funding).await;
                                     }
-                                    EitherOrBoth::Left(next_bundle) => {
-                                        bundle_resolver
-                                            .put_predicated(Traced {
-                                                state: next_bundle,
-                                                prev_state_id: None,
-                                            })
-                                            .await
+                                    for bundle_st in next_bundles.into_iter().zip_longest(bundles) {
+                                        match bundle_st {
+                                            EitherOrBoth::Both(next_bundle, prev_bundle) => {
+                                                self.bundle_repo
+                                                    .lock()
+                                                    .put_predicted(Traced {
+                                                        state: next_bundle,
+                                                        prev_state_id: Some(
+                                                            prev_bundle.1.get_self_state_ref(),
+                                                        ),
+                                                    })
+                                                    .await
+                                            }
+                                            EitherOrBoth::Left(next_bundle) => {
+                                                self.bundle_repo
+                                                    .lock()
+                                                    .put_predicted(Traced {
+                                                        state: next_bundle,
+                                                        prev_state_id: None,
+                                                    })
+                                                    .await
+                                            }
+                                            EitherOrBoth::Right(_) => {}
+                                        }
                                     }
-                                    EitherOrBoth::Right(_) => {}
                                 }
+                            }
+                            Err(prove_err) => {
+                                error!("Failed to sign transaction due to {}", prove_err);
                             }
                         }
                     }
                     Err(RunOrderError::NonFatal(err, ord)) => {
                         warn!("Order suspended due to non-fatal error {}", err);
-                        backlog.suspend(ord).await;
+                        self.backlog.lock().suspend(ord).await;
                     }
                     Err(RunOrderError::Fatal(err, ord)) => {
                         warn!("Order dropped due to fatal error {}", err);
-                        backlog.remove(ord.get_self_ref()).await;
+                        self.backlog.lock().remove(ord.get_self_ref()).await;
                     }
                 }
             }
