@@ -2,7 +2,6 @@ use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBoxCandidate, NonMandatoryRegis
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 
 use spectrum_offchain::event_sink::handlers::types::IntoBoxCandidate;
-use crate::data::FundingId;
 
 use crate::ergo::NanoErg;
 
@@ -14,7 +13,13 @@ pub struct DistributionFunding {
 
 impl IntoBoxCandidate for DistributionFunding {
     fn into_candidate(self, height: u32) -> ErgoBoxCandidate {
-        todo!()
+        ErgoBoxCandidate {
+            value: self.erg_value.into(),
+            ergo_tree: self.prop,
+            tokens: None,
+            additional_registers: NonMandatoryRegisters::empty(),
+            creation_height: height,
+        }
     }
 }
 

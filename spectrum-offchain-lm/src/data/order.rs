@@ -4,8 +4,10 @@ use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
 use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
-use ergo_lib::ergotree_ir::mir::constant::TryExtractInto;
+use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
 use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
+use indexmap::IndexMap;
+use itertools::Itertools;
 use nonempty::NonEmpty;
 use type_equalities::IsEqual;
 
@@ -89,15 +91,6 @@ impl RunOrder for Compound {
         let unwrapped_bundles = bundles.clone().into_iter().map(|AsBox(_, b)| b).collect();
         match pool.distribute_rewards(unwrapped_bundles, funding.clone().map(|AsBox(_, f)| f)) {
             Ok((next_pool, next_bundles, next_funding, rewards)) => {
-                let inputs = TxIoVec::from_vec(
-                    vec![pool_in]
-                        .into_iter()
-                        .chain(funding.map(|AsBox(i, _)| i))
-                        .chain(bundles.iter().map(|AsBox(bx, _)| bx.clone()))
-                        .map(|bx| (bx, ContextExtension::empty())) // todo
-                        .collect::<Vec<_>>(),
-                )
-                .unwrap();
                 let outputs = TxIoVec::from_vec(
                     vec![next_pool.clone().into_candidate(ctx.height)]
                         .into_iter()
@@ -117,6 +110,42 @@ impl RunOrder for Compound {
                         .collect(),
                 )
                 .unwrap();
+                let inputs =
+                    TxIoVec::from_vec(
+                        vec![pool_in]
+                            .into_iter()
+                            .chain(funding.map(|AsBox(i, _)| i))
+                            .map(|bx| (bx, ContextExtension::empty()))
+                            .chain(bundles.iter().map(|AsBox(bx, _)| bx.clone()).enumerate().map(
+                                |(i, bx)| {
+                                    let redeemer_prop = ErgoTree::sigma_parse_bytes(
+                                        &*bx.additional_registers
+                                            .get(NonMandatoryRegisterId::R4)
+                                            .unwrap()
+                                            .as_option_constant()
+                                            .cloned()
+                                            .unwrap()
+                                            .try_extract_into::<Vec<u8>>()
+                                            .unwrap(),
+                                    )
+                                    .unwrap();
+                                    let (redeemer_out_ix, _) = outputs
+                                        .iter()
+                                        .find_position(|o| o.ergo_tree == redeemer_prop)
+                                        .expect("Redeemer out not found");
+                                    let (succ_ix, _) = outputs
+                                        .iter()
+                                        .find_position(|o| o.additional_registers == bx.additional_registers)
+                                        .expect("Successor out not found");
+                                    let mut constants = IndexMap::new();
+                                    constants.insert(0u8, Constant::from(redeemer_out_ix as i32));
+                                    constants.insert(1u8, Constant::from(succ_ix as i32));
+                                    (bx, ContextExtension { values: constants })
+                                },
+                            ))
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap();
                 let tx = TransactionCandidate::new(inputs, None, outputs);
                 let outputs = tx.clone().into_tx_without_proofs().outputs;
                 let next_pool_as_box = AsBox(outputs.get(0).unwrap().clone(), next_pool);
@@ -198,6 +227,7 @@ impl RunOrder for AsBox<Deposit> {
                     next_pool.clone().into_candidate(ctx.height),
                     bundle_proto.clone().into_candidate(ctx.height),
                     user_out.into_candidate(ctx.height),
+                    executor_out.into_candidate(ctx.height),
                 ])
                 .unwrap();
                 let tx = TransactionCandidate::new(inputs, None, outputs);
@@ -302,6 +332,7 @@ impl RunOrder for AsBox<Redeem> {
                 let outputs = TxIoVec::from_vec(vec![
                     next_pool.clone().into_candidate(ctx.height),
                     user_out.into_candidate(ctx.height),
+                    executor_out.into_candidate(ctx.height),
                 ])
                 .unwrap();
                 let tx = TransactionCandidate::new(inputs, None, outputs);
