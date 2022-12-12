@@ -9,4 +9,5 @@ pub struct ClientError(String);
 pub trait ErgoNetwork {
     /// Submit the given `Transaction` to Ergo network.
     async fn submit_tx(&self, tx: Transaction) -> Result<(), ClientError>;
+    async fn get_height(&self) -> u32;
 }

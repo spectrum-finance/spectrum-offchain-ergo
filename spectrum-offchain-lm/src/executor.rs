@@ -1,6 +1,8 @@
+use std::cell::Cell;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use futures::{stream, StreamExt};
@@ -56,14 +58,28 @@ pub struct OrderExecutor<TNetwork, TBacklog, TPoolResolver, TBundleResolver, TFu
     funding_repo: Arc<Mutex<TFunding>>,
     prover: TProver,
     executor_prop: ErgoTree,
+    context_cache: Cell<(u32, i64)>,
 }
+
+const CTX_TTL_SECS: i64 = 30;
 
 impl<TNetwork, TBacklog, TPools, TBundles, TFunding, TProver>
     OrderExecutor<TNetwork, TBacklog, TPools, TBundles, TFunding, TProver>
+where
+    TNetwork: ErgoNetwork,
 {
-    async fn get_context(&self, first_input_id: BoxId) -> ExecutionContext {
+    async fn make_context(&self, first_input_id: BoxId) -> ExecutionContext {
+        let (cached_height, ts) = self.context_cache.get();
+        let ts_now = Utc::now().timestamp();
+        let height = if ts_now - ts >= CTX_TTL_SECS {
+            let h = self.network.get_height().await;
+            self.context_cache.set((h, ts_now));
+            h
+        } else {
+            cached_height
+        };
         ExecutionContext {
-            height: 0, // todo
+            height,
             mintable_token_id: first_input_id.into(),
             executor_prop: self.executor_prop.clone(),
         }
@@ -95,7 +111,7 @@ where
                     })
                     .collect::<Vec<_>>()
                     .await;
-                let ctx = self.get_context(pool.box_id()).await;
+                let ctx = self.make_context(pool.box_id()).await;
                 let run_result = match (ord.clone(), bundles.first().cloned()) {
                     (Order::Deposit(deposit), _) => deposit
                         .try_run(pool.clone(), (), ctx)
