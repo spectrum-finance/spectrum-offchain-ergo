@@ -27,6 +27,12 @@ impl InMemoryCache {
     }
 }
 
+impl Default for InMemoryCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait(?Send)]
 impl ChainCache for InMemoryCache {
     async fn append_block(&mut self, block: Block) {

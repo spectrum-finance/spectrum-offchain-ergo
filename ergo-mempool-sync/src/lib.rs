@@ -94,6 +94,7 @@ where
 
 const TXS_PER_REQUEST: usize = 100;
 
+#[allow(clippy::await_holding_refcell_ref)]
 async fn sync<'a, TClient: ErgoNetwork>(client: &TClient, mut state: RefMut<'a, SyncState>) {
     let mut pool: Vec<Transaction> = Vec::new();
     let mut offset = 0;

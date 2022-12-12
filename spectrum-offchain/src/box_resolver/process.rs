@@ -28,6 +28,7 @@ where
     ])
 }
 
+#[allow(clippy::await_holding_lock)]
 fn track_conf_upgrades<'a, TRepo, TEntity>(
     persistence: Arc<Mutex<TRepo>>,
     conf_upgrades: UnboundedReceiver<Upgrade<Confirmed<TEntity>>>,
@@ -45,6 +46,7 @@ where
     }))
 }
 
+#[allow(clippy::await_holding_lock)]
 fn track_unconf_upgrades<'a, TRepo, TEntity>(
     persistence: Arc<Mutex<TRepo>>,
     unconf_upgrades: UnboundedReceiver<Upgrade<Unconfirmed<TEntity>>>,
@@ -62,6 +64,7 @@ where
     }))
 }
 
+#[allow(clippy::await_holding_lock)]
 fn handle_rollbacks<'a, TRepo, TEntity>(
     persistence: Arc<Mutex<TRepo>>,
     rollbacks: UnboundedReceiver<UpgradeRollback<TEntity>>,
