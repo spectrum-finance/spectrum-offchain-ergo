@@ -21,9 +21,9 @@ pub struct RocksDBClient {
 #[async_trait(?Send)]
 impl<TEntity> EntityRepo<TEntity> for RocksDBClient
 where
-    TEntity: OnChainEntity + Clone + Serialize + DeserializeOwned,
-    <TEntity as OnChainEntity>::TStateId: Clone + Serialize + DeserializeOwned,
-    <TEntity as OnChainEntity>::TEntityId: Clone + Serialize + DeserializeOwned,
+    TEntity: OnChainEntity + Clone + Serialize + DeserializeOwned + Send + 'static,
+    <TEntity as OnChainEntity>::TStateId: Clone + Serialize + DeserializeOwned + Send + 'static,
+    <TEntity as OnChainEntity>::TEntityId: Clone + Serialize + DeserializeOwned + Send + 'static,
 {
     async fn get_prediction<'a>(
         &self,
@@ -33,10 +33,11 @@ where
         <TEntity as OnChainEntity>::TStateId: 'a,
     {
         let db = self.db.clone();
-        // Convert `id` into bytes here, otherwise we need a `Send` impl on `TStateId` which leads
-        // to lifetime troubles with compiler.
-        let id_bytes = predicted_key_bytes(&id);
-        if let Some(entity_bytes) = spawn_blocking(move || db.get(&id_bytes).unwrap()).await.unwrap() {
+
+        if let Some(entity_bytes) = spawn_blocking(move || db.get(&predicted_key_bytes(&id)).unwrap())
+            .await
+            .unwrap()
+        {
             match bincode::deserialize(&entity_bytes) {
                 Ok(predicted) => Some(predicted),
                 Err(_) => None,
@@ -54,10 +55,11 @@ where
         <TEntity as OnChainEntity>::TEntityId: 'a,
     {
         let db = self.db.clone();
-        // Convert `id` into bytes here, otherwise we need a `Send` impl on `TStateId` which leads
-        // to lifetime troubles with compiler.
-        let id_bytes = last_predicted_key_bytes(&id);
-        if let Some(entity_bytes) = spawn_blocking(move || db.get(&id_bytes).unwrap()).await.unwrap() {
+
+        if let Some(entity_bytes) = spawn_blocking(move || db.get(&last_predicted_key_bytes(&id)).unwrap())
+            .await
+            .unwrap()
+        {
             match bincode::deserialize(&entity_bytes) {
                 Ok(predicted) => Some(predicted),
                 Err(_) => None,
@@ -75,10 +77,11 @@ where
         <TEntity as OnChainEntity>::TEntityId: 'a,
     {
         let db = self.db.clone();
-        // Convert `id` into bytes here, otherwise we need a `Send` impl on `TStateId` which leads
-        // to lifetime troubles with compiler.
-        let id_bytes = last_confirmed_key_bytes(&id);
-        if let Some(entity_bytes) = spawn_blocking(move || db.get(&id_bytes).unwrap()).await.unwrap() {
+
+        if let Some(entity_bytes) = spawn_blocking(move || db.get(&last_confirmed_key_bytes(&id)).unwrap())
+            .await
+            .unwrap()
+        {
             match bincode::deserialize(&entity_bytes) {
                 Ok(predicted) => Some(predicted),
                 Err(_) => None,
@@ -96,10 +99,11 @@ where
         <TEntity as OnChainEntity>::TEntityId: 'a,
     {
         let db = self.db.clone();
-        // Convert `id` into bytes here, otherwise we need a `Send` impl on `TStateId` which leads
-        // to lifetime troubles with compiler.
-        let id_bytes = last_unconfirmed_key_bytes(&id);
-        if let Some(entity_bytes) = spawn_blocking(move || db.get(&id_bytes).unwrap()).await.unwrap() {
+
+        if let Some(entity_bytes) = spawn_blocking(move || db.get(&last_unconfirmed_key_bytes(&id)).unwrap())
+            .await
+            .unwrap()
+        {
             match bincode::deserialize(&entity_bytes) {
                 Ok(predicted) => Some(predicted),
                 Err(_) => None,
@@ -115,12 +119,12 @@ where
     {
         let db = self.db.clone();
 
-        let traced_entity_bytes = bincode::serialize(&entity).unwrap();
-        let entity_id_bytes = last_predicted_key_bytes(&entity.state.get_self_ref());
-        let entity_bytes = bincode::serialize(&entity.state.0).unwrap();
-        let state_id_bytes = predicted_key_bytes(&entity.state.get_self_state_ref());
-
         spawn_blocking(move || {
+            let traced_entity_bytes = bincode::serialize(&entity).unwrap();
+            let entity_id_bytes = last_predicted_key_bytes(&entity.state.get_self_ref());
+            let entity_bytes = bincode::serialize(&entity.state.0).unwrap();
+            let state_id_bytes = predicted_key_bytes(&entity.state.get_self_state_ref());
+
             let transaction = db.transaction();
             transaction.put(&entity_id_bytes, entity_bytes).unwrap();
             transaction.put(&state_id_bytes, &traced_entity_bytes).unwrap();
@@ -137,10 +141,9 @@ where
     {
         let db = self.db.clone();
 
-        let entity_bytes = bincode::serialize(&entity).unwrap();
-        let entity_id_bytes = last_confirmed_key_bytes(&entity.0.get_self_ref());
-
         spawn_blocking(move || {
+            let entity_bytes = bincode::serialize(&entity).unwrap();
+            let entity_id_bytes = last_confirmed_key_bytes(&entity.0.get_self_ref());
             db.put(&entity_id_bytes, entity_bytes).unwrap();
         })
         .await
@@ -153,10 +156,9 @@ where
     {
         let db = self.db.clone();
 
-        let entity_bytes = bincode::serialize(&entity).unwrap();
-        let entity_id_bytes = last_unconfirmed_key_bytes(&entity.0.get_self_ref());
-
         spawn_blocking(move || {
+            let entity_bytes = bincode::serialize(&entity).unwrap();
+            let entity_id_bytes = last_unconfirmed_key_bytes(&entity.0.get_self_ref());
             db.put(&entity_id_bytes, entity_bytes).unwrap();
         })
         .await
@@ -173,10 +175,6 @@ where
     {
         let db = self.db.clone();
 
-        let last_predicted_entity_id_bytes = last_predicted_key_bytes(&eid);
-        let last_unconfirmed_entity_id_bytes = last_unconfirmed_key_bytes(&eid);
-        let predicted_state_id_bytes = predicted_key_bytes(&sid);
-
         let last_predicted_state: Option<Predicted<TEntity>> = self.get_last_predicted(eid.clone()).await;
         let delete_last_predicted_key = if let Some(last_predicted_state) = last_predicted_state {
             last_predicted_state.get_self_state_ref() == sid
@@ -192,6 +190,10 @@ where
         };
 
         spawn_blocking(move || {
+            let last_predicted_entity_id_bytes = last_predicted_key_bytes(&eid);
+            let last_unconfirmed_entity_id_bytes = last_unconfirmed_key_bytes(&eid);
+            let predicted_state_id_bytes = predicted_key_bytes(&sid);
+
             let transaction = db.transaction();
 
             if delete_last_predicted_key {

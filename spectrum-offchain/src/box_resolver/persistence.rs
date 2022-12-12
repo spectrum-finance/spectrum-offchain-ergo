@@ -233,7 +233,7 @@ mod tests {
             client.put_unconfirmed(Unconfirmed(ee)).await;
 
             // Invalidate
-            <RedisClient as EntityRepo<ErgoEntity>>::invalidate(&mut client, token_ids[i], box_ids[i]).await;
+            <C as EntityRepo<ErgoEntity>>::invalidate(&mut client, token_ids[i], box_ids[i]).await;
             let predicted: Option<Predicted<ErgoEntity>> = client.get_last_predicted(token_ids[i]).await;
             let unconfirmed: Option<Unconfirmed<ErgoEntity>> =
                 client.get_last_unconfirmed(token_ids[i]).await;
