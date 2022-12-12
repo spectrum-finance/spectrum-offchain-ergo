@@ -186,7 +186,7 @@ where
     }
 
     async fn suspend(&mut self, ord: TOrd) -> bool {
-        if self.store.exists(ord.clone()).await {
+        if self.store.exists(ord.get_self_ref()).await {
             let wt = ord.weight();
             if let Some(backlog_ord) = self.store.get(ord.get_self_ref()).await {
                 self.suspended_pq.push(
@@ -203,7 +203,7 @@ where
     }
 
     async fn check_later(&mut self, ord: ProgressingOrder<TOrd>) -> bool {
-        if self.store.exists(ord.order.clone()).await {
+        if self.store.exists(ord.order.get_self_ref()).await {
             self.revisit_queue.push_back(ord.into());
             return true;
         }
@@ -241,10 +241,14 @@ where
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::fs;
+    use std::sync::Arc;
 
     use async_trait::async_trait;
     use bounded_integer::BoundedU8;
     use chrono::{Duration, Utc};
+    use ergo_chain_sync::cache::rocksdb::RocksDBClient;
+    use serde::{Deserialize, Serialize};
     use type_equalities::IsEqual;
 
     use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
@@ -253,10 +257,10 @@ mod tests {
     use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
     use crate::data::{Has, OnChainOrder};
 
-    #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Copy)]
+    #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
     struct MockOrderId(i64);
 
-    #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone)]
+    #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Serialize, Deserialize)]
     struct MockOrder {
         order_id: MockOrderId,
         weight: OrderWeight,
@@ -330,8 +334,8 @@ mod tests {
             self.inner.insert(ord.order.order_id, ord);
         }
 
-        async fn exists(&self, ord: MockOrder) -> bool {
-            self.inner.contains_key(&ord.order_id)
+        async fn exists(&self, ord_id: MockOrderId) -> bool {
+            self.inner.contains_key(&ord_id)
         }
 
         async fn drop(&mut self, ord_id: MockOrderId) {
@@ -343,12 +347,12 @@ mod tests {
         }
     }
 
-    fn setup_backlog(
+    fn setup_backlog<TStore: BacklogStore<MockOrder>>(
         order_lifespan_secs: i64,
         order_exec_time_secs: i64,
         retry_suspended_prob: u8,
-    ) -> BacklogService<MockOrder, MockBacklogStore> {
-        let store = MockBacklogStore::new();
+        store: TStore,
+    ) -> BacklogService<MockOrder, TStore> {
         let conf = BacklogConfig {
             order_lifespan: Duration::seconds(order_lifespan_secs),
             order_exec_time: Duration::seconds(order_exec_time_secs),
@@ -368,8 +372,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_suspend_existing_order() {
-        let mut backlog = setup_backlog(10, 5, 50);
+    async fn should_suspend_existing_order_mock_store() {
+        should_suspend_existing_order(MockBacklogStore::new()).await
+    }
+
+    #[tokio::test]
+    async fn should_suspend_existing_order_rocksdb() {
+        should_suspend_existing_order(make_rocksdb_client()).await
+    }
+
+    async fn should_suspend_existing_order<TStore: BacklogStore<MockOrder>>(store: TStore) {
+        let mut backlog = setup_backlog(10, 5, 50, store);
         let ord = make_order(1, 1);
         backlog.put(ord.clone().into()).await;
         let suspended = backlog.suspend(ord.order).await;
@@ -377,8 +390,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_check_later_existing_order() {
-        let mut backlog = setup_backlog(10, 5, 50);
+    async fn should_check_later_existing_order_mock_store() {
+        should_check_later_existing_order(MockBacklogStore::new()).await
+    }
+
+    #[tokio::test]
+    async fn should_check_later_existing_order_rocksdb() {
+        should_check_later_existing_order(make_rocksdb_client()).await
+    }
+
+    async fn should_check_later_existing_order<TStore: BacklogStore<MockOrder>>(store: TStore) {
+        let mut backlog = setup_backlog(10, 5, 50, store);
         let ord = make_order(1, 1);
         backlog.put(ord.clone().into()).await;
         let accepted = backlog.check_later(ord.into()).await;
@@ -386,16 +408,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_not_suspend_non_existent_order() {
-        let mut backlog = setup_backlog(10, 5, 50);
+    async fn should_not_suspend_non_existent_order_mock_store() {
+        should_not_suspend_non_existent_order(MockBacklogStore::new()).await
+    }
+
+    #[tokio::test]
+    async fn should_not_suspend_non_existent_order_rocksdb() {
+        should_not_suspend_non_existent_order(make_rocksdb_client()).await
+    }
+
+    async fn should_not_suspend_non_existent_order<TStore: BacklogStore<MockOrder>>(store: TStore) {
+        let mut backlog = setup_backlog(10, 5, 50, store);
         let ord = make_order(1, 1);
         let suspended = backlog.suspend(ord.order).await;
         assert!(!suspended)
     }
 
     #[tokio::test]
-    async fn should_not_check_later_non_existent_order() {
-        let mut backlog = setup_backlog(10, 5, 50);
+    async fn should_not_check_later_non_existent_order_mock_store() {
+        should_not_check_later_non_existent_order(MockBacklogStore::new()).await
+    }
+
+    #[tokio::test]
+    async fn should_not_check_later_non_existent_order_rocksdb() {
+        should_not_check_later_non_existent_order(make_rocksdb_client()).await
+    }
+
+    async fn should_not_check_later_non_existent_order<TStore: BacklogStore<MockOrder>>(store: TStore) {
+        let mut backlog = setup_backlog(10, 5, 50, store);
         let ord = make_order(1, 1);
         let accepted = backlog
             .check_later(ProgressingOrder {
@@ -407,8 +447,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_pop_best_order() {
-        let mut backlog = setup_backlog(10, 5, 50);
+    async fn should_pop_best_order_mock_store() {
+        should_pop_best_order(MockBacklogStore::new()).await
+    }
+
+    #[tokio::test]
+    async fn should_pop_best_order_rocksdb() {
+        should_pop_best_order(make_rocksdb_client()).await
+    }
+
+    async fn should_pop_best_order<TStore: BacklogStore<MockOrder>>(store: TStore) {
+        let mut backlog = setup_backlog(10, 5, 0, store);
         let ord1 = make_order(1, 1);
         let ord2 = make_order(2, 2);
         let ord3 = make_order(3, 3);
@@ -421,8 +470,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_always_pop_suspended_order_when_pa_100() {
-        let mut backlog = setup_backlog(10, 5, 100);
+    async fn should_always_pop_suspended_order_when_pa_100_mock_store() {
+        should_always_pop_suspended_order_when_pa_100(MockBacklogStore::new()).await
+    }
+
+    #[tokio::test]
+    async fn should_always_pop_suspended_order_when_pa_100_rocksdb() {
+        should_always_pop_suspended_order_when_pa_100(make_rocksdb_client()).await
+    }
+
+    async fn should_always_pop_suspended_order_when_pa_100<TStore: BacklogStore<MockOrder>>(store: TStore) {
+        let mut backlog = setup_backlog(10, 5, 100, store);
         let ord1 = make_order(1, 1);
         let ord2 = make_order(2, 2);
         let ord3 = make_order(3, 3);
@@ -437,8 +495,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_not_pop_suspended_order_when_pa_0() {
-        let mut backlog = setup_backlog(10, 5, 0);
+    async fn should_not_pop_suspended_order_when_pa_0_mock_store() {
+        should_not_pop_suspended_order_when_pa_0(MockBacklogStore::new()).await
+    }
+
+    #[tokio::test]
+    async fn should_not_pop_suspended_order_when_pa_0_rocksdb() {
+        should_not_pop_suspended_order_when_pa_0(make_rocksdb_client()).await
+    }
+
+    async fn should_not_pop_suspended_order_when_pa_0<TStore: BacklogStore<MockOrder>>(store: TStore) {
+        let mut backlog = setup_backlog(10, 5, 0, store);
         let ord1 = make_order(1, 1);
         let ord2 = make_order(2, 2);
         let ord3 = make_order(3, 3);
@@ -450,5 +517,12 @@ mod tests {
 
         let res = backlog.try_pop().await;
         assert_eq!(res, Some(ord2.order))
+    }
+
+    fn make_rocksdb_client() -> RocksDBClient {
+        fs::remove_dir_all("./tmp").unwrap();
+        RocksDBClient {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default("./tmp").unwrap()),
+        }
     }
 }
