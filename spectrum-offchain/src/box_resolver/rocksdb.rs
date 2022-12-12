@@ -1,6 +1,5 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
+use ergo_chain_sync::cache::rocksdb::RocksDBClient;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::task::spawn_blocking;
@@ -13,10 +12,6 @@ use super::persistence::{
     last_confirmed_key_bytes, last_predicted_key_bytes, last_unconfirmed_key_bytes, predicted_key_bytes,
     EntityRepo,
 };
-
-pub struct RocksDBClient {
-    pub db: Arc<rocksdb::OptimisticTransactionDB>,
-}
 
 #[async_trait(?Send)]
 impl<TEntity> EntityRepo<TEntity> for RocksDBClient

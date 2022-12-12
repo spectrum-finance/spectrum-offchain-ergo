@@ -73,7 +73,7 @@ pub fn last_unconfirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
 mod tests {
     use std::sync::Arc;
 
-    use ergo_chain_sync::cache::redis::RedisClient;
+    use ergo_chain_sync::cache::{redis::RedisClient, rocksdb::RocksDBClient};
     use ergo_lib::{
         ergo_chain_types::Digest32,
         ergotree_ir::chain::{ergo_box::BoxId, token::TokenId},
@@ -82,7 +82,7 @@ mod tests {
     use sigma_test_util::force_any_val;
 
     use crate::{
-        box_resolver::{persistence::EntityRepo, rocksdb::RocksDBClient},
+        box_resolver::persistence::EntityRepo,
         data::{
             unique_entity::{Confirmed, Predicted, Traced, Unconfirmed},
             OnChainEntity,
