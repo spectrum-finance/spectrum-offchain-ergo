@@ -97,27 +97,27 @@ where
     /// Try acquiring next upgrade from the network.
     /// `None` is returned when no upgrade is available at the moment.
     async fn try_upgrade(&mut self) -> Option<ChainUpgrade> {
-        let mut state = self.state.borrow_mut();
-        trace!("Processing height [{}]", state.next_height);
-        if let Some(api_blk) = self.client.get_block_at(state.next_height).await {
+        let next_height = { self.state.borrow().next_height };
+        trace!("Processing height [{}]", next_height);
+        if let Some(api_blk) = self.client.get_block_at(next_height).await {
             trace!(
                 "Processing block [{:?}] at height [{}]",
-                api_blk.header.id.clone(),
-                state.next_height
+                api_blk.header.id,
+                next_height
             );
-            let parent_id = api_blk.header.parent_id.clone();
-            let linked = self.cache.exists(parent_id.clone()).await;
+            let parent_id = api_blk.header.parent_id;
+            let linked = self.cache.exists(parent_id).await;
             if linked || api_blk.header.height == self.starting_height {
                 trace!("Chain is linked, upgrading ..");
                 let blk = Block::from(api_blk);
                 self.cache.append_block(blk.clone()).await;
-                state.upgrade();
+                self.state.borrow_mut().upgrade();
                 return Some(ChainUpgrade::RollForward(blk));
             } else {
                 // Local chain does not link anymore
                 trace!("Chain does not link, downgrading ..");
                 if let Some(discarded_blk) = self.cache.take_best_block().await {
-                    state.downgrade();
+                    self.state.borrow_mut().downgrade();
                     return Some(ChainUpgrade::RollBackward(discarded_blk));
                 }
             }

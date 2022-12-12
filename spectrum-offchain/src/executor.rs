@@ -96,6 +96,7 @@ where
     }
 }
 
+#[allow(clippy::await_holding_lock)]
 /// Construct Executor stream that drives sequential order execution.
 pub fn executor_stream<'a, TOrd, TEntity, TExecutor: Executor<TOrd, TEntity> + 'a>(
     executor: TExecutor,

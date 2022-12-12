@@ -286,11 +286,11 @@ mod tests {
         type TStateId = BoxId;
 
         fn get_self_ref(&self) -> Self::TEntityId {
-            self.token_id.clone()
+            self.token_id
         }
 
         fn get_self_state_ref(&self) -> Self::TStateId {
-            self.box_id.clone()
+            self.box_id
         }
     }
 
@@ -302,18 +302,17 @@ mod tests {
         for i in 1..n {
             let entity = Traced {
                 state: Predicted(ErgoEntity {
-                    token_id: token_ids[i].clone(),
-                    box_id: box_ids[i].clone(),
+                    token_id: token_ids[i],
+                    box_id: box_ids[i],
                 }),
-                prev_state_id: box_ids[i - 1].clone(),
+                prev_state_id: box_ids[i - 1],
             };
             client.put_predicted(entity.clone()).await;
             entities.push(entity);
         }
         for i in 1..n {
-            let e: Traced<Predicted<ErgoEntity>> = client.get_prediction(box_ids[i].clone()).await.unwrap();
-            let predicted: Predicted<ErgoEntity> =
-                client.get_last_predicted(token_ids[i].clone()).await.unwrap();
+            let e: Traced<Predicted<ErgoEntity>> = client.get_prediction(box_ids[i]).await.unwrap();
+            let predicted: Predicted<ErgoEntity> = client.get_last_predicted(token_ids[i]).await.unwrap();
             assert_eq!(e.state.0, entities[i - 1].state.0);
             assert_eq!(e.state.0, predicted.0);
         }
@@ -326,14 +325,14 @@ mod tests {
         let mut entities = vec![];
         for i in 0..n {
             let entity = Confirmed(ErgoEntity {
-                token_id: token_ids[i].clone(),
-                box_id: box_ids[i].clone(),
+                token_id: token_ids[i],
+                box_id: box_ids[i],
             });
             client.put_confirmed(entity.clone()).await;
             entities.push(entity);
         }
         for i in 0..n {
-            let e: Confirmed<ErgoEntity> = client.get_last_confirmed(token_ids[i].clone()).await.unwrap();
+            let e: Confirmed<ErgoEntity> = client.get_last_confirmed(token_ids[i]).await.unwrap();
             assert_eq!(e.0, entities[i].0);
         }
     }
@@ -345,14 +344,14 @@ mod tests {
         let mut entities = vec![];
         for i in 0..n {
             let entity = Unconfirmed(ErgoEntity {
-                token_id: token_ids[i].clone(),
-                box_id: box_ids[i].clone(),
+                token_id: token_ids[i],
+                box_id: box_ids[i],
             });
             client.put_unconfirmed(entity.clone()).await;
             entities.push(entity);
         }
         for i in 0..n {
-            let e: Unconfirmed<ErgoEntity> = client.get_last_unconfirmed(token_ids[i].clone()).await.unwrap();
+            let e: Unconfirmed<ErgoEntity> = client.get_last_unconfirmed(token_ids[i]).await.unwrap();
             assert_eq!(e.0, entities[i].0);
         }
     }
@@ -363,27 +362,21 @@ mod tests {
         let (box_ids, token_ids, n) = gen_box_and_token_ids();
         for i in 1..n {
             let ee = ErgoEntity {
-                token_id: token_ids[i].clone(),
-                box_id: box_ids[i].clone(),
+                token_id: token_ids[i],
+                box_id: box_ids[i],
             };
             let entity = Traced {
                 state: Predicted(ee.clone()),
-                prev_state_id: box_ids[i - 1].clone(),
+                prev_state_id: box_ids[i - 1],
             };
             client.put_predicted(entity.clone()).await;
             client.put_unconfirmed(Unconfirmed(ee)).await;
 
             // Invalidate
-            <RedisClient as EntityRepo<ErgoEntity>>::invalidate(
-                &mut client,
-                token_ids[i].clone(),
-                box_ids[i].clone(),
-            )
-            .await;
-            let predicted: Option<Predicted<ErgoEntity>> =
-                client.get_last_predicted(token_ids[i].clone()).await;
+            <RedisClient as EntityRepo<ErgoEntity>>::invalidate(&mut client, token_ids[i], box_ids[i]).await;
+            let predicted: Option<Predicted<ErgoEntity>> = client.get_last_predicted(token_ids[i]).await;
             let unconfirmed: Option<Unconfirmed<ErgoEntity>> =
-                client.get_last_unconfirmed(token_ids[i].clone()).await;
+                client.get_last_unconfirmed(token_ids[i]).await;
             assert!(predicted.is_none());
             assert!(unconfirmed.is_none());
         }

@@ -5,7 +5,7 @@ pub struct Url(String);
 
 impl Display for Url {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        f.write_str(&*self.0)
+        f.write_str(&self.0)
     }
 }
 

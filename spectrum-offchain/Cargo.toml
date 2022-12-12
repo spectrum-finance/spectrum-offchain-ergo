@@ -13,7 +13,7 @@ tokio = { version = "1.22.0", features = ["full"] }
 ergo-chain-sync = {  version = "0.1.0", path = "../ergo-chain-sync" }
 ergo-mempool-sync = {  version = "0.1.0", path = "../ergo-mempool-sync" }
 #ergo-lib = { version = "0.21.1", features = ["json"] }
-ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "5a3826fed9164d5ec183612a330fe19cf9994c65", features = ["json"] }
+ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "62b8dedc0577f01551b6f8be4585f39b028d70f7", features = ["json"] }
 log = "0.4.17"
 log4rs = "1.2.0"
 async-trait = "0.1.58"
@@ -31,5 +31,5 @@ redis = { version = "0.22", default-features = false }
 bincode = "1.3"
 
 [dev-dependencies]
-ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "5a3826fed9164d5ec183612a330fe19cf9994c65", features = ["json", "arbitrary"] }
+ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "62b8dedc0577f01551b6f8be4585f39b028d70f7", features = ["json", "arbitrary"] }
 sigma-test-util = "0.3"
