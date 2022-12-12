@@ -21,11 +21,6 @@ pub struct RocksDBClient {
 
 /// The Rocksdb bindings are not async, so we must wrap any uses of the library in
 /// `tokio::task::spawn_blocking`.
-///
-/// Note in this implementation that we often use both `bincode` and `serde_json` in
-/// (de)serialization. We need to do this because `Transaction` from `ergo-lib` provides only JSON
-/// (de)serialization. So we first serialize a transaction to a JSON string, and serialize the
-/// String into binary with `bincode`. Ugly, but it works.
 #[async_trait(?Send)]
 impl ChainCache for RocksDBClient {
     async fn append_block(&mut self, block: Block) {
@@ -49,6 +44,7 @@ impl ChainCache for RocksDBClient {
                 bincode::serialize(&tx_ids).unwrap(),
             );
 
+            // Each transaction is stored in an Ergo-serialized binary representation.
             let serialized_transactions = block
                 .transactions
                 .iter()
