@@ -21,7 +21,7 @@ use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::network::ErgoNetwork;
 use spectrum_offchain::transaction::TransactionCandidate;
 
-use crate::bundle::BundleRepo;
+use crate::bundle::{resolve_bundle_state, BundleRepo};
 use crate::data::context::ExecutionContext;
 use crate::data::order::Order;
 use crate::data::pool::Pool;
@@ -127,8 +127,8 @@ where
                 let bundle_resolver = Arc::clone(&self.bundle_repo);
                 let bundles = stream::iter(bundle_ids.iter())
                     .scan((), move |_, bundle_id| {
-                        let bundle_resolver = Arc::clone(&bundle_resolver);
-                        async move { bundle_resolver.lock().get(*bundle_id).await }
+                        let bundle_repo = Arc::clone(&bundle_resolver);
+                        async move { resolve_bundle_state(*bundle_id, bundle_repo).await }
                     })
                     .collect::<Vec<_>>()
                     .await;
@@ -180,12 +180,14 @@ where
                                     // todo: In the future more precise error handling may be possible if we
                                     // todo: implement a way to find out which input failed exactly.
                                     warn!("Execution failed while submitting tx due to {}", client_err);
-                                    self.pool_repo.lock()
+                                    self.pool_repo
+                                        .lock()
                                         .invalidate(pool.get_self_ref(), pool.get_self_state_ref())
                                         .await;
                                     self.backlog.lock().recharge(ord).await; // Return order to backlog
                                 } else {
-                                    self.pool_repo.lock()
+                                    self.pool_repo
+                                        .lock()
                                         .put_predicted(Traced {
                                             state: next_pool,
                                             prev_state_id: Some(pool.get_self_state_ref()),
