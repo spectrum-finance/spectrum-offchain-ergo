@@ -6,6 +6,12 @@ pub trait TryFromBox: Sized {
     fn try_from_box(bx: ErgoBox) -> Option<Self>;
 }
 
+/// Used to convert `ErgoBox` to domain entity.
+pub trait TryFromBoxCtx<TCtx>: Sized {
+    /// Try to extract some domain entity from given `ErgoBox`.
+    fn try_from_box(bx: ErgoBox, ctx: TCtx) -> Option<Self>;
+}
+
 /// Used to convert some domain entity to `ErgoBoxCandidate`.
 pub trait IntoBoxCandidate {
     fn into_candidate(self, height: u32) -> ErgoBoxCandidate;

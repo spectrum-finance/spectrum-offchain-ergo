@@ -77,7 +77,7 @@ pub struct ConfirmedRollbackHandler<TEntity, TRepo> {
 #[async_trait(?Send)]
 impl<TEntity, TRepo> EventHandler<LedgerTxEvent> for ConfirmedRollbackHandler<TEntity, TRepo>
 where
-    TEntity: OnChainEntity,
+    TEntity: OnChainEntity + TryFromBox,
     TEntity::TStateId: From<BoxId>,
     TRepo: EntityRepo<TEntity>,
 {
@@ -97,7 +97,19 @@ where
                 }
                 Some(LedgerTxEvent::AppliedTx { tx, timestamp })
             }
-            ev => Some(ev),
+            LedgerTxEvent::UnappliedTx(tx) => {
+                let mut is_success = false;
+                for bx in &tx.outputs {
+                    if let Some(entity) = TEntity::try_from_box(bx.clone()) {
+                        is_success = true;
+                        let _ = self.topic.send(UpgradeRollback(entity));
+                    }
+                }
+                if is_success {
+                    return None;
+                }
+                Some(LedgerTxEvent::UnappliedTx(tx))
+            }
         }
     }
 }

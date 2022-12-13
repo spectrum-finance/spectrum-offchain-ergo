@@ -20,10 +20,10 @@ use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBo
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::transaction::{TransactionCandidate, UnsignedTransactionOps};
 
+use crate::bundle::data::StakingBundle;
 use crate::data::assets::{BundleKey, Lq};
-use crate::data::bundle::StakingBundle;
 use crate::data::context::ExecutionContext;
-use crate::data::executor::DistributionFunding;
+use crate::funding::data::DistributionFunding;
 use crate::data::pool::{Pool, PoolOperationError};
 use crate::data::{AsBox, BundleId, BundleStateId, FundingId, OrderId, PoolId};
 use crate::ergo::NanoErg;

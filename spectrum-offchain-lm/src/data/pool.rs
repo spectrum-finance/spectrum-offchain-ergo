@@ -11,14 +11,15 @@ use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::domain::TypedAssetAmount;
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 
+use crate::bundle::data::{StakingBundle, StakingBundleProto};
 use crate::data::assets::{Lq, PoolNft, Reward, Tmp, VirtLq};
-use crate::data::bundle::{StakingBundle, StakingBundleProto};
 use crate::data::context::ExecutionContext;
-use crate::data::executor::{DistributionFunding, DistributionFundingProto, ExecutorOutput};
+use crate::data::executor::ExecutorOutput;
 use crate::data::order::{Deposit, Redeem};
 use crate::data::redeemer::{DepositOutput, RedeemOutput, RewardOutput};
 use crate::data::{PoolId, PoolStateId};
 use crate::ergo::{NanoErg, MAX_VALUE};
+use crate::funding::data::{DistributionFunding, DistributionFundingProto};
 use crate::validators::pool_validator;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -371,13 +372,13 @@ mod tests {
 
     use spectrum_offchain::domain::TypedAssetAmount;
 
-    use crate::data::bundle::StakingBundle;
+    use crate::bundle::data::StakingBundle;
     use crate::data::context::ExecutionContext;
-    use crate::data::executor::DistributionFunding;
     use crate::data::order::{Deposit, Redeem};
     use crate::data::pool::{Pool, ProgramConfig};
     use crate::data::{BundleStateId, FundingId, OrderId, PoolId, PoolStateId};
     use crate::ergo::{NanoErg, MAX_VALUE};
+    use crate::funding::data::DistributionFunding;
 
     fn make_pool(epoch_len: u32, epoch_num: u32, program_start: u32, program_budget: u64) -> Pool {
         Pool {

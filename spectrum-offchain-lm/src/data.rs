@@ -12,7 +12,6 @@ use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 use crate::executor::{ConsumeExtra, ProduceExtra};
 
 pub mod assets;
-pub mod bundle;
 pub mod context;
 pub mod executor;
 pub mod order;
@@ -130,7 +129,3 @@ where
         self.1.get_entity_ref()
     }
 }
-
-/// Discarded on-chain entity.
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub struct Discarded<T>(T);

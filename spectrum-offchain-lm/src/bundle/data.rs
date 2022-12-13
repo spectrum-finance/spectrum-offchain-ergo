@@ -56,7 +56,7 @@ impl IntoBoxCandidate for StakingBundleProto {
                 TokenId::from(self.pool_id).sigma_serialize_bytes().unwrap(),
             )),
         ])
-        .unwrap();
+            .unwrap();
         ErgoBoxCandidate {
             value: BoxValue::from(self.erg_value),
             ergo_tree: bundle_validator(),
@@ -142,7 +142,7 @@ impl TryFromBox for StakingBundle {
                         .try_extract_into::<Vec<u8>>()
                         .ok()?,
                 )
-                .ok()?;
+                    .ok()?;
                 let bundle_key = TokenId::from(
                     Digest32::try_from(
                         bx.additional_registers
@@ -153,7 +153,7 @@ impl TryFromBox for StakingBundle {
                             .try_extract_into::<Vec<u8>>()
                             .ok()?,
                     )
-                    .ok()?,
+                        .ok()?,
                 );
                 let pool_id = TokenId::from(
                     Digest32::try_from(
@@ -165,7 +165,7 @@ impl TryFromBox for StakingBundle {
                             .try_extract_into::<Vec<u8>>()
                             .ok()?,
                     )
-                    .ok()?,
+                        .ok()?,
                 );
                 let vlq = tokens.get(0)?.clone();
                 let tmp = tokens.get(1)?.clone();
