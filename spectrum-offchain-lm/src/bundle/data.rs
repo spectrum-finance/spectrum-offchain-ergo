@@ -68,6 +68,7 @@ impl IntoBoxCandidate for StakingBundleProto {
 }
 
 /// Guards virtual liquidity and temporal tokens.
+/// Staking Bundle is a persistent, self-reproducible, on-chain entity.
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct StakingBundle {
     pub bundle_key_id: TypedAsset<BundleKey>,
