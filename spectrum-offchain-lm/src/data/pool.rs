@@ -14,7 +14,7 @@ use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBo
 use crate::data::assets::{Lq, PoolNft, Reward, Tmp, VirtLq};
 use crate::data::bundle::{StakingBundle, StakingBundleProto};
 use crate::data::context::ExecutionContext;
-use crate::data::executor::{DistributionFunding, ExecutorOutput};
+use crate::data::executor::{DistributionFunding, DistributionFundingProto, ExecutorOutput};
 use crate::data::order::{Deposit, Redeem};
 use crate::data::redeemer::{DepositOutput, RedeemOutput, RewardOutput};
 use crate::data::{PoolId, PoolStateId};
@@ -172,7 +172,7 @@ impl Pool {
         (
             Pool,
             Vec<StakingBundle>,
-            Option<DistributionFunding>,
+            Option<DistributionFundingProto>,
             Vec<RewardOutput>,
         ),
         PoolOperationError,
@@ -215,7 +215,7 @@ impl Pool {
         let funds_total: NanoErg = funding.iter().map(|f| f.erg_value).sum();
         let funds_remain = funds_total - accumulated_cost;
         let next_funding_box = if funds_remain >= NanoErg::from(BoxValue::SAFE_USER_MIN) {
-            Some(DistributionFunding {
+            Some(DistributionFundingProto {
                 prop: funding.head.prop,
                 erg_value: funds_remain,
             })
@@ -376,7 +376,7 @@ mod tests {
     use crate::data::executor::DistributionFunding;
     use crate::data::order::{Deposit, Redeem};
     use crate::data::pool::{Pool, ProgramConfig};
-    use crate::data::{BundleStateId, OrderId, PoolId, PoolStateId};
+    use crate::data::{BundleStateId, FundingId, OrderId, PoolId, PoolStateId};
     use crate::ergo::{NanoErg, MAX_VALUE};
 
     fn make_pool(epoch_len: u32, epoch_num: u32, program_start: u32, program_budget: u64) -> Pool {
@@ -517,6 +517,7 @@ mod tests {
         let (pool_3, bundle_b, _output_b, rew) =
             pool_2.clone().apply_deposit(deposit_b.clone(), ctx_1).unwrap();
         let funding = nonempty![DistributionFunding {
+            id: FundingId::from(BoxId::from(random_digest())),
             prop: trivial_prop(),
             erg_value: NanoErg::from(2000000000u64),
         }];

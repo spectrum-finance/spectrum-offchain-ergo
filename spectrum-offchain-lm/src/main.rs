@@ -15,6 +15,7 @@ pub mod scheduler;
 pub mod bundle;
 pub mod funding;
 pub mod prover;
+pub mod event_sink;
 
 #[tokio::main]
 async fn main() {

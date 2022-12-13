@@ -14,10 +14,10 @@ use crate::executor::{ConsumeExtra, ProduceExtra};
 pub mod assets;
 pub mod bundle;
 pub mod context;
+pub mod executor;
 pub mod order;
 pub mod pool;
 pub mod redeemer;
-pub mod executor;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
 pub struct FundingId(BoxId);
@@ -130,3 +130,7 @@ where
         self.1.get_entity_ref()
     }
 }
+
+/// Discarded on-chain entity.
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct Discarded<T>(T);

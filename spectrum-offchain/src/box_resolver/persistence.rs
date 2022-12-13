@@ -34,6 +34,9 @@ pub trait EntityRepo<TEntity: OnChainEntity> {
     where
         <TEntity as OnChainEntity>::TStateId: 'a,
         <TEntity as OnChainEntity>::TEntityId: 'a;
+    async fn get_state<'a>(&self, sid: TEntity::TStateId) -> Option<TEntity>
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a;
 }
 
 static PREDICTED_KEY_PREFIX: &str = "predicted:prevState:";
@@ -75,13 +78,14 @@ pub fn last_unconfirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
 mod tests {
     use std::sync::Arc;
 
-    use ergo_chain_sync::cache::{redis::RedisClient, rocksdb::RocksDBClient};
     use ergo_lib::{
         ergo_chain_types::Digest32,
         ergotree_ir::chain::{ergo_box::BoxId, token::TokenId},
     };
     use serde::{Deserialize, Serialize};
     use sigma_test_util::force_any_val;
+
+    use ergo_chain_sync::cache::{redis::RedisClient, rocksdb::RocksDBClient};
 
     use crate::{
         box_resolver::persistence::EntityRepo,
@@ -173,7 +177,7 @@ mod tests {
                     token_id: token_ids[i],
                     box_id: box_ids[i],
                 }),
-                prev_state_id: box_ids[i - 1],
+                prev_state_id: box_ids.get(i - 1).cloned(),
             };
             client.put_predicted(entity.clone()).await;
             entities.push(entity);
@@ -229,7 +233,7 @@ mod tests {
             };
             let entity = Traced {
                 state: Predicted(ee.clone()),
-                prev_state_id: box_ids[i - 1],
+                prev_state_id: box_ids.get(i - 1).cloned(),
             };
             client.put_predicted(entity.clone()).await;
             client.put_unconfirmed(Unconfirmed(ee)).await;

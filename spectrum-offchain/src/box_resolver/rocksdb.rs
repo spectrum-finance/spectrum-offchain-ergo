@@ -1,8 +1,9 @@
 use async_trait::async_trait;
-use ergo_chain_sync::cache::rocksdb::RocksDBClient;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::task::spawn_blocking;
+
+use ergo_chain_sync::cache::rocksdb::RocksDBClient;
 
 use crate::box_resolver::{Predicted, Traced};
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
@@ -205,5 +206,12 @@ where
         })
         .await
         .unwrap();
+    }
+
+    async fn get_state<'a>(&self, sid: <TEntity as OnChainEntity>::TStateId) -> Option<TEntity>
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a,
+    {
+        todo!()
     }
 }

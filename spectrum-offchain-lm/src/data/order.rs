@@ -25,7 +25,7 @@ use crate::data::bundle::StakingBundle;
 use crate::data::context::ExecutionContext;
 use crate::data::executor::DistributionFunding;
 use crate::data::pool::{Pool, PoolOperationError};
-use crate::data::{AsBox, BundleId, BundleStateId, OrderId, PoolId};
+use crate::data::{AsBox, BundleId, BundleStateId, FundingId, OrderId, PoolId};
 use crate::ergo::NanoErg;
 use crate::executor::{ConsumeExtra, ProduceExtra, RunOrder};
 use crate::validators::{deposit_validator_temp, redeem_validator_temp};
@@ -112,42 +112,39 @@ impl RunOrder for Compound {
                         .collect(),
                 )
                 .unwrap();
-                let inputs =
-                    TxIoVec::from_vec(
-                        vec![pool_in]
-                            .into_iter()
-                            .chain(funding.map(|AsBox(i, _)| i))
-                            .map(|bx| (bx, ContextExtension::empty()))
-                            .chain(bundles.iter().map(|AsBox(bx, _)| bx.clone()).enumerate().map(
-                                |(i, bx)| {
-                                    let redeemer_prop = ErgoTree::sigma_parse_bytes(
-                                        &*bx.additional_registers
-                                            .get(NonMandatoryRegisterId::R4)
-                                            .unwrap()
-                                            .as_option_constant()
-                                            .cloned()
-                                            .unwrap()
-                                            .try_extract_into::<Vec<u8>>()
-                                            .unwrap(),
-                                    )
-                                    .unwrap();
-                                    let (redeemer_out_ix, _) = outputs
-                                        .iter()
-                                        .find_position(|o| o.ergo_tree == redeemer_prop)
-                                        .expect("Redeemer out not found");
-                                    let (succ_ix, _) = outputs
-                                        .iter()
-                                        .find_position(|o| o.additional_registers == bx.additional_registers)
-                                        .expect("Successor out not found");
-                                    let mut constants = IndexMap::new();
-                                    constants.insert(0u8, Constant::from(redeemer_out_ix as i32));
-                                    constants.insert(1u8, Constant::from(succ_ix as i32));
-                                    (bx, ContextExtension { values: constants })
-                                },
-                            ))
-                            .collect::<Vec<_>>(),
-                    )
-                    .unwrap();
+                let inputs = TxIoVec::from_vec(
+                    vec![pool_in]
+                        .into_iter()
+                        .chain(funding.map(|AsBox(i, _)| i))
+                        .map(|bx| (bx, ContextExtension::empty()))
+                        .chain(bundles.iter().map(|AsBox(bx, _)| bx.clone()).map(|bx| {
+                            let redeemer_prop = ErgoTree::sigma_parse_bytes(
+                                &*bx.additional_registers
+                                    .get(NonMandatoryRegisterId::R4)
+                                    .unwrap()
+                                    .as_option_constant()
+                                    .cloned()
+                                    .unwrap()
+                                    .try_extract_into::<Vec<u8>>()
+                                    .unwrap(),
+                            )
+                            .unwrap();
+                            let (redeemer_out_ix, _) = outputs
+                                .iter()
+                                .find_position(|o| o.ergo_tree == redeemer_prop)
+                                .expect("Redeemer out not found");
+                            let (succ_ix, _) = outputs
+                                .iter()
+                                .find_position(|o| o.additional_registers == bx.additional_registers)
+                                .expect("Successor out not found");
+                            let mut constants = IndexMap::new();
+                            constants.insert(0u8, Constant::from(redeemer_out_ix as i32));
+                            constants.insert(1u8, Constant::from(succ_ix as i32));
+                            (bx, ContextExtension { values: constants })
+                        }))
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap();
                 let tx = TransactionCandidate::new(inputs, None, outputs);
                 let outputs = tx.clone().into_tx_without_proofs().outputs;
                 let next_pool_as_box = AsBox(outputs.get(0).unwrap().clone(), next_pool);
@@ -157,8 +154,11 @@ impl RunOrder for Compound {
                     .zip(Vec::from(bundle_outs).into_iter())
                     .map(|(bn, out)| Predicted(AsBox(out, bn)))
                     .collect();
-                let next_funding_as_box =
-                    next_funding.map(|nf| Predicted(AsBox(outputs.get(1).unwrap().clone(), nf)));
+                let next_funding_as_box = next_funding.map(|nf| {
+                    let out = outputs.get(1).unwrap().clone();
+                    let funding_id = FundingId::from(out.box_id());
+                    Predicted(AsBox(out, nf.complete(funding_id)))
+                });
                 Ok((
                     tx,
                     Predicted(next_pool_as_box),

@@ -1,8 +1,9 @@
 use async_trait::async_trait;
-use ergo_chain_sync::cache::redis::RedisClient;
 use redis::cmd;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+
+use ergo_chain_sync::cache::redis::RedisClient;
 
 use crate::box_resolver::{Predicted, Traced};
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
@@ -196,5 +197,12 @@ where
             .query_async(&mut conn)
             .await
             .unwrap();
+    }
+
+    async fn get_state<'a>(&self, sid: <TEntity as OnChainEntity>::TStateId) -> Option<TEntity>
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a,
+    {
+        todo!()
     }
 }
