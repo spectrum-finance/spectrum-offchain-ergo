@@ -151,14 +151,13 @@ impl Pool {
             redeemer_prop: redeem.redeemer_prop,
             erg_value: NanoErg::from(BoxValue::SAFE_USER_MIN),
         };
-        if redeem.erg_value
-            < bundle.erg_value + user_output.erg_value + NanoErg::from(BoxValue::SAFE_USER_MIN)
-        {
+        let erg_available = redeem.erg_value + bundle.erg_value;
+        if erg_available < user_output.erg_value + NanoErg::from(BoxValue::SAFE_USER_MIN) {
             return Err(PoolOperationError::Permanent(PermanentError::LowExFee));
         }
         let executor_output = ExecutorOutput {
             executor_prop: ctx.executor_prop,
-            erg_value: redeem.erg_value - user_output.erg_value,
+            erg_value: erg_available - user_output.erg_value,
         };
         Ok((next_pool, user_output, executor_output))
     }

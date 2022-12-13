@@ -50,11 +50,11 @@ pub trait RunOrder: OnChainOrder + ConsumeExtra + ProduceExtra + Sized {
     ) -> Result<(TransactionCandidate, Predicted<AsBox<Pool>>, Self::TExtraOut), RunOrderError<Self>>;
 }
 
-pub struct OrderExecutor<TNetwork, TBacklog, TPoolResolver, TBundleResolver, TFunding, TProver> {
+pub struct OrderExecutor<TNetwork, TBacklog, TPools, TBundles, TFunding, TProver> {
     network: TNetwork,
     backlog: Arc<Mutex<TBacklog>>,
-    pool_repo: Arc<Mutex<TPoolResolver>>,
-    bundle_repo: Arc<Mutex<TBundleResolver>>,
+    pool_repo: Arc<Mutex<TPools>>,
+    bundle_repo: Arc<Mutex<TBundles>>,
     funding_repo: Arc<Mutex<TFunding>>,
     prover: TProver,
     executor_prop: ErgoTree,
@@ -68,6 +68,27 @@ impl<TNetwork, TBacklog, TPools, TBundles, TFunding, TProver>
 where
     TNetwork: ErgoNetwork,
 {
+    pub fn new(
+        network: TNetwork,
+        backlog: Arc<Mutex<TBacklog>>,
+        pool_repo: Arc<Mutex<TPools>>,
+        bundle_repo: Arc<Mutex<TBundles>>,
+        funding_repo: Arc<Mutex<TFunding>>,
+        prover: TProver,
+        executor_prop: ErgoTree,
+    ) -> Self {
+        Self {
+            network,
+            backlog,
+            pool_repo,
+            bundle_repo,
+            funding_repo,
+            prover,
+            executor_prop,
+            context_cache: Cell::new((0, 0)),
+        }
+    }
+
     async fn make_context(&self, first_input_id: BoxId) -> ExecutionContext {
         let (cached_height, ts) = self.context_cache.get();
         let ts_now = Utc::now().timestamp();
@@ -200,8 +221,8 @@ where
                                     }
                                 }
                             }
-                            Err(prove_err) => {
-                                error!("Failed to sign transaction due to {}", prove_err);
+                            Err(signing_err) => {
+                                error!("Failed to sign transaction due to {}", signing_err);
                             }
                         }
                     }

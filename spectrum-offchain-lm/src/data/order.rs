@@ -1,8 +1,8 @@
 use ergo_lib::chain::transaction::TxIoVec;
 use ergo_lib::ergo_chain_types::{blake2b256_hash, Digest32};
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
-use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
+use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
@@ -12,6 +12,7 @@ use itertools::Itertools;
 use nonempty::NonEmpty;
 use type_equalities::IsEqual;
 
+use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
 use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::{Has, OnChainOrder};
 use spectrum_offchain::domain::TypedAssetAmount;
@@ -448,5 +449,19 @@ impl TryFromBox for Order {
         Deposit::try_from_box(bx.clone())
             .map(|d| Order::Deposit(AsBox(bx.clone(), d)))
             .or_else(|| Redeem::try_from_box(bx.clone()).map(|r| Order::Redeem(AsBox(bx, r))))
+    }
+}
+
+const COMPOUND_BASE_WEIGHT: u64 = 1_000_000_000_000;
+
+impl Weighted for Order {
+    fn weight(&self) -> OrderWeight {
+        match self {
+            Order::Deposit(AsBox(_, deposit)) => OrderWeight::from(<u64>::from(deposit.erg_value)),
+            Order::Redeem(AsBox(_, redeem)) => OrderWeight::from(<u64>::from(redeem.erg_value)),
+            Order::Compound(compound) => {
+                OrderWeight::from(compound.epoch_ix as u64 * compound.queue_ix as u64 * COMPOUND_BASE_WEIGHT)
+            }
+        }
     }
 }
