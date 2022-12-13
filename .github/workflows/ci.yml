@@ -31,5 +31,4 @@ jobs:
           toolchain: stable
           override: true
       - name: build and run tests
-        run: |
-          cargo test -- --test-threads=1
+        run: cargo test -- --test-threads=1
