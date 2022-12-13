@@ -12,7 +12,8 @@ use nonempty::NonEmpty;
 use parking_lot::Mutex;
 
 use spectrum_offchain::backlog::Backlog;
-use spectrum_offchain::box_resolver::BoxResolver;
+use spectrum_offchain::box_resolver::persistence::EntityRepo;
+use spectrum_offchain::box_resolver::resolve_entity_state;
 use spectrum_offchain::data::unique_entity::{Predicted, Traced};
 use spectrum_offchain::data::{Has, OnChainEntity, OnChainOrder};
 use spectrum_offchain::executor::Executor;
@@ -113,7 +114,7 @@ impl<TNetwork, TBacklog, TPools, TBundles, TFunding, TProver> Executor
 where
     TNetwork: ErgoNetwork,
     TBacklog: Backlog<Order>,
-    TPools: BoxResolver<AsBox<Pool>>,
+    TPools: EntityRepo<AsBox<Pool>>,
     TBundles: BundleRepo,
     TFunding: FundingRepo,
     TProver: SigmaProver,
@@ -121,8 +122,7 @@ where
     async fn execute_next(&mut self) {
         if let Some(ord) = self.backlog.lock().try_pop().await {
             let entity_id = ord.get_entity_ref();
-            let mut pool_resolver = self.pool_repo.lock();
-            if let Some(pool) = pool_resolver.get(entity_id).await {
+            if let Some(pool) = resolve_entity_state(entity_id, Arc::clone(&self.pool_repo)).await {
                 let bundle_ids = ord.get::<Vec<BundleId>>();
                 let bundle_resolver = Arc::clone(&self.bundle_repo);
                 let bundles = stream::iter(bundle_ids.iter())
@@ -180,13 +180,13 @@ where
                                     // todo: In the future more precise error handling may be possible if we
                                     // todo: implement a way to find out which input failed exactly.
                                     warn!("Execution failed while submitting tx due to {}", client_err);
-                                    pool_resolver
+                                    self.pool_repo.lock()
                                         .invalidate(pool.get_self_ref(), pool.get_self_state_ref())
                                         .await;
                                     self.backlog.lock().recharge(ord).await; // Return order to backlog
                                 } else {
-                                    pool_resolver
-                                        .put(Traced {
+                                    self.pool_repo.lock()
+                                        .put_predicted(Traced {
                                             state: next_pool,
                                             prev_state_id: Some(pool.get_self_state_ref()),
                                         })

@@ -9,7 +9,8 @@ use parking_lot::Mutex;
 use type_equalities::{trivial_eq, IsEqual};
 
 use crate::backlog::Backlog;
-use crate::box_resolver::BoxResolver;
+use crate::box_resolver::persistence::EntityRepo;
+use crate::box_resolver::resolve_entity_state;
 use crate::data::unique_entity::{Predicted, Traced};
 use crate::data::{OnChainEntity, OnChainOrder};
 use crate::network::ErgoNetwork;
@@ -54,42 +55,46 @@ pub trait Executor {
 }
 
 /// A generic executor suitable for cases when single order is applied to a signle entity (pool).
-pub struct OrderExecutor<TNetwork, TBacklog, TResolver, TCtx, TOrd, TEntity> {
+pub struct OrderExecutor<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity> {
     network: TNetwork,
     backlog: TBacklog,
-    resolver: TResolver,
+    entity_repo: Arc<Mutex<TEntities>>,
     ctx: TCtx,
     pd1: PhantomData<TOrd>,
     pd2: PhantomData<TEntity>,
 }
 
 #[async_trait(?Send)]
-impl<'a, TNetwork, TBacklog, TResolver, TCtx, TOrd, TEntity> Executor
-    for OrderExecutor<TNetwork, TBacklog, TResolver, TCtx, TOrd, TEntity>
+impl<'a, TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity> Executor
+    for OrderExecutor<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity>
 where
     TOrd: OnChainOrder + RunOrder<TEntity, TCtx> + Clone + Display,
     TEntity: OnChainEntity + Clone,
+    TEntity::TEntityId: Clone,
     TOrd::TEntityId: IsEqual<TEntity::TEntityId>,
     TNetwork: ErgoNetwork,
     TBacklog: Backlog<TOrd>,
-    TResolver: BoxResolver<TEntity>,
+    TEntities: EntityRepo<TEntity>,
     TCtx: Clone,
 {
     async fn execute_next(&mut self) {
         if let Some(ord) = self.backlog.try_pop().await {
             let entity_id = ord.get_entity_ref();
-            if let Some(entity) = self.resolver.get(trivial_eq().coerce(entity_id)).await {
+            let mut entity_repo = self.entity_repo.lock();
+            if let Some(entity) =
+                resolve_entity_state(trivial_eq().coerce(entity_id), Arc::clone(&self.entity_repo)).await
+            {
                 match ord.clone().try_run(entity.clone(), self.ctx.clone()) {
                     Ok((tx, next_entity_state)) => {
                         if let Err(err) = self.network.submit_tx(tx.into_tx_without_proofs()).await {
                             warn!("Execution failed while submitting tx due to {}", err);
-                            self.resolver
+                            entity_repo
                                 .invalidate(entity.get_self_ref(), entity.get_self_state_ref())
                                 .await;
                             self.backlog.recharge(ord).await; // Return order to backlog
                         } else {
-                            self.resolver
-                                .put(Traced {
+                            entity_repo
+                                .put_predicted(Traced {
                                     state: next_entity_state,
                                     prev_state_id: Some(entity.get_self_state_ref()),
                                 })
