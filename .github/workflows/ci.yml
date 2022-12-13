@@ -21,6 +21,9 @@ jobs:
       redis:
         # Docker Hub image
         image: redis
+        ports:
+          # Maps tcp port 6379 on service container to the host
+          - 6379:6379
 
     steps:
       - uses: actions/checkout@v2
