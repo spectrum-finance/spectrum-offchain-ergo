@@ -188,7 +188,7 @@ where
     }
 
     async fn suspend(&mut self, ord: TOrd) -> bool {
-        if self.store.exists(ord.clone().get_self_ref()).await {
+        if self.store.exists(ord.get_self_ref()).await {
             let wt = ord.weight();
             if let Some(backlog_ord) = self.store.get(ord.get_self_ref()).await {
                 self.suspended_pq.push(
@@ -205,7 +205,7 @@ where
     }
 
     async fn check_later(&mut self, ord: ProgressingOrder<TOrd>) -> bool {
-        if self.store.exists(ord.order.clone().get_self_ref()).await {
+        if self.store.exists(ord.order.get_self_ref()).await {
             self.revisit_queue.push_back(ord.into());
             return true;
         }
@@ -243,10 +243,14 @@ where
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::fs;
+    use std::sync::Arc;
 
     use async_trait::async_trait;
     use bounded_integer::BoundedU8;
     use chrono::{Duration, Utc};
+    use ergo_chain_sync::cache::rocksdb::RocksDBClient;
+    use serde::{Deserialize, Serialize};
     use type_equalities::IsEqual;
 
     use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
@@ -255,10 +259,10 @@ mod tests {
     use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
     use crate::data::{Has, OnChainOrder};
 
-    #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Copy)]
+    #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
     struct MockOrderId(i64);
 
-    #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone)]
+    #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Serialize, Deserialize)]
     struct MockOrder {
         order_id: MockOrderId,
         weight: OrderWeight,
@@ -311,9 +315,7 @@ mod tests {
             self.order_id
         }
 
-        fn get_entity_ref(&self) -> Self::TEntityId {
-            ()
-        }
+        fn get_entity_ref(&self) -> Self::TEntityId {}
     }
 
     struct MockBacklogStore {
@@ -334,8 +336,8 @@ mod tests {
             self.inner.insert(ord.order.order_id, ord);
         }
 
-        async fn exists(&self, order_id: MockOrderId) -> bool {
-            self.inner.contains_key(&order_id)
+        async fn exists(&self, ord_id: MockOrderId) -> bool {
+            self.inner.contains_key(&ord_id)
         }
 
         async fn drop(&mut self, ord_id: MockOrderId) {
@@ -412,7 +414,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_pop_best_order() {
-        let mut backlog = setup_backlog(10, 5, 50);
+        let mut backlog = setup_backlog(10, 5, 0);
         let ord1 = make_order(1, 1);
         let ord2 = make_order(2, 2);
         let ord3 = make_order(3, 3);
@@ -454,5 +456,36 @@ mod tests {
 
         let res = backlog.try_pop().await;
         assert_eq!(res, Some(ord2.order))
+    }
+
+    #[tokio::test]
+    async fn test_rocksdb_backlog() {
+        fs::remove_dir_all("./tmp").unwrap();
+        let mut store = RocksDBClient {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default("./tmp").unwrap()),
+        };
+        for i in 0..30 {
+            store.put(make_order(i, i as u64)).await;
+        }
+
+        for i in 0..30 {
+            assert!(<RocksDBClient as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
+            assert_eq!(
+                make_order(i, i as u64),
+                <RocksDBClient as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
+                    .await
+                    .unwrap()
+            );
+        }
+
+        for i in 0..30 {
+            <RocksDBClient as BacklogStore<MockOrder>>::drop(&mut store, MockOrderId(i)).await;
+            assert!(!<RocksDBClient as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
+            assert!(
+                <RocksDBClient as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
+                    .await
+                    .is_none()
+            )
+        }
     }
 }

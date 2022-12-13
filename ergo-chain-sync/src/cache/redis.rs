@@ -25,7 +25,7 @@ static BEST_BLOCK: &str = "best_block";
 ///  - {BEST_BLOCK} is a key which maps to a Redis list of length 2, containing the
 ///    hex-representations of the best block's ID and its parent ID, in that order.
 pub struct RedisClient {
-    pool: Pool,
+    pub pool: Pool,
 }
 
 impl RedisClient {
@@ -51,8 +51,8 @@ impl ChainCache for RedisClient {
     /// so this operation is atomic.
     async fn append_block(&mut self, block: Block) {
         let mut conn = self.pool.get().await.unwrap();
-        let block_id_hex = String::from(block.id.0.clone());
-        let parent_id_hex = String::from(block.parent_id.0.clone());
+        let block_id_hex = String::from(block.id.0);
+        let parent_id_hex = String::from(block.parent_id.0);
         let parent_id_key = concat_string!(block_id_hex, ":p");
         let block_height_key = concat_string!(block_id_hex, ":h");
         let block_transactions_key = concat_string!(block_id_hex, ":t");
@@ -167,7 +167,7 @@ impl ChainCache for RedisClient {
             let _: () = cmd("WATCH").arg(BEST_BLOCK).query_async(&mut conn).await.unwrap();
 
             if let Some(BlockRecord { id, height }) = self.get_best_block().await {
-                let block_id_hex = String::from(id.0.clone());
+                let block_id_hex = String::from(id.0);
                 let block_id_digest32 = Digest32::try_from(block_id_hex.clone()).unwrap();
                 let block_id = BlockId(block_id_digest32);
 

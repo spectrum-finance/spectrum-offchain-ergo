@@ -1,7 +1,9 @@
+use serde::{Deserialize, Serialize};
+
 use crate::data::OnChainEntity;
 
 /// A unique, persistent, self-reproducible, on-chiain entity.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Traced<TEntity: OnChainEntity> {
     pub state: TEntity,
     pub prev_state_id: Option<TEntity::TStateId>,
@@ -10,7 +12,7 @@ pub struct Traced<TEntity: OnChainEntity> {
 /// Entity contexts:
 
 /// State `T` is predicted, but not confirmed to be included into blockchain or mempool yet.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Predicted<T>(pub T);
 
 impl<T: OnChainEntity> OnChainEntity for Predicted<T> {
@@ -27,19 +29,19 @@ impl<T: OnChainEntity> OnChainEntity for Predicted<T> {
 }
 
 /// State `T` is confirmed to be included into blockchain.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Confirmed<T>(pub T);
 
 /// State `T` was observed in mempool.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Unconfirmed<T>(pub T);
 
 /// How states apply to the sequence of states of an entity:
 
 /// State is applied on top of previous states.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Upgrade<T>(pub T);
 
 /// State is discarded and should be eliminated from the sequence of upgrades.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpgradeRollback<T>(pub T);

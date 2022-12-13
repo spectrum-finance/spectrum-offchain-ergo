@@ -1,9 +1,10 @@
 use ergo_lib::chain::transaction::Transaction;
 use ergo_lib::ergo_chain_types::BlockId;
+use serde::{Deserialize, Serialize};
 
 use crate::client::model::FullBlock;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Block {
     pub id: BlockId,
     pub parent_id: BlockId,
@@ -24,7 +25,7 @@ impl From<FullBlock> for Block {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BlockRecord {
     pub id: BlockId,
     pub height: u32,

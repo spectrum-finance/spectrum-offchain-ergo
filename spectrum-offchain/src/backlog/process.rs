@@ -27,6 +27,7 @@ where
     ])
 }
 
+#[allow(clippy::await_holding_lock)]
 fn track_pending_orders<'a, TOrd, TBacklog>(
     backlog: Arc<Mutex<TBacklog>>,
     upstream: UnboundedReceiver<PendingOrder<TOrd>>,
@@ -44,6 +45,7 @@ where
     }))
 }
 
+#[allow(clippy::await_holding_lock)]
 fn track_elim_orders<'a, TOrd, TBacklog>(
     backlog: Arc<Mutex<TBacklog>>,
     upstream: UnboundedReceiver<EliminatedOrder<TOrd::TOrderId>>,

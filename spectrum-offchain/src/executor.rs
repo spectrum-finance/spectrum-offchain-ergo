@@ -110,6 +110,7 @@ where
     }
 }
 
+#[allow(clippy::await_holding_lock)]
 /// Construct Executor stream that drives sequential order execution.
 pub fn executor_stream<'a, TExecutor: Executor + 'a>(executor: TExecutor) -> impl Stream<Item = ()> + 'a {
     let executor = Arc::new(Mutex::new(executor));
