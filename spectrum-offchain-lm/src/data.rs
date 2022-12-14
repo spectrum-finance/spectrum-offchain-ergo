@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
+use serde::{Serialize, Deserialize};
 
 use derive_more::{From, Into};
 use ergo_lib::ergo_chain_types::Digest32;
@@ -30,7 +31,7 @@ impl From<BoxId> for OrderId {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Into)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Into, Serialize, Deserialize)]
 pub struct PoolId(TokenId);
 
 impl Display for PoolId {
