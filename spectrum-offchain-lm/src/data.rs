@@ -1,10 +1,14 @@
+use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
-use serde::{Serialize, Deserialize};
+use std::marker::PhantomData;
 
 use derive_more::{From, Into};
 use ergo_lib::ergo_chain_types::Digest32;
 use ergo_lib::ergotree_ir::chain::ergo_box::{BoxId, ErgoBox};
 use ergo_lib::ergotree_ir::chain::token::TokenId;
+use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
+use serde::ser::SerializeTupleStruct;
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use type_equalities::IsEqual;
 
 use spectrum_offchain::data::{Has, OnChainEntity, OnChainOrder};
@@ -19,7 +23,7 @@ pub mod order;
 pub mod pool;
 pub mod redeemer;
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Serialize, Deserialize)]
 pub struct FundingId(BoxId);
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
@@ -52,6 +56,106 @@ pub struct BundleStateId(BoxId);
 /// Something that is represented as an `ErgoBox` on-chain.
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct AsBox<T>(pub ErgoBox, pub T);
+
+impl<T> Serialize for AsBox<T>
+where
+    T: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut serde_state = match serializer.serialize_tuple_struct("AsBox", 2usize) {
+            Ok(val) => val,
+            Err(err) => {
+                return Err(err);
+            }
+        };
+        match serde_state.serialize_field(&self.0.sigma_serialize_bytes().unwrap()) {
+            Ok(val) => val,
+            Err(err) => {
+                return Err(err);
+            }
+        };
+        match serde_state.serialize_field(&self.1) {
+            Ok(val) => val,
+            Err(err) => {
+                return Err(err);
+            }
+        };
+        serde_state.end()
+    }
+}
+
+impl<'de, T> Deserialize<'de> for AsBox<T>
+where
+    T: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct Visitor<'de, T>
+        where
+            T: Deserialize<'de>,
+        {
+            marker: PhantomData<AsBox<T>>,
+            lifetime: PhantomData<&'de ()>,
+        }
+        impl<'de, T> de::Visitor<'de> for Visitor<'de, T>
+        where
+            T: Deserialize<'de>,
+        {
+            type Value = AsBox<T>;
+            fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
+                formatter.write_str("tuple struct AsBox")
+            }
+            #[inline]
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: de::SeqAccess<'de>,
+            {
+                let field0 = match match seq.next_element::<Vec<u8>>() {
+                    Ok(val) => val,
+                    Err(err) => {
+                        return Err(err);
+                    }
+                } {
+                    Some(value) => value,
+                    None => {
+                        return Err(de::Error::invalid_length(
+                            0usize,
+                            &"tuple struct AsBox with 2 elements",
+                        ));
+                    }
+                };
+                let field1 = match match seq.next_element() {
+                    Ok(val) => val,
+                    Err(err) => {
+                        return Err(err);
+                    }
+                } {
+                    Some(value) => value,
+                    None => {
+                        return Err(de::Error::invalid_length(
+                            1usize,
+                            &"tuple struct AsBox with 2 elements",
+                        ));
+                    }
+                };
+                Ok(AsBox(ErgoBox::sigma_parse_bytes(&*field0).unwrap(), field1))
+            }
+        }
+        deserializer.deserialize_tuple_struct(
+            "AsBox",
+            2usize,
+            Visitor {
+                marker: PhantomData::<AsBox<T>>,
+                lifetime: PhantomData,
+            },
+        )
+    }
+}
 
 impl<T> ConsumeExtra for AsBox<T>
 where
@@ -128,5 +232,42 @@ where
 
     fn get_entity_ref(&self) -> Self::TEntityId {
         self.1.get_entity_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ergo_lib::chain::transaction::TxId;
+    use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
+    use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisters};
+    use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
+    use ergo_lib::ergotree_ir::mir::constant::Constant;
+    use ergo_lib::ergotree_ir::mir::expr::Expr;
+
+    use crate::data::AsBox;
+
+    fn trivial_prop() -> ErgoTree {
+        ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap()
+    }
+
+    fn trivial_box() -> ErgoBox {
+        ErgoBox::new(
+            BoxValue::SAFE_USER_MIN,
+            trivial_prop(),
+            None,
+            NonMandatoryRegisters::empty(),
+            0,
+            TxId::zero(),
+            0,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn as_box_serialize_deserialize() {
+        let as_box = AsBox(trivial_box(), 0u8);
+        let bytes = bincode::serialize(&as_box).unwrap();
+        let result: AsBox<u8> = bincode::deserialize(&*bytes).unwrap();
+        assert_eq!(as_box, result)
     }
 }

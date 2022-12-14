@@ -2,6 +2,7 @@ use derive_more::{Add, Display, Div, From, Into, Mul, Sub, Sum};
 use ergo_lib::chain::transaction::prover_result::ProverResult;
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::{ContextExtension, ProofBytes};
 use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
+use serde::{Deserialize, Serialize};
 
 /// Max amount of tokens allowed in Ergo.
 pub const MAX_VALUE: u64 = 0x7fffffffffffffff;
@@ -14,7 +15,24 @@ pub fn empty_prover_result() -> ProverResult {
 }
 
 #[derive(
-    Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display, Sum, Add, Sub, Mul, Div, Into, From,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Hash,
+    Debug,
+    Display,
+    Sum,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Into,
+    From,
+    Serialize,
+    Deserialize,
 )]
 pub struct NanoErg(u64);
 

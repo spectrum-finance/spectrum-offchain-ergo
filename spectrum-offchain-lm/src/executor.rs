@@ -146,9 +146,9 @@ where
                         let funding = self
                             .funding_repo
                             .lock()
-                            .select(compound.estimated_min_value())
+                            .collect(compound.estimated_min_value())
                             .await;
-                        if let Some(funding) = NonEmpty::from_vec(funding) {
+                        if let Ok(funding) = funding {
                             compound
                                 .try_run(pool.clone(), (bundles.clone(), funding), ctx)
                                 .map(|(tx, next_pool, (next_bundles, residual_funding))| {

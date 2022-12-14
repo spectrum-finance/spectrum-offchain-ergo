@@ -2,7 +2,7 @@ use ergo_lib::ergotree_ir::chain::address::Address;
 use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, ErgoBoxCandidate, NonMandatoryRegisters};
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 
-use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox, TryFromBoxCtx};
+use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBoxCtx};
 
 use crate::data::FundingId;
 use crate::ergo::NanoErg;
@@ -59,8 +59,16 @@ pub struct EliminatedFunding(pub FundingId);
 pub struct ExecutorWallet(Address);
 
 impl TryFromBoxCtx<ExecutorWallet> for DistributionFunding {
-    fn try_from_box(bx: ErgoBox, ctx: ExecutorWallet) -> Option<Self> {
-        todo!()
+    fn try_from_box(bx: ErgoBox, ExecutorWallet(addr): ExecutorWallet) -> Option<Self> {
+        if bx.ergo_tree == addr.script().unwrap() {
+            Some(Self {
+                id: FundingId::from(bx.box_id()),
+                prop: bx.ergo_tree,
+                erg_value: bx.value.into(),
+            })
+        } else {
+            None
+        }
     }
 }
 

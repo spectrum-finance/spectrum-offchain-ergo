@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use rocksdb::{Direction, IteratorMode};
 use serde::Serialize;
 use tokio::task::spawn_blocking;
+use crate::binary::prefixed_key;
 
 use crate::data::PoolId;
 use crate::scheduler::data::{PoolSchedule, Tick};
@@ -31,13 +32,6 @@ pub struct ScheduleRepoRocksDB {
 
 static TICK_PREFIX: &str = "tick";
 static POOL_PREFIX: &str = "pool";
-
-fn prefixed_key<T: Serialize>(prefix: &str, key: &T) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(prefix).unwrap();
-    let id_bytes = bincode::serialize(&key).unwrap();
-    key_bytes.extend_from_slice(&id_bytes);
-    key_bytes
-}
 
 #[async_trait]
 impl ScheduleRepo for ScheduleRepoRocksDB {
@@ -105,7 +99,8 @@ mod tests {
 
     use ergo_lib::ergo_chain_types::Digest32;
     use ergo_lib::ergotree_ir::chain::token::TokenId;
-    use rand::{Rng, RngCore};
+    use itertools::Itertools;
+    use rand::RngCore;
 
     use crate::data::PoolId;
     use crate::scheduler::data::{PoolSchedule, Tick};
@@ -132,5 +127,31 @@ mod tests {
             client.remove(tick).await;
         }
         assert_eq!(ticks, <Vec<Tick>>::from(schedule))
+    }
+
+    #[tokio::test]
+    async fn put_interfering_schedues_peek_ticks() {
+        let mut client = rocks_db_client();
+        let schedule_1 = PoolSchedule {
+            pool_id: PoolId::from(TokenId::from(Digest32::zero())),
+            ticks: vec![(1, 10), (2, 20), (3, 30)],
+        };
+        let schedule_2 = PoolSchedule {
+            pool_id: PoolId::from(TokenId::from(Digest32::zero())),
+            ticks: vec![(1, 5), (2, 15), (3, 25), (4, 35)],
+        };
+        client.put_schedule(schedule_1.clone()).await;
+        client.put_schedule(schedule_2.clone()).await;
+        let mut ticks = Vec::new();
+        while let Some(tick) = client.peek().await {
+            ticks.push(tick);
+            client.remove(tick).await;
+        }
+        let sorted_ticks = <Vec<Tick> as From<PoolSchedule>>::from(schedule_1)
+            .into_iter()
+            .chain(<Vec<Tick> as From<PoolSchedule>>::from(schedule_2))
+            .sorted_by_key(|t| t.height)
+            .collect::<Vec<_>>();
+        assert_eq!(ticks, sorted_ticks);
     }
 }

@@ -58,7 +58,7 @@ where
                 let funding_repo = self.funding_repo.lock();
                 for i in tx.clone().inputs {
                     let fid = FundingId::from(i.box_id);
-                    if funding_repo.exists(fid.clone()).await {
+                    if funding_repo.may_exist(fid.clone()).await {
                         is_success = true;
                         let _ = self.topic.send(EliminatedFunding(fid));
                     }
