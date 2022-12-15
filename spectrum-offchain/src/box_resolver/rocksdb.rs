@@ -32,7 +32,7 @@ where
     async fn get_prediction_predecessor<'a>(
         &self,
         sid: <TEntity as OnChainEntity>::TStateId,
-    ) -> Option<Option<TEntity::TStateId>>
+    ) -> Option<TEntity::TStateId>
     where
         <TEntity as OnChainEntity>::TStateId: 'a,
     {
@@ -122,12 +122,14 @@ where
         let state_bytes = bincode::serialize(&entity).unwrap();
         let index_key = prefixed_key(LAST_PREDICTED_PREFIX, &entity.get_self_ref());
         let link_key = prefixed_key(PREDICTION_LINK_PREFIX, &entity.get_self_state_ref());
-        let prev_state_id_bytes = bincode::serialize(&prev_state_id).unwrap();
         spawn_blocking(move || {
             let tx = db.transaction();
             tx.put(state_key, state_bytes).unwrap();
             tx.put(index_key, state_id_bytes).unwrap();
-            tx.put(link_key, prev_state_id_bytes).unwrap();
+            if let Some(prev_sid) = prev_state_id {
+                let prev_state_id_bytes = bincode::serialize(&prev_sid).unwrap();
+                tx.put(link_key, prev_state_id_bytes).unwrap();
+            }
             tx.commit().unwrap();
         })
         .await

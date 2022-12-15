@@ -1,10 +1,8 @@
-use ergo_lib::ergotree_ir::chain::address::Address;
-use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, ErgoBoxCandidate, NonMandatoryRegisters};
+use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBoxCandidate, NonMandatoryRegisters};
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 
-use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox, TryFromBoxCtx};
+use spectrum_offchain::event_sink::handlers::types::IntoBoxCandidate;
 
-use crate::data::FundingId;
 use crate::ergo::NanoErg;
 
 #[derive(Eq, PartialEq, Debug, Clone)]

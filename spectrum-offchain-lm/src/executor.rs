@@ -8,7 +8,6 @@ use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use futures::{stream, StreamExt};
 use itertools::{EitherOrBoth, Itertools};
 use log::{error, warn};
-use nonempty::NonEmpty;
 use parking_lot::Mutex;
 
 use spectrum_offchain::backlog::Backlog;

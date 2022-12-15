@@ -1,18 +1,15 @@
 use async_trait::async_trait;
 
 use crate::box_resolver::{Predicted, Traced};
-use crate::data::OnChainEntity;
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
+use crate::data::OnChainEntity;
 
 /// Stores on-chain entities.
 /// Operations are atomic.
 #[async_trait(?Send)]
 pub trait EntityRepo<TEntity: OnChainEntity> {
     /// Get state id preceding given predicted state.
-    async fn get_prediction_predecessor<'a>(
-        &self,
-        id: TEntity::TStateId,
-    ) -> Option<Option<TEntity::TStateId>>
+    async fn get_prediction_predecessor<'a>(&self, id: TEntity::TStateId) -> Option<TEntity::TStateId>
     where
         <TEntity as OnChainEntity>::TStateId: 'a;
     /// Get last predicted state of the given entity.
@@ -53,8 +50,6 @@ pub trait EntityRepo<TEntity: OnChainEntity> {
         <TEntity as OnChainEntity>::TStateId: 'a;
 }
 
-/// NOTE: do not run the tests in parallel! Rocksdb will complain about lock contention. Use the
-/// following command: cargo test -- --test-threads=1
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -67,14 +62,14 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use sigma_test_util::force_any_val;
 
+    use crate::box_resolver::rocksdb::EntityRepoRocksDB;
     use crate::{
         box_resolver::persistence::EntityRepo,
         data::{
-            OnChainEntity,
             unique_entity::{Confirmed, Predicted, Traced, Unconfirmed},
+            OnChainEntity,
         },
     };
-    use crate::box_resolver::rocksdb::EntityRepoRocksDB;
 
     #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
     struct ErgoEntity {
@@ -163,7 +158,7 @@ mod tests {
             client.put_predicted(entity.clone()).await;
         }
         for i in 1..n {
-            let pred: Option<BoxId> = client.get_prediction_predecessor(box_ids[i]).await.unwrap();
+            let pred: Option<BoxId> = client.get_prediction_predecessor(box_ids[i]).await;
             assert_eq!(pred, box_ids.get(i - 1).cloned());
         }
     }
