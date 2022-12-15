@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use rocksdb::{Direction, IteratorMode};
-use serde::Serialize;
 use tokio::task::spawn_blocking;
-use crate::binary::prefixed_key;
+
+use spectrum_offchain::binary::prefixed_key;
 
 use crate::data::PoolId;
 use crate::scheduler::data::{PoolSchedule, Tick};
@@ -79,7 +79,7 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
     }
 
     async fn check_later(&mut self, tick: Tick) {
-        todo!()
+        todo!() // todo: DEV-601
     }
 
     async fn remove(&mut self, tick: Tick) {

@@ -182,7 +182,7 @@ where
                                     warn!("Execution failed while submitting tx due to {}", client_err);
                                     self.pool_repo
                                         .lock()
-                                        .invalidate(pool.get_self_ref(), pool.get_self_state_ref())
+                                        .invalidate(pool.get_self_state_ref())
                                         .await;
                                     self.backlog.lock().recharge(ord).await; // Return order to backlog
                                 } else {

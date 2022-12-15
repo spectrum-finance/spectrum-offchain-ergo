@@ -8,7 +8,7 @@ use tokio::task::spawn_blocking;
 
 use spectrum_offchain::data::unique_entity::{Confirmed, Predicted};
 
-use crate::binary::prefixed_key;
+use spectrum_offchain::binary::prefixed_key;
 use crate::data::{AsBox, FundingId};
 use crate::ergo::{NanoErg, MAX_VALUE};
 use crate::funding::data::DistributionFunding;

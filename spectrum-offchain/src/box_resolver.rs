@@ -8,7 +8,6 @@ use crate::data::OnChainEntity;
 
 pub mod persistence;
 pub mod process;
-pub mod redis;
 pub mod rocksdb;
 
 /// Get latest state of an on-chain entity `TEntity`.
@@ -57,9 +56,9 @@ where
 {
     let mut head_sid = sid;
     loop {
-        match persistence.lock().get_prediction(head_sid).await {
+        match persistence.lock().get_prediction_predecessor(head_sid).await {
             None => return false,
-            Some(Traced { prev_state_id, .. })
+            Some(prev_state_id)
                 if prev_state_id
                     .as_ref()
                     .map(|prev_sid| *prev_sid == anchoring_sid)
@@ -67,7 +66,7 @@ where
             {
                 return true
             }
-            Some(Traced { prev_state_id, .. }) => {
+            Some(prev_state_id) => {
                 if let Some(prev_sid) = prev_state_id {
                     head_sid = prev_sid
                 } else {
