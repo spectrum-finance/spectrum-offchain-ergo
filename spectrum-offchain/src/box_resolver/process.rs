@@ -66,7 +66,7 @@ where
 
 #[allow(clippy::await_holding_lock)]
 fn handle_rollbacks<'a, TRepo, TEntity>(
-    persistence: Arc<Mutex<TRepo>>,
+    repo: Arc<Mutex<TRepo>>,
     rollbacks: UnboundedReceiver<UpgradeRollback<TEntity>>,
 ) -> Pin<Box<dyn Stream<Item = ()> + 'a>>
 where
@@ -74,12 +74,9 @@ where
     TEntity: OnChainEntity + Has<TEntity::TEntityId> + Has<TEntity::TStateId> + 'a,
 {
     Box::pin(rollbacks.then(move |UpgradeRollback(et)| {
-        let pers = Arc::clone(&persistence);
+        let repo = Arc::clone(&repo);
         async move {
-            let mut pers_guard = pers.lock();
-            pers_guard
-                .invalidate(et.get::<TEntity::TEntityId>(), et.get::<TEntity::TStateId>())
-                .await;
+            repo.lock().invalidate(et.get::<TEntity::TStateId>()).await;
         }
     }))
 }

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use isahc::{prelude::*, HttpClient};
+use isahc::{HttpClient, prelude::*};
 
 use ergo_chain_sync::cache::chain_cache::InMemoryCache;
 use ergo_chain_sync::client::node::ErgoNodeHttpClient;
@@ -16,7 +16,6 @@ pub mod bundle;
 pub mod funding;
 pub mod prover;
 pub mod event_sink;
-pub mod binary;
 
 #[tokio::main]
 async fn main() {

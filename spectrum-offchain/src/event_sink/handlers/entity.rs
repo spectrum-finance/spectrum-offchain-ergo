@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
+use parking_lot::Mutex;
 use tokio::sync::mpsc::UnboundedSender;
 
 use ergo_mempool_sync::MempoolUpdate;
@@ -71,14 +74,14 @@ where
 
 pub struct ConfirmedRollbackHandler<TEntity, TRepo> {
     topic: UnboundedSender<UpgradeRollback<TEntity>>,
-    repo: TRepo,
+    repo: Arc<Mutex<TRepo>>,
 }
 
 #[async_trait(?Send)]
 impl<TEntity, TRepo> EventHandler<LedgerTxEvent> for ConfirmedRollbackHandler<TEntity, TRepo>
 where
     TEntity: OnChainEntity + TryFromBox,
-    TEntity::TStateId: From<BoxId>,
+    TEntity::TStateId: From<BoxId> + Copy,
     TRepo: EntityRepo<TEntity>,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
@@ -87,9 +90,13 @@ where
                 let mut is_success = false;
                 for i in tx.clone().inputs {
                     let state_id = TEntity::TStateId::from(i.box_id);
-                    if let Some(entity_snapshot) = self.repo.get_state(state_id).await {
-                        is_success = true;
-                        let _ = self.topic.send(UpgradeRollback(entity_snapshot));
+                    let repo = self.repo.lock();
+                    // since `repo.get_state` is an expensive operation we first check if it may exist.
+                    if repo.may_exist(state_id).await {
+                        if let Some(entity_snapshot) = repo.get_state(state_id).await {
+                            is_success = true;
+                            let _ = self.topic.send(UpgradeRollback(entity_snapshot));
+                        }
                     }
                 }
                 if is_success {
@@ -116,14 +123,14 @@ where
 
 pub struct UnconfirmedRollbackHandler<TEntity, TRepo> {
     topic: UnboundedSender<UpgradeRollback<TEntity>>,
-    repo: TRepo,
+    repo: Arc<Mutex<TRepo>>,
 }
 
 #[async_trait(?Send)]
 impl<TEntity, TRepo> EventHandler<MempoolUpdate> for UnconfirmedRollbackHandler<TEntity, TRepo>
 where
     TEntity: OnChainEntity + TryFromBox,
-    TEntity::TStateId: From<BoxId>,
+    TEntity::TStateId: From<BoxId> + Copy,
     TRepo: EntityRepo<TEntity>,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
@@ -133,9 +140,13 @@ where
                 let mut is_success = false;
                 for i in tx.clone().inputs {
                     let state_id = TEntity::TStateId::from(i.box_id);
-                    if let Some(entity) = self.repo.get_state(state_id).await {
-                        is_success = true;
-                        let _ = self.topic.send(UpgradeRollback(entity));
+                    let repo = self.repo.lock();
+                    // since `repo.get_state` is an expensive operation we first check if it may exist.
+                    if repo.may_exist(state_id).await {
+                        if let Some(entity) = repo.get_state(state_id).await {
+                            is_success = true;
+                            let _ = self.topic.send(UpgradeRollback(entity));
+                        }
                     }
                 }
                 if is_success {

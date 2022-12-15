@@ -88,9 +88,7 @@ where
                     Ok((tx, next_entity_state)) => {
                         if let Err(err) = self.network.submit_tx(tx.into_tx_without_proofs()).await {
                             warn!("Execution failed while submitting tx due to {}", err);
-                            entity_repo
-                                .invalidate(entity.get_self_ref(), entity.get_self_state_ref())
-                                .await;
+                            entity_repo.invalidate(entity.get_self_state_ref()).await;
                             self.backlog.recharge(ord).await; // Return order to backlog
                         } else {
                             entity_repo

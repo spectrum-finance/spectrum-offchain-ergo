@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use serde::Serialize;
 
 use crate::box_resolver::{Predicted, Traced};
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
@@ -9,71 +8,48 @@ use crate::data::OnChainEntity;
 /// Operations are atomic.
 #[async_trait(?Send)]
 pub trait EntityRepo<TEntity: OnChainEntity> {
-    async fn get_prediction<'a>(&self, id: TEntity::TStateId) -> Option<Traced<Predicted<TEntity>>>
+    /// Get state id preceding given predicted state.
+    async fn get_prediction_predecessor<'a>(&self, id: TEntity::TStateId) -> Option<TEntity::TStateId>
     where
         <TEntity as OnChainEntity>::TStateId: 'a;
+    /// Get last predicted state of the given entity.
     async fn get_last_predicted<'a>(&self, id: TEntity::TEntityId) -> Option<Predicted<TEntity>>
     where
         <TEntity as OnChainEntity>::TEntityId: 'a;
+    /// Get last confirmed state of the given entity.
     async fn get_last_confirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Confirmed<TEntity>>
     where
         <TEntity as OnChainEntity>::TEntityId: 'a;
+    /// Get last unconfirmed state of the given entity.
     async fn get_last_unconfirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Unconfirmed<TEntity>>
     where
         <TEntity as OnChainEntity>::TEntityId: 'a;
+    /// Persist predicted state of the entity.
     async fn put_predicted<'a>(&mut self, entity: Traced<Predicted<TEntity>>)
     where
         Traced<Predicted<TEntity>>: 'a;
+    /// Persist confirmed state of the entity.
     async fn put_confirmed<'a>(&mut self, entity: Confirmed<TEntity>)
     where
         Traced<Predicted<TEntity>>: 'a;
+    /// Persist unconfirmed state of the entity.
     async fn put_unconfirmed<'a>(&mut self, entity: Unconfirmed<TEntity>)
     where
         Traced<Predicted<TEntity>>: 'a;
-    async fn invalidate<'a>(&mut self, eid: TEntity::TEntityId, sid: TEntity::TStateId)
+    /// Invalidate particular state of the entity.
+    async fn invalidate<'a>(&mut self, sid: TEntity::TStateId)
     where
         <TEntity as OnChainEntity>::TStateId: 'a,
         <TEntity as OnChainEntity>::TEntityId: 'a;
+    /// False-positive analog of `exists()`.
+    async fn may_exist<'a>(&self, sid: TEntity::TStateId) -> bool
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a;
     async fn get_state<'a>(&self, sid: TEntity::TStateId) -> Option<TEntity>
     where
         <TEntity as OnChainEntity>::TStateId: 'a;
 }
 
-static PREDICTED_KEY_PREFIX: &str = "predicted:prevState:";
-static LAST_PREDICTED_KEY_PREFIX: &str = "predicted:last:";
-static LAST_CONFIRMED_KEY_PREFIX: &str = "confirmed:last:";
-static LAST_UNCONFIRMED_KEY_PREFIX: &str = "unconfirmed:last:";
-
-pub fn predicted_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(PREDICTED_KEY_PREFIX).unwrap();
-    let id_bytes = bincode::serialize(&id).unwrap();
-    key_bytes.extend_from_slice(&id_bytes);
-    key_bytes
-}
-
-pub fn last_predicted_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(LAST_PREDICTED_KEY_PREFIX).unwrap();
-    let id_bytes = bincode::serialize(&id).unwrap();
-    key_bytes.extend_from_slice(&id_bytes);
-    key_bytes
-}
-
-pub fn last_confirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(LAST_CONFIRMED_KEY_PREFIX).unwrap();
-    let id_bytes = bincode::serialize(&id).unwrap();
-    key_bytes.extend_from_slice(&id_bytes);
-    key_bytes
-}
-
-pub fn last_unconfirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(LAST_UNCONFIRMED_KEY_PREFIX).unwrap();
-    let id_bytes = bincode::serialize(&id).unwrap();
-    key_bytes.extend_from_slice(&id_bytes);
-    key_bytes
-}
-
-/// NOTE: do not run the tests in parallel! Rocksdb will complain about lock contention. Use the
-/// following command: cargo test -- --test-threads=1
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -82,11 +58,11 @@ mod tests {
         ergo_chain_types::Digest32,
         ergotree_ir::chain::{ergo_box::BoxId, token::TokenId},
     };
+    use rand::RngCore;
     use serde::{Deserialize, Serialize};
     use sigma_test_util::force_any_val;
 
-    use ergo_chain_sync::cache::{redis::RedisClient, rocksdb::RocksDBClient};
-
+    use crate::box_resolver::rocksdb::EntityRepoRocksDB;
     use crate::{
         box_resolver::persistence::EntityRepo,
         data::{
@@ -115,27 +91,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_redis_predicted() {
-        let client = RedisClient::new("redis://127.0.0.1/");
-        test_entity_repo_predicted(client).await;
-    }
-
-    #[tokio::test]
-    async fn test_redis_confirmed() {
-        let client = RedisClient::new("redis://127.0.0.1/");
-        test_entity_repo_confirmed(client).await;
-    }
-
-    #[tokio::test]
-    async fn test_redis_unconfirmed() {
-        let client = RedisClient::new("redis://127.0.0.1/");
-        test_entity_repo_unconfirmed(client).await;
-    }
-
-    #[tokio::test]
-    async fn test_redis_invalidate() {
-        let client = RedisClient::new("redis://127.0.0.1/");
-        test_entity_repo_invalidate(client).await;
+    async fn test_rocksdb_may_exist() {
+        let client = rocks_db_client();
+        test_entity_repo_may_exist(client).await;
     }
 
     #[tokio::test]
@@ -162,15 +120,15 @@ mod tests {
         test_entity_repo_invalidate(client).await;
     }
 
-    fn rocks_db_client() -> RocksDBClient {
-        RocksDBClient {
-            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default("./tmp").unwrap()),
+    fn rocks_db_client() -> EntityRepoRocksDB {
+        let rnd = rand::thread_rng().next_u32();
+        EntityRepoRocksDB {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
         }
     }
 
-    async fn test_entity_repo_predicted<C: EntityRepo<ErgoEntity>>(mut client: C) {
+    async fn test_entity_repo_may_exist<C: EntityRepo<ErgoEntity>>(mut client: C) {
         let (box_ids, token_ids, n) = gen_box_and_token_ids();
-        let mut entities = vec![];
         for i in 1..n {
             let entity = Traced {
                 state: Predicted(ErgoEntity {
@@ -180,13 +138,28 @@ mod tests {
                 prev_state_id: box_ids.get(i - 1).cloned(),
             };
             client.put_predicted(entity.clone()).await;
-            entities.push(entity);
         }
         for i in 1..n {
-            let e: Traced<Predicted<ErgoEntity>> = client.get_prediction(box_ids[i]).await.unwrap();
-            let predicted: Predicted<ErgoEntity> = client.get_last_predicted(token_ids[i]).await.unwrap();
-            assert_eq!(e.state.0, entities[i - 1].state.0);
-            assert_eq!(e.state.0, predicted.0);
+            let may_exist = client.may_exist(box_ids[i]).await;
+            assert!(may_exist);
+        }
+    }
+
+    async fn test_entity_repo_predicted<C: EntityRepo<ErgoEntity>>(mut client: C) {
+        let (box_ids, token_ids, n) = gen_box_and_token_ids();
+        for i in 1..n {
+            let entity = Traced {
+                state: Predicted(ErgoEntity {
+                    token_id: token_ids[i],
+                    box_id: box_ids[i],
+                }),
+                prev_state_id: box_ids.get(i - 1).cloned(),
+            };
+            client.put_predicted(entity.clone()).await;
+        }
+        for i in 1..n {
+            let pred: Option<BoxId> = client.get_prediction_predecessor(box_ids[i]).await;
+            assert_eq!(pred, box_ids.get(i - 1).cloned());
         }
     }
 
@@ -239,7 +212,7 @@ mod tests {
             client.put_unconfirmed(Unconfirmed(ee)).await;
 
             // Invalidate
-            <C as EntityRepo<ErgoEntity>>::invalidate(&mut client, token_ids[i], box_ids[i]).await;
+            <C as EntityRepo<ErgoEntity>>::invalidate(&mut client, box_ids[i]).await;
             let predicted: Option<Predicted<ErgoEntity>> = client.get_last_predicted(token_ids[i]).await;
             let unconfirmed: Option<Unconfirmed<ErgoEntity>> =
                 client.get_last_unconfirmed(token_ids[i]).await;
