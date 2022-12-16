@@ -3,7 +3,7 @@ use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
 use ergo_lib::ergotree_ir::chain::ergo_box::{
     BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters, RegisterValue,
 };
-use ergo_lib::ergotree_ir::chain::token::{Token, TokenId};
+use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount, TokenId};
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
 use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
@@ -44,19 +44,24 @@ impl StakingBundleProto {
 
 impl IntoBoxCandidate for StakingBundleProto {
     fn into_candidate(self, height: u32) -> ErgoBoxCandidate {
-        let tokens = BoxTokens::from_vec(vec![Token::from(self.vlq), Token::from(self.tmp)]).unwrap();
+        let tokens = BoxTokens::from_vec(vec![
+            Token::from(self.vlq),
+            Token::from(self.tmp),
+            Token {
+                token_id: self.bundle_key_id.token_id,
+                amount: TokenAmount::try_from(BUNDLE_KEY_AMOUNT).unwrap(),
+            },
+        ])
+        .unwrap();
         let registers = NonMandatoryRegisters::try_from(vec![
             RegisterValue::Parsed(Constant::from(
                 self.redeemer_prop.sigma_serialize_bytes().unwrap(),
             )),
             RegisterValue::Parsed(Constant::from(
-                self.bundle_key_id.token_id.sigma_serialize_bytes().unwrap(),
-            )),
-            RegisterValue::Parsed(Constant::from(
                 TokenId::from(self.pool_id).sigma_serialize_bytes().unwrap(),
             )),
         ])
-            .unwrap();
+        .unwrap();
         ErgoBoxCandidate {
             value: BoxValue::from(self.erg_value),
             ergo_tree: bundle_validator(),
@@ -66,6 +71,8 @@ impl IntoBoxCandidate for StakingBundleProto {
         }
     }
 }
+
+pub const BUNDLE_KEY_AMOUNT: u64 = TokenAmount::MAX_RAW - 1;
 
 /// Guards virtual liquidity and temporal tokens.
 /// Staking Bundle is a persistent, self-reproducible, on-chain entity.
@@ -143,8 +150,8 @@ impl TryFromBox for StakingBundle {
                         .try_extract_into::<Vec<u8>>()
                         .ok()?,
                 )
-                    .ok()?;
-                let bundle_key = TokenId::from(
+                .ok()?;
+                let pool_id = TokenId::from(
                     Digest32::try_from(
                         bx.additional_registers
                             .get(NonMandatoryRegisterId::R5)?
@@ -154,28 +161,17 @@ impl TryFromBox for StakingBundle {
                             .try_extract_into::<Vec<u8>>()
                             .ok()?,
                     )
-                        .ok()?,
-                );
-                let pool_id = TokenId::from(
-                    Digest32::try_from(
-                        bx.additional_registers
-                            .get(NonMandatoryRegisterId::R6)?
-                            .as_option_constant()?
-                            .v
-                            .clone()
-                            .try_extract_into::<Vec<u8>>()
-                            .ok()?,
-                    )
-                        .ok()?,
+                    .ok()?,
                 );
                 let vlq = tokens.get(0)?.clone();
                 let tmp = tokens.get(1)?.clone();
+                let bundle_key = tokens.get(2)?.clone();
                 return Some(StakingBundle {
-                    bundle_key_id: TypedAsset::<BundleKey>::new(bundle_key),
+                    bundle_key_id: TypedAsset::new(bundle_key.token_id),
                     state_id: BundleStateId::from(bx.box_id()),
                     pool_id: PoolId::from(pool_id),
-                    vlq: TypedAssetAmount::<VirtLq>::from_token(vlq),
-                    tmp: TypedAssetAmount::<Tmp>::from_token(tmp),
+                    vlq: TypedAssetAmount::from_token(vlq),
+                    tmp: TypedAssetAmount::from_token(tmp),
                     redeemer_prop,
                     erg_value: NanoErg::from(bx.value),
                 });

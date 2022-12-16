@@ -10,7 +10,7 @@ use spectrum_offchain::event_sink::types::EventHandler;
 use spectrum_offchain::event_source::data::LedgerTxEvent;
 
 use crate::data::{AsBox, FundingId};
-use crate::funding::data::{DistributionFunding, EliminatedFunding, ExecutorWallet};
+use crate::data::funding::{DistributionFunding, EliminatedFunding, ExecutorWallet};
 use crate::funding::FundingRepo;
 
 pub struct ConfirmedFundingHadler {

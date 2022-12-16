@@ -9,7 +9,7 @@ use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 use spectrum_offchain::event_sink::types::EventHandler;
 use spectrum_offchain::event_source::data::LedgerTxEvent;
 
-use crate::bundle::data::StakingBundle;
+use crate::data::bundle::StakingBundle;
 use crate::bundle::BundleRepo;
 use crate::data::{AsBox, BundleStateId};
 

@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 
 use spectrum_offchain::data::unique_entity::{Confirmed, Upgrade, UpgradeRollback};
 
-use crate::bundle::data::StakingBundle;
+use crate::data::bundle::StakingBundle;
 use crate::bundle::BundleRepo;
 use crate::data::AsBox;
 

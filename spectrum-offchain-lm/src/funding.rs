@@ -10,10 +10,9 @@ use spectrum_offchain::data::unique_entity::{Confirmed, Predicted};
 
 use spectrum_offchain::binary::prefixed_key;
 use crate::data::{AsBox, FundingId};
-use crate::ergo::{NanoErg, MAX_VALUE};
-use crate::funding::data::DistributionFunding;
+use crate::ergo::{MAX_VALUE, NanoErg};
+use crate::data::funding::DistributionFunding;
 
-pub mod data;
 pub mod process;
 
 #[async_trait]
@@ -48,7 +47,7 @@ mod db_models {
 
     use crate::data::FundingId;
     use crate::ergo::NanoErg;
-    use crate::funding::data;
+    use crate::data::funding;
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
     pub struct DistributionFunding {
@@ -57,8 +56,8 @@ mod db_models {
         pub erg_value: NanoErg,
     }
 
-    impl From<data::DistributionFunding> for DistributionFunding {
-        fn from(df: data::DistributionFunding) -> Self {
+    impl From<funding::DistributionFunding> for DistributionFunding {
+        fn from(df: funding::DistributionFunding) -> Self {
             Self {
                 id: df.id,
                 prop_bytes: df.prop.sigma_serialize_bytes().unwrap(),
@@ -67,7 +66,7 @@ mod db_models {
         }
     }
 
-    impl From<DistributionFunding> for data::DistributionFunding {
+    impl From<DistributionFunding> for funding::DistributionFunding {
         fn from(df: DistributionFunding) -> Self {
             Self {
                 id: df.id,
@@ -207,7 +206,7 @@ mod test {
 
     use crate::data::{AsBox, FundingId};
     use crate::ergo::NanoErg;
-    use crate::funding::data::DistributionFunding;
+    use crate::data::funding::DistributionFunding;
     use crate::funding::{FundingRepo, FundingRepoRocksDB};
 
     fn rocks_db_client() -> FundingRepoRocksDB {

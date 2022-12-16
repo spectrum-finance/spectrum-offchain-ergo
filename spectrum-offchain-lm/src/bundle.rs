@@ -5,10 +5,9 @@ use parking_lot::Mutex;
 
 use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
 
-use crate::bundle::data::StakingBundle;
+use crate::data::bundle::StakingBundle;
 use crate::data::{AsBox, BundleId, BundleStateId, PoolId};
 
-pub mod data;
 pub mod process;
 
 #[async_trait]

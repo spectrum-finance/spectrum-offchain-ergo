@@ -20,10 +20,10 @@ use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBo
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::transaction::{TransactionCandidate, UnsignedTransactionOps};
 
-use crate::bundle::data::StakingBundle;
 use crate::data::assets::{BundleKey, Lq};
+use crate::data::bundle::StakingBundle;
 use crate::data::context::ExecutionContext;
-use crate::funding::data::DistributionFunding;
+use crate::data::funding::DistributionFunding;
 use crate::data::pool::{Pool, PoolOperationError};
 use crate::data::{AsBox, BundleId, BundleStateId, FundingId, OrderId, PoolId};
 use crate::ergo::NanoErg;
@@ -178,6 +178,7 @@ pub struct Deposit {
     pub redeemer_prop: ErgoTree,
     pub lq: TypedAssetAmount<Lq>,
     pub erg_value: NanoErg,
+    pub expected_num_epochs: u32,
 }
 
 impl ConsumeExtra for Deposit {
@@ -253,7 +254,7 @@ impl TryFromBox for Deposit {
                 let order_id = OrderId::from(bx.box_id());
                 let pool_id = Digest32::try_from(
                     bx.ergo_tree
-                        .get_constant(7)
+                        .get_constant(1)
                         .ok()??
                         .v
                         .try_extract_into::<Vec<u8>>()
@@ -262,13 +263,20 @@ impl TryFromBox for Deposit {
                 .ok()?;
                 let redeemer_prop = ErgoTree::sigma_parse_bytes(
                     &*bx.ergo_tree
-                        .get_constant(2)
+                        .get_constant(3)
                         .ok()??
                         .v
                         .try_extract_into::<Vec<u8>>()
                         .ok()?,
                 )
                 .ok()?;
+                let expected_num_epochs = bx
+                    .ergo_tree
+                    .get_constant(13)
+                    .ok()??
+                    .v
+                    .try_extract_into::<i32>()
+                    .ok()?;
                 let lq = TypedAssetAmount::<Lq>::from_token(tokens.get(0)?.clone());
                 return Some(Deposit {
                     order_id,
@@ -276,6 +284,7 @@ impl TryFromBox for Deposit {
                     redeemer_prop,
                     lq,
                     erg_value: bx.value.into(),
+                    expected_num_epochs: expected_num_epochs as u32,
                 });
             }
         }
