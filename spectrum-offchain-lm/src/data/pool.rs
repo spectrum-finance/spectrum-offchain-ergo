@@ -11,15 +11,15 @@ use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::domain::TypedAssetAmount;
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 
-use crate::data::bundle::{StakingBundle, StakingBundleProto};
 use crate::data::assets::{Lq, PoolNft, Reward, Tmp, VirtLq};
+use crate::data::bundle::{StakingBundle, StakingBundleProto};
 use crate::data::context::ExecutionContext;
 use crate::data::executor::ExecutorOutput;
+use crate::data::funding::{DistributionFunding, DistributionFundingProto};
 use crate::data::order::{Deposit, Redeem};
 use crate::data::redeemer::{DepositOutput, RedeemOutput, RewardOutput};
 use crate::data::{PoolId, PoolStateId};
 use crate::ergo::{NanoErg, MAX_VALUE};
-use crate::data::funding::{DistributionFunding, DistributionFundingProto};
 use crate::validators::pool_validator;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -374,11 +374,11 @@ mod tests {
 
     use crate::data::bundle::StakingBundle;
     use crate::data::context::ExecutionContext;
+    use crate::data::funding::DistributionFunding;
     use crate::data::order::{Deposit, Redeem};
     use crate::data::pool::{Pool, ProgramConfig};
     use crate::data::{BundleStateId, FundingId, OrderId, PoolId, PoolStateId};
     use crate::ergo::{NanoErg, MAX_VALUE};
-    use crate::data::funding::DistributionFunding;
 
     fn make_pool(epoch_len: u32, epoch_num: u32, program_start: u32, program_budget: u64) -> Pool {
         Pool {
@@ -426,6 +426,7 @@ mod tests {
             redeemer_prop: trivial_prop(),
             lq: deposit_lq,
             erg_value: NanoErg::from(100000000000u64),
+            expected_num_epochs: 10,
         };
         let ctx = ExecutionContext {
             height: 9,
@@ -452,6 +453,7 @@ mod tests {
             redeemer_prop: trivial_prop(),
             lq: deposit,
             erg_value: NanoErg::from(100000000000u64),
+            expected_num_epochs: 10,
         };
         let ctx = ExecutionContext {
             height: 10,
@@ -493,6 +495,7 @@ mod tests {
             redeemer_prop: trivial_prop(),
             lq: deposit_amt_a,
             erg_value: NanoErg::from(100000000000u64),
+            expected_num_epochs: 10,
         };
         let deposit_disproportion = 2;
         let deposit_amt_b = TypedAssetAmount::new(
@@ -505,6 +508,7 @@ mod tests {
             redeemer_prop: trivial_prop(),
             lq: deposit_amt_b,
             erg_value: NanoErg::from(100000000000u64),
+            expected_num_epochs: 10,
         };
         let ctx_1 = ExecutionContext {
             height: 9,

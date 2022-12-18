@@ -183,7 +183,7 @@ impl IntoBoxCandidate for StakingBundle {
 impl TryFromBox for StakingBundle {
     fn try_from_box(bx: ErgoBox) -> Option<StakingBundle> {
         if let Some(ref tokens) = bx.tokens {
-            if tokens.len() == 2 && bx.ergo_tree == bundle_validator() {
+            if tokens.len() == 3 && bx.ergo_tree == bundle_validator() {
                 let redeemer_prop = ErgoTree::sigma_parse_bytes(
                     &bx.get_register(NonMandatoryRegisterId::R4.into())?
                         .v

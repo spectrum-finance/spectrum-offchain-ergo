@@ -140,7 +140,7 @@ mod tests {
         validators::bundle_validator,
     };
 
-    use super::{data::StakingBundle, rocksdb::BundleRepoRocksDB, BundleRepo};
+    use super::{rocksdb::BundleRepoRocksDB, BundleRepo, StakingBundle};
 
     #[tokio::test]
     async fn test_rocksdb_may_exist() {
@@ -307,11 +307,7 @@ mod tests {
                 Constant::from(redeemer_prop.sigma_serialize_bytes().unwrap()),
             );
 
-            let bundle_key = gen_from_rnd_digest_32::<TokenId>();
-
-            builder.set_register_value(NonMandatoryRegisterId::R5, Constant::from(bundle_key));
-
-            builder.set_register_value(NonMandatoryRegisterId::R6, Constant::from(pool_id));
+            builder.set_register_value(NonMandatoryRegisterId::R5, Constant::from(pool_id));
 
             let vlq = Token {
                 token_id: gen_from_rnd_digest_32::<TokenId>(),
@@ -324,6 +320,13 @@ mod tests {
 
             builder.add_token(vlq.clone());
             builder.add_token(tmp.clone());
+
+            let bundle_key = Token {
+                token_id: gen_from_rnd_digest_32::<TokenId>(),
+                amount: force_any_val::<TokenAmount>(),
+            };
+
+            builder.add_token(bundle_key.clone());
 
             let candidate = builder.build().unwrap();
 
