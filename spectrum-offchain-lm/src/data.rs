@@ -49,10 +49,10 @@ impl Display for PoolId {
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
 pub struct PoolStateId(BoxId);
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Serialize, Deserialize)]
 pub struct BundleId(TokenId);
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Serialize, Deserialize)]
 pub struct BundleStateId(BoxId);
 
 /// Something that is represented as an `ErgoBox` on-chain.
@@ -239,37 +239,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use ergo_lib::chain::transaction::TxId;
-    use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
-    use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisters};
-    use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
-    use ergo_lib::ergotree_ir::mir::constant::Constant;
-    use ergo_lib::ergotree_ir::mir::expr::Expr;
+    use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
+    use sigma_test_util::force_any_val;
 
     use crate::data::AsBox;
 
-    fn trivial_prop() -> ErgoTree {
-        ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap()
-    }
-
-    fn trivial_box() -> ErgoBox {
-        ErgoBox::new(
-            BoxValue::SAFE_USER_MIN,
-            trivial_prop(),
-            None,
-            NonMandatoryRegisters::empty(),
-            0,
-            TxId::zero(),
-            0,
-        )
-        .unwrap()
-    }
-
     #[test]
     fn as_box_serialize_deserialize() {
-        let as_box = AsBox(trivial_box(), 0u8);
+        let as_box = AsBox(force_any_val::<ErgoBox>(), 0u8);
         let bytes = bincode::serialize(&as_box).unwrap();
-        let result: AsBox<u8> = bincode::deserialize(&*bytes).unwrap();
+        let result: AsBox<u8> = bincode::deserialize(&bytes).unwrap();
         assert_eq!(as_box, result)
     }
 }
