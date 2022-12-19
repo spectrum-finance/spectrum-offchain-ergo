@@ -458,7 +458,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_rocksdb_backlog() {
-        fs::remove_dir_all("./tmp").unwrap();
+        let path = "./tmp";
+        if std::path::Path::new(path).exists() {
+            fs::remove_dir_all(path).unwrap();
+        }
         let mut store = RocksDBClient {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default("./tmp").unwrap()),
         };
