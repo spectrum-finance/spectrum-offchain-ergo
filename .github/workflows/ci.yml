@@ -35,3 +35,17 @@ jobs:
           override: true
       - name: build and run tests
         run: cargo test -- --test-threads=1
+  clippy:
+    name: Clippy (linter)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          components: clippy
+          override: true
+      - name: Check with Clippy
+        uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features -- -D warnings
