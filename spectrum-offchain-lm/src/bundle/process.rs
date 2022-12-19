@@ -8,8 +8,8 @@ use parking_lot::Mutex;
 
 use spectrum_offchain::data::unique_entity::{Confirmed, Upgrade, UpgradeRollback};
 
-use crate::data::bundle::StakingBundle;
 use crate::bundle::BundleRepo;
+use crate::data::bundle::StakingBundle;
 use crate::data::AsBox;
 
 pub fn bundle_update_stream<'a, TBundles>(
@@ -33,12 +33,7 @@ fn track_confirmed_bundle_upgrades<'a, TBundles>(
 where
     TBundles: BundleRepo + 'a,
 {
-    Box::pin(upstream.then(move |Upgrade(confirmed_bundle)| {
-        let bundles = Arc::clone(&bundles);
-        async move {
-            bundles.lock().put_confirmed(confirmed_bundle).await;
-        }
-    }))
+    todo!()
 }
 
 fn track_confirmed_bundle_rollbacks<'a, TBundles>(

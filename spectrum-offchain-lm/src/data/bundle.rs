@@ -7,13 +7,14 @@ use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount, TokenId};
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
 use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
-
 use serde::{Deserialize, Serialize};
+
 use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::domain::{TypedAsset, TypedAssetAmount};
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 
 use crate::data::assets::{BundleKey, Tmp, VirtLq};
+use crate::data::pool::{Pool, ProgramConfig};
 use crate::data::{BundleId, BundleStateId, PoolId};
 use crate::ergo::NanoErg;
 use crate::validators::bundle_validator;
@@ -215,5 +216,36 @@ impl TryFromBox for StakingBundle {
             }
         }
         None
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+pub struct IndexedBundle<B> {
+    pub bundle: B,
+    pub init_epoch_ix: u32,
+}
+
+impl IndexedBundle<StakingBundle> {
+    pub fn new(bundle: StakingBundle, conf: ProgramConfig) -> Self {
+        Self {
+            init_epoch_ix: conf.epoch_num - (bundle.tmp.amount / bundle.vlq.amount) as u32 + 1,
+            bundle,
+        }
+    }
+}
+
+impl<T> OnChainEntity for IndexedBundle<T>
+where
+    T: OnChainEntity,
+{
+    type TEntityId = T::TEntityId;
+    type TStateId = T::TStateId;
+
+    fn get_self_ref(&self) -> Self::TEntityId {
+        self.bundle.get_self_ref()
+    }
+
+    fn get_self_state_ref(&self) -> Self::TStateId {
+        self.bundle.get_self_state_ref()
     }
 }

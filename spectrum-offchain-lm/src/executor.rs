@@ -21,6 +21,7 @@ use spectrum_offchain::network::ErgoNetwork;
 use spectrum_offchain::transaction::TransactionCandidate;
 
 use crate::bundle::{resolve_bundle_state, BundleRepo};
+use crate::data::bundle::IndexedBundle;
 use crate::data::context::ExecutionContext;
 use crate::data::order::Order;
 use crate::data::pool::Pool;
@@ -122,6 +123,7 @@ where
         if let Some(ord) = self.backlog.lock().try_pop().await {
             let entity_id = ord.get_entity_ref();
             if let Some(pool) = resolve_entity_state(entity_id, Arc::clone(&self.pool_repo)).await {
+                let conf = pool.1.conf;
                 let bundle_ids = ord.get::<Vec<BundleId>>();
                 let bundle_resolver = Arc::clone(&self.bundle_repo);
                 let bundles = stream::iter(bundle_ids.iter())
@@ -179,10 +181,7 @@ where
                                     // todo: In the future more precise error handling may be possible if we
                                     // todo: implement a way to find out which input failed exactly.
                                     warn!("Execution failed while submitting tx due to {}", client_err);
-                                    self.pool_repo
-                                        .lock()
-                                        .invalidate(pool.get_self_state_ref())
-                                        .await;
+                                    self.pool_repo.lock().invalidate(pool.get_self_state_ref()).await;
                                     self.backlog.lock().recharge(ord).await; // Return order to backlog
                                 } else {
                                     self.pool_repo
@@ -201,7 +200,9 @@ where
                                                 self.bundle_repo
                                                     .lock()
                                                     .put_predicted(Traced {
-                                                        state: next_bundle,
+                                                        state: next_bundle.map(|as_box| {
+                                                            as_box.map(|b| IndexedBundle::new(b, conf))
+                                                        }),
                                                         prev_state_id: Some(
                                                             prev_bundle.1.get_self_state_ref(),
                                                         ),
@@ -212,7 +213,9 @@ where
                                                 self.bundle_repo
                                                     .lock()
                                                     .put_predicted(Traced {
-                                                        state: next_bundle,
+                                                        state: next_bundle.map(|as_box| {
+                                                            as_box.map(|b| IndexedBundle::new(b, conf))
+                                                        }),
                                                         prev_state_id: None,
                                                     })
                                                     .await

@@ -13,6 +13,10 @@ use crate::data::bundle::StakingBundle;
 use crate::bundle::BundleRepo;
 use crate::data::{AsBox, BundleStateId};
 
+/// Tracked StakingBundle events:
+/// 1. New confirmed state of StakingBundle is observed
+/// 2. A rollback of known state is observed
+
 pub struct ConfirmedBundleUpgradeHadler {
     topic: UnboundedSender<Upgrade<Confirmed<AsBox<StakingBundle>>>>,
 }
