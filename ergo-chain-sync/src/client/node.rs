@@ -5,7 +5,7 @@ use isahc::{AsyncReadResponseExt, HttpClient};
 use crate::client::model::FullBlock;
 use crate::client::types::Url;
 
-#[async_trait(? Send)]
+#[async_trait(?Send)]
 pub trait ErgoNetwork {
     async fn get_block_at(&self, height: u32) -> Option<FullBlock>;
 }
@@ -21,7 +21,7 @@ impl ErgoNodeHttpClient {
     }
 }
 
-#[async_trait(? Send)]
+#[async_trait(?Send)]
 impl ErgoNetwork for ErgoNodeHttpClient {
     async fn get_block_at(&self, height: u32) -> Option<FullBlock> {
         let blocks = self
@@ -38,7 +38,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
                 .get_async(format!(
                     "{}/blocks/{}",
                     self.base_url,
-                    base16::encode_lower(&*blocks[0].0 .0)
+                    base16::encode_lower(&blocks[0].0 .0)
                 ))
                 .await
                 .ok()?;

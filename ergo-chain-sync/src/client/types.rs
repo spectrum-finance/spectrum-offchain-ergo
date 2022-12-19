@@ -1,11 +1,11 @@
-use std::fmt::{Display, Formatter, Write};
+use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone)]
 pub struct Url(String);
 
 impl Display for Url {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        f.write_str(&*self.0)
+        f.write_str(&self.0)
     }
 }
 
