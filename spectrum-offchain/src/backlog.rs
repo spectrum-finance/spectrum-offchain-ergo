@@ -247,7 +247,7 @@ mod tests {
     use async_trait::async_trait;
     use bounded_integer::BoundedU8;
     use chrono::{Duration, Utc};
-    use ergo_chain_sync::cache::rocksdb::RocksDBClient;
+    use ergo_chain_sync::cache::rocksdb::ChainCacheRocksDB;
     use serde::{Deserialize, Serialize};
     use type_equalities::IsEqual;
 
@@ -459,7 +459,7 @@ mod tests {
     #[tokio::test]
     async fn test_rocksdb_backlog() {
         fs::remove_dir_all("./tmp").unwrap();
-        let mut store = RocksDBClient {
+        let mut store = ChainCacheRocksDB {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default("./tmp").unwrap()),
         };
         for i in 0..30 {
@@ -467,20 +467,20 @@ mod tests {
         }
 
         for i in 0..30 {
-            assert!(<RocksDBClient as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
+            assert!(<ChainCacheRocksDB as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
             assert_eq!(
                 make_order(i, i as u64),
-                <RocksDBClient as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
+                <ChainCacheRocksDB as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
                     .await
                     .unwrap()
             );
         }
 
         for i in 0..30 {
-            <RocksDBClient as BacklogStore<MockOrder>>::drop(&mut store, MockOrderId(i)).await;
-            assert!(!<RocksDBClient as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
+            <ChainCacheRocksDB as BacklogStore<MockOrder>>::drop(&mut store, MockOrderId(i)).await;
+            assert!(!<ChainCacheRocksDB as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
             assert!(
-                <RocksDBClient as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
+                <ChainCacheRocksDB as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
                     .await
                     .is_none()
             )

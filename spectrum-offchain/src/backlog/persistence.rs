@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use ergo_chain_sync::cache::rocksdb::RocksDBClient;
+use ergo_chain_sync::cache::rocksdb::ChainCacheRocksDB;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::task::spawn_blocking;
@@ -19,7 +19,7 @@ where
 }
 
 #[async_trait(?Send)]
-impl<TOrd> BacklogStore<TOrd> for RocksDBClient
+impl<TOrd> BacklogStore<TOrd> for ChainCacheRocksDB
 where
     TOrd: OnChainOrder + Serialize + DeserializeOwned + Send + 'static,
     TOrd::TOrderId: Serialize + DeserializeOwned + Send,

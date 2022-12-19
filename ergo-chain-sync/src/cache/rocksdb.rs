@@ -15,14 +15,14 @@ use super::chain_cache::ChainCache;
 
 static BEST_BLOCK: &str = "best_block";
 
-pub struct RocksDBClient {
+pub struct ChainCacheRocksDB {
     pub db: Arc<rocksdb::OptimisticTransactionDB>,
 }
 
 /// The Rocksdb bindings are not async, so we must wrap any uses of the library in
 /// `tokio::task::spawn_blocking`.
 #[async_trait(?Send)]
-impl ChainCache for RocksDBClient {
+impl ChainCache for ChainCacheRocksDB {
     async fn append_block(&mut self, block: Block) {
         let db = self.db.clone();
 

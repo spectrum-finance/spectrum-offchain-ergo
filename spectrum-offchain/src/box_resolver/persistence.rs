@@ -73,7 +73,7 @@ pub fn last_unconfirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
 mod tests {
     use std::sync::Arc;
 
-    use ergo_chain_sync::cache::{redis::RedisClient, rocksdb::RocksDBClient};
+    use ergo_chain_sync::cache::{redis::RedisClient, rocksdb::ChainCacheRocksDB};
     use ergo_lib::{
         ergo_chain_types::Digest32,
         ergotree_ir::chain::{ergo_box::BoxId, token::TokenId},
@@ -156,8 +156,8 @@ mod tests {
         test_entity_repo_invalidate(client).await;
     }
 
-    fn rocks_db_client() -> RocksDBClient {
-        RocksDBClient {
+    fn rocks_db_client() -> ChainCacheRocksDB {
+        ChainCacheRocksDB {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default("./tmp").unwrap()),
         }
     }

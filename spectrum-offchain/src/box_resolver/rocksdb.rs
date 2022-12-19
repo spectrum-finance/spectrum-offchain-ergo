@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use ergo_chain_sync::cache::rocksdb::RocksDBClient;
+use ergo_chain_sync::cache::rocksdb::ChainCacheRocksDB;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::task::spawn_blocking;
@@ -14,7 +14,7 @@ use super::persistence::{
 };
 
 #[async_trait(?Send)]
-impl<TEntity> EntityRepo<TEntity> for RocksDBClient
+impl<TEntity> EntityRepo<TEntity> for ChainCacheRocksDB
 where
     TEntity: OnChainEntity + Clone + Serialize + DeserializeOwned + Send + 'static,
     <TEntity as OnChainEntity>::TStateId: Clone + Serialize + DeserializeOwned + Send + 'static,
