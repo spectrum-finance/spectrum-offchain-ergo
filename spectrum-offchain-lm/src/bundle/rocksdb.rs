@@ -1,20 +1,18 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use itertools::FoldWhile::{Continue, Done};
-use itertools::{FoldWhile, Itertools};
 use rocksdb::{Direction, IteratorMode};
 use tokio::task::spawn_blocking;
 
 use spectrum_offchain::{
     binary::prefixed_key,
     data::{
-        unique_entity::{Confirmed, Predicted, Traced, Unconfirmed},
+        unique_entity::{Confirmed, Predicted, Traced},
         OnChainEntity,
     },
 };
 
-use crate::data::bundle::IndexedBundle;
+use crate::data::bundle::IndexedStakingBundle;
 use crate::data::{AsBox, BundleId, BundleStateId, PoolId};
 
 use super::{BundleRepo, StakingBundle};
@@ -33,8 +31,8 @@ fn epoch_index_prefix(pool_id: PoolId, epoch_ix: u32) -> Vec<u8> {
     prefix_bytes
 }
 
-fn epoch_index_key(pool_id: PoolId, epoch_ix: u32, bundle_id: BundleId) -> Vec<u8> {
-    let mut prefix_bytes = epoch_index_prefix(pool_id, epoch_ix);
+fn epoch_index_key(pool_id: PoolId, init_epoch_ix: u32, bundle_id: BundleId) -> Vec<u8> {
+    let mut prefix_bytes = epoch_index_prefix(pool_id, init_epoch_ix);
     let bundle_id_bytes = bincode::serialize(&bundle_id).unwrap();
     prefix_bytes.extend_from_slice(&bundle_id_bytes);
     prefix_bytes
@@ -76,7 +74,7 @@ impl BundleRepo for BundleRepoRocksDB {
         spawn_blocking(move || db.key_may_exist(state_key)).await.unwrap()
     }
 
-    async fn get_state(&self, state_id: BundleStateId) -> Option<StakingBundle> {
+    async fn get_state(&self, state_id: BundleStateId) -> Option<AsBox<IndexedStakingBundle>> {
         let db = self.db.clone();
 
         let state_key = prefixed_key(STATE_PREFIX, &state_id);
@@ -104,7 +102,27 @@ impl BundleRepo for BundleRepoRocksDB {
         .unwrap()
     }
 
-    async fn put_confirmed(&self, Confirmed(bundle_state): Confirmed<AsBox<IndexedBundle<StakingBundle>>>) {
+    async fn eliminate(&self, bundle_st: IndexedStakingBundle) {
+        let db = self.db.clone();
+        let conf_index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &bundle_st.get_self_ref());
+        let pred_index_key = prefixed_key(LAST_PREDICTED_PREFIX, &bundle_st.get_self_ref());
+        let epoch_index_key = epoch_index_key(
+            bundle_st.bundle.pool_id,
+            bundle_st.init_epoch_ix,
+            bundle_st.get_self_ref(),
+        );
+        spawn_blocking(move || {
+            let tx = db.transaction();
+            tx.delete(conf_index_key).unwrap();
+            tx.delete(pred_index_key).unwrap();
+            tx.delete(epoch_index_key).unwrap();
+            tx.commit().unwrap();
+        })
+        .await
+        .unwrap()
+    }
+
+    async fn put_confirmed(&self, Confirmed(bundle_state): Confirmed<AsBox<IndexedStakingBundle>>) {
         let db = self.db.clone();
         let state_id_bytes = bincode::serialize(&bundle_state.get_self_state_ref()).unwrap();
         let state_key = prefixed_key(STATE_PREFIX, &bundle_state.get_self_state_ref());
@@ -132,7 +150,7 @@ impl BundleRepo for BundleRepoRocksDB {
         Traced {
             state: Predicted(bundle_state),
             prev_state_id,
-        }: Traced<Predicted<AsBox<IndexedBundle<StakingBundle>>>>,
+        }: Traced<Predicted<AsBox<IndexedStakingBundle>>>,
     ) {
         let db = self.db.clone();
 
@@ -170,10 +188,11 @@ impl BundleRepo for BundleRepoRocksDB {
                 .unwrap()
                 .and_then(|bytes| bincode::deserialize::<'_, BundleStateId>(&bytes).ok())
                 .and_then(|sid| db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap())
-                .and_then(|bytes| bincode::deserialize(&bytes).ok())
+                .and_then(|bytes| bincode::deserialize::<'_, AsBox<IndexedStakingBundle>>(&bytes).ok())
         })
         .await
         .unwrap()
+        .map(|as_box| Confirmed(as_box.map(|ib| ib.bundle)))
     }
 
     async fn get_last_predicted(&self, id: BundleId) -> Option<Predicted<AsBox<StakingBundle>>> {
@@ -184,10 +203,11 @@ impl BundleRepo for BundleRepoRocksDB {
                 .unwrap()
                 .and_then(|bytes| bincode::deserialize::<'_, BundleStateId>(&bytes).ok())
                 .and_then(|sid| db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap())
-                .and_then(|bytes| bincode::deserialize(&bytes).ok())
+                .and_then(|bytes| bincode::deserialize::<'_, AsBox<IndexedStakingBundle>>(&bytes).ok())
         })
         .await
         .unwrap()
+        .map(|as_box| Predicted(as_box.map(|ib| ib.bundle)))
     }
 
     async fn get_prediction_predecessor(&self, id: BundleStateId) -> Option<BundleStateId> {

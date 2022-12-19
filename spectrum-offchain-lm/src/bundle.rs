@@ -3,10 +3,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use parking_lot::Mutex;
 
-use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
+use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Traced};
 use spectrum_offchain::data::OnChainEntity;
 
-use crate::data::bundle::{IndexedBundle, StakingBundle};
+use crate::data::bundle::{IndexedStakingBundle, StakingBundle};
 use crate::data::{AsBox, BundleId, BundleStateId, PoolId};
 
 pub mod process;
@@ -20,13 +20,15 @@ pub trait BundleRepo {
     /// False-positive analog of `exists()`.
     async fn may_exist(&self, sid: BundleStateId) -> bool;
     /// Get particular state of staking bundle.
-    async fn get_state(&self, state_id: BundleStateId) -> Option<StakingBundle>;
+    async fn get_state(&self, state_id: BundleStateId) -> Option<AsBox<IndexedStakingBundle>>;
     /// Invalidate bundle state snapshot corresponding to the given `state_id`.
     async fn invalidate(&self, state_id: BundleStateId);
+    /// Mark given bundle as permanently eliminated.
+    async fn eliminate(&self, bundle: IndexedStakingBundle);
     /// Persist confirmed state staking bundle.
-    async fn put_confirmed(&self, bundle: Confirmed<AsBox<IndexedBundle<StakingBundle>>>);
+    async fn put_confirmed(&self, bundle: Confirmed<AsBox<IndexedStakingBundle>>);
     /// Persist predicted state staking bundle.
-    async fn put_predicted(&self, bundle: Traced<Predicted<AsBox<IndexedBundle<StakingBundle>>>>);
+    async fn put_predicted(&self, bundle: Traced<Predicted<AsBox<IndexedStakingBundle>>>);
     /// Get last confirmed staking bundle.
     async fn get_last_confirmed(&self, id: BundleId) -> Option<Confirmed<AsBox<StakingBundle>>>;
     /// Get last predicted staking bundle.
@@ -119,11 +121,11 @@ mod tests {
         event_sink::handlers::types::TryFromBox,
     };
 
+    use crate::data::bundle::{IndexedBundle, IndexedStakingBundle};
     use crate::{
         data::{AsBox, BundleStateId},
         validators::bundle_validator,
     };
-    use crate::data::bundle::IndexedBundle;
 
     use super::{rocksdb::BundleRepoRocksDB, BundleRepo, StakingBundle};
 
@@ -250,7 +252,7 @@ mod tests {
         }
     }
 
-    fn gen_bundles(epoch_ix: u32, epoch_len: u32) -> Vec<AsBox<IndexedBundle<StakingBundle>>> {
+    fn gen_bundles(epoch_ix: u32, epoch_len: u32) -> Vec<AsBox<IndexedStakingBundle>> {
         let start_height = epoch_ix * epoch_len;
         let last_height = (epoch_ix + 1) * epoch_len - 1;
 

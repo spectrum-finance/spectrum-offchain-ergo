@@ -234,6 +234,8 @@ impl IndexedBundle<StakingBundle> {
     }
 }
 
+pub type IndexedStakingBundle = IndexedBundle<StakingBundle>;
+
 impl<T> OnChainEntity for IndexedBundle<T>
 where
     T: OnChainEntity,
