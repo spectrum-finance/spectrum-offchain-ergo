@@ -4,6 +4,7 @@ use futures::channel::mpsc::UnboundedReceiver;
 use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
 
+use spectrum_offchain::combinators::EitherOrBoth;
 use spectrum_offchain::data::unique_entity::{Confirmed, StateUpdate};
 use spectrum_offchain::data::OnChainEntity;
 
@@ -22,23 +23,18 @@ where
         let bundles = Arc::clone(&bundles);
         async move {
             match upd {
-                StateUpdate::Transition {
-                    new_state: Some(new_state),
-                    ..
+                StateUpdate::Transition(EitherOrBoth::Right(new_state))
+                | StateUpdate::Transition(EitherOrBoth::Both(_, new_state))
+                | StateUpdate::TransitionRollback(EitherOrBoth::Right(new_state))
+                | StateUpdate::TransitionRollback(EitherOrBoth::Both(_, new_state)) => {
+                    bundles.lock().put_confirmed(Confirmed(new_state)).await
                 }
-                | StateUpdate::TransitionRollback {
-                    revived_state: Some(new_state),
-                    ..
-                } => bundles.lock().put_confirmed(Confirmed(new_state)).await,
-                StateUpdate::Transition {
-                    old_state: Some(AsBox(_, st)),
-                    new_state: None,
-                } => bundles.lock().eliminate(st).await,
-                StateUpdate::TransitionRollback {
-                    rolled_back_state: Some(AsBox(_, st)),
-                    ..
-                } => bundles.lock().invalidate(st.get_self_state_ref()).await,
-                _ => {}
+                StateUpdate::Transition(EitherOrBoth::Left(AsBox(_, st))) => {
+                    bundles.lock().eliminate(st).await
+                }
+                StateUpdate::TransitionRollback(EitherOrBoth::Left(AsBox(_, st))) => {
+                    bundles.lock().invalidate(st.get_self_state_ref()).await
+                }
             }
         }
     })

@@ -32,7 +32,7 @@ fn epoch_index_prefix(pool_id: PoolId, epoch_ix: u32) -> Vec<u8> {
     prefix_bytes
 }
 
-fn destruct_epoch_index_key(key: &[u8]) -> Option<(BundleId, u32)> {
+fn destructure_epoch_index_key(key: &[u8]) -> Option<(BundleId, u32)> {
     if key.len() == POOL_EPOCH_KEY_LEN {
         let bundle_id =
             bincode::deserialize::<'_, BundleId>(&key[POOL_EPOCH_KEY_LEN - 32..POOL_EPOCH_KEY_LEN]).ok();
@@ -60,7 +60,7 @@ impl BundleRepo for BundleRepoRocksDB {
             let mut acc = Vec::new();
             let mut iter = db.iterator(IteratorMode::From(&*prefix, Direction::Forward));
             while let Some(Ok((key_bytes, _))) = iter.next() {
-                if let Some((bundle_id, init_epoch_ix)) = destruct_epoch_index_key(&*key_bytes) {
+                if let Some((bundle_id, init_epoch_ix)) = destructure_epoch_index_key(&*key_bytes) {
                     if init_epoch_ix <= epoch_ix {
                         acc.push(bundle_id);
                         continue;

@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use serde::__private::de::missing_field;
 use serde::ser::SerializeStruct;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use crate::combinators::EitherOrBoth;
 
 use crate::data::OnChainEntity;
 
@@ -293,13 +294,8 @@ pub struct UpgradeRollback<T>(pub T);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StateUpdate<T> {
-    Transition {
-        old_state: Option<T>,
-        new_state: Option<T>,
-    },
-    /// State transition rollback.
-    TransitionRollback {
-        rolled_back_state: Option<T>,
-        revived_state: Option<T>,
-    },
+    /// State transition (left: old state, right: new state).
+    Transition(EitherOrBoth<T, T>),
+    /// State transition rollback (left: rolled back state, right: revived state).
+    TransitionRollback(EitherOrBoth<T, T>),
 }
