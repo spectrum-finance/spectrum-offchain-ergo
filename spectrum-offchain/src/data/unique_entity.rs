@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use serde::__private::de::missing_field;
 use serde::ser::SerializeStruct;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use crate::combinators::EitherOrBoth;
 
 use crate::data::OnChainEntity;
 
@@ -251,6 +252,15 @@ where
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Predicted<T>(pub T);
 
+impl<T> Predicted<T> {
+    pub fn map<U, F>(self, f: F) -> Predicted<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        Predicted(f(self.0))
+    }
+}
+
 impl<T: OnChainEntity> OnChainEntity for Predicted<T> {
     type TEntityId = T::TEntityId;
     type TStateId = T::TStateId;
@@ -281,3 +291,11 @@ pub struct Upgrade<T>(pub T);
 /// State is discarded and should be eliminated from the sequence of upgrades.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpgradeRollback<T>(pub T);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StateUpdate<T> {
+    /// State transition (left: old state, right: new state).
+    Transition(EitherOrBoth<T, T>),
+    /// State transition rollback (left: rolled back state, right: revived state).
+    TransitionRollback(EitherOrBoth<T, T>),
+}

@@ -3,10 +3,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use parking_lot::Mutex;
 
-use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
+use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Traced};
 use spectrum_offchain::data::OnChainEntity;
 
-use crate::data::bundle::StakingBundle;
+use crate::data::bundle::{IndexedStakingBundle, StakingBundle};
 use crate::data::{AsBox, BundleId, BundleStateId, PoolId};
 
 pub mod process;
@@ -14,40 +14,27 @@ pub mod rocksdb;
 
 #[async_trait]
 pub trait BundleRepo {
-    fn get_epoch_length(&self) -> u32;
-    fn get_height_range(&self, epoch_ix: u32) -> EpochHeightRange;
     /// Select bundles corresponding to the pool with given id that are eligible for rewards in
     /// epoch `epoch_ix`.
     async fn select(&self, pool_id: PoolId, epoch_ix: u32) -> Vec<BundleId>;
     /// False-positive analog of `exists()`.
     async fn may_exist(&self, sid: BundleStateId) -> bool;
     /// Get particular state of staking bundle.
-    async fn get_state(&self, state_id: BundleStateId) -> Option<StakingBundle>;
+    async fn get_state(&self, state_id: BundleStateId) -> Option<AsBox<IndexedStakingBundle>>;
     /// Invalidate bundle state snapshot corresponding to the given `state_id`.
     async fn invalidate(&self, state_id: BundleStateId);
+    /// Mark given bundle as permanently eliminated.
+    async fn eliminate(&self, bundle: IndexedStakingBundle);
     /// Persist confirmed state staking bundle.
-    async fn put_confirmed(&self, bundle: Confirmed<AsBox<StakingBundle>>);
-    /// Persist unconfirmed state staking bundle.
-    async fn put_unconfirmed(&self, bundle: Unconfirmed<AsBox<StakingBundle>>);
+    async fn put_confirmed(&self, bundle: Confirmed<AsBox<IndexedStakingBundle>>);
     /// Persist predicted state staking bundle.
-    async fn put_predicted(&self, bundle: Traced<Predicted<AsBox<StakingBundle>>>);
+    async fn put_predicted(&self, bundle: Traced<Predicted<AsBox<IndexedStakingBundle>>>);
     /// Get last confirmed staking bundle.
     async fn get_last_confirmed(&self, id: BundleId) -> Option<Confirmed<AsBox<StakingBundle>>>;
-    /// Get last unconfirmed staking bundle.
-    async fn get_last_unconfirmed(&self, id: BundleId) -> Option<Unconfirmed<AsBox<StakingBundle>>>;
     /// Get last predicted staking bundle.
     async fn get_last_predicted(&self, id: BundleId) -> Option<Predicted<AsBox<StakingBundle>>>;
     /// Get state id preceding given predicted state.
     async fn get_prediction_predecessor(&self, id: BundleStateId) -> Option<BundleStateId>;
-}
-
-#[derive(Debug)]
-/// Specifies the heights of the starting and ending blocks for a particular epoch.
-pub struct EpochHeightRange {
-    /// Height of the first block in this epoch.
-    first: u32,
-    /// Height of the last block in this epoch.
-    last: u32,
 }
 
 #[allow(clippy::await_holding_lock)]
@@ -61,11 +48,10 @@ where
     let repo_guard = repo.lock();
     let predicted = repo_guard.get_last_predicted(bundle_id).await;
     let confirmed = repo_guard.get_last_confirmed(bundle_id).await;
-    let unconfirmed = repo_guard.get_last_unconfirmed(bundle_id).await;
     drop(repo_guard);
-    match (confirmed, unconfirmed, predicted) {
-        (Some(Confirmed(conf)), unconf, Some(Predicted(pred))) => {
-            let anchoring_point = unconf.map(|Unconfirmed(e)| e).unwrap_or(conf);
+    match (confirmed, predicted) {
+        (Some(Confirmed(conf)), Some(Predicted(pred))) => {
+            let anchoring_point = conf;
             let anchoring_sid = anchoring_point.1.get_self_state_ref();
             let predicted_sid = pred.1.get_self_state_ref();
             let prediction_is_anchoring_point = predicted_sid == anchoring_sid;
@@ -78,8 +64,7 @@ where
             };
             Some(safe_point)
         }
-        (_, Some(Unconfirmed(unconf)), None) => Some(unconf),
-        (Some(Confirmed(conf)), _, _) => Some(conf),
+        (Some(Confirmed(conf)), _) => Some(conf),
         _ => None,
     }
 }
@@ -127,14 +112,17 @@ mod tests {
     };
     use rand::RngCore;
     use sigma_test_util::force_any_val;
+
     use spectrum_offchain::{
         data::{
-            unique_entity::{Confirmed, Predicted, Traced, Unconfirmed},
+            unique_entity::{Confirmed, Predicted, Traced},
             OnChainEntity,
         },
         event_sink::handlers::types::TryFromBox,
     };
 
+    use crate::data::bundle::{IndexedBundle, IndexedStakingBundle};
+    use crate::data::PoolId;
     use crate::{
         data::{AsBox, BundleStateId},
         validators::bundle_validator,
@@ -161,12 +149,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_rocksdb_unconfirmed() {
-        let client = rocks_db_client();
-        test_bundle_repo_unconfirmed(client).await;
-    }
-
-    #[tokio::test]
     async fn test_rocksdb_invalidate() {
         let client = rocks_db_client();
         test_bundle_repo_invalidate(client).await;
@@ -179,8 +161,8 @@ mod tests {
     }
 
     async fn test_bundle_repo_may_exist<C: BundleRepo>(client: C) {
-        let epoch_len = client.get_epoch_length();
-        let bundles = gen_ergoboxes(0, epoch_len);
+        let pool_id_0 = PoolId::from(force_any_val::<TokenId>());
+        let bundles = gen_bundles(pool_id_0, 0, 3);
         let box_ids: Vec<BoxId> = bundles.iter().map(|b| b.0.box_id()).collect();
         for bundle in bundles {
             client
@@ -197,8 +179,8 @@ mod tests {
     }
 
     async fn test_bundle_repo_predicted<C: BundleRepo>(client: C) {
-        let epoch_len = client.get_epoch_length();
-        let bundles = gen_ergoboxes(0, epoch_len);
+        let pool_id_0 = PoolId::from(force_any_val::<TokenId>());
+        let bundles = gen_bundles(pool_id_0, 0, 3);
         let box_ids: Vec<BoxId> = bundles.iter().map(|b| b.0.box_id()).collect();
 
         for i in 1..bundles.len() {
@@ -218,36 +200,22 @@ mod tests {
     }
 
     async fn test_bundle_repo_confirmed<C: BundleRepo>(client: C) {
-        let epoch_len = client.get_epoch_length();
-        let bundles = gen_ergoboxes(0, epoch_len);
+        let pool_id_0 = PoolId::from(force_any_val::<TokenId>());
+        let bundles = gen_bundles(pool_id_0, 0, 3);
 
         for b in &bundles {
             client.put_confirmed(Confirmed(b.clone())).await;
         }
 
-        for bundle in &bundles {
-            let pred = client.get_last_confirmed(bundle.1.bundle_id()).await;
-            assert_eq!(pred.unwrap().0 .0, bundle.0);
-        }
-    }
-
-    async fn test_bundle_repo_unconfirmed<C: BundleRepo>(client: C) {
-        let epoch_len = client.get_epoch_length();
-        let bundles = gen_ergoboxes(0, epoch_len);
-
-        for b in &bundles {
-            client.put_unconfirmed(Unconfirmed(b.clone())).await;
-        }
-
-        for bundle in &bundles {
-            let pred = client.get_last_unconfirmed(bundle.get_self_ref()).await;
-            assert_eq!(pred.unwrap().0 .0, bundle.0);
+        for i_bundle in &bundles {
+            let pred = client.get_last_confirmed(i_bundle.1.bundle.bundle_id()).await;
+            assert_eq!(pred.unwrap().0 .0, i_bundle.0);
         }
     }
 
     async fn test_bundle_repo_invalidate<C: BundleRepo>(client: C) {
-        let epoch_len = client.get_epoch_length();
-        let bundles = gen_ergoboxes(0, epoch_len);
+        let pool_id_0 = PoolId::from(force_any_val::<TokenId>());
+        let bundles = gen_bundles(pool_id_0, 0, 3);
 
         for i in 1..bundles.len() {
             let traced = Traced {
@@ -255,28 +223,48 @@ mod tests {
                 prev_state_id: Some(BundleStateId::from(bundles[i - 1].0.box_id())),
             };
             client.put_predicted(traced).await;
-            client.put_unconfirmed(Unconfirmed(bundles[i].clone())).await;
 
             // Invalidate
             client.invalidate(bundles[i].get_self_state_ref()).await;
             let predicted = client.get_last_predicted(bundles[i].get_self_ref()).await;
             assert!(predicted.is_none());
-            let unconfirmed = client.get_last_unconfirmed(bundles[i].get_self_ref()).await;
-            assert!(unconfirmed.is_none());
         }
     }
 
     async fn test_bundle_repo_select<C: BundleRepo>(client: C) {
-        let epoch_len = client.get_epoch_length();
-        let bundles_epoch_0 = gen_ergoboxes(0, epoch_len);
-        let pool_id = bundles_epoch_0[0].1.pool_id;
-        for b in &bundles_epoch_0 {
+        let pool_id_0 = PoolId::from(TokenId::from(Digest32::from([0u8; 32])));
+        let pool_id_1 = PoolId::from(TokenId::from(Digest32::from([1u8; 32])));
+
+        let bundles_pool_0_epoch_1 = gen_bundles(pool_id_0, 1, 2);
+        let bundles_pool_0_epoch_2 = gen_bundles(pool_id_0, 2, 4);
+        let bundles_pool_1_epoch_1 = gen_bundles(pool_id_1, 1, 2);
+        let bundles_pool_1_epoch_2 = gen_bundles(pool_id_1, 2, 3);
+
+        let all_bundles = bundles_pool_0_epoch_1
+            .iter()
+            .chain(&bundles_pool_0_epoch_2)
+            .chain(&bundles_pool_1_epoch_1)
+            .chain(&bundles_pool_1_epoch_2);
+        for b in all_bundles {
             client.put_confirmed(Confirmed(b.clone())).await;
         }
-        let selected_bundles = client.select(pool_id, 1).await;
-        assert_eq!(selected_bundles.len(), bundles_epoch_0.len());
-        for b_id in selected_bundles {
-            assert!(bundles_epoch_0.iter().any(|b| b.1.bundle_id() == b_id));
+        let pool_0_ep_1_res = client.select(pool_id_0, 1).await;
+        let pool_0_ep_1_expected = bundles_pool_0_epoch_1.iter();
+        assert!(!pool_0_ep_1_res.is_empty());
+        for AsBox(_, bun) in pool_0_ep_1_expected {
+            assert!(pool_0_ep_1_res
+                .iter()
+                .find(|bid| bun.bundle.bundle_id() == **bid)
+                .is_some());
+        }
+        let pool_1_ep_2_res = client.select(pool_id_1, 2).await;
+        let pool_1_ep_2_expected = bundles_pool_1_epoch_1.iter().chain(bundles_pool_1_epoch_2.iter());
+        assert!(!pool_1_ep_2_res.is_empty());
+        for AsBox(_, bun) in pool_1_ep_2_expected {
+            assert!(pool_1_ep_2_res
+                .iter()
+                .find(|bid| bun.bundle.bundle_id() == **bid)
+                .is_some());
         }
     }
 
@@ -288,15 +276,11 @@ mod tests {
         }
     }
 
-    fn gen_ergoboxes(epoch_ix: u32, epoch_len: u32) -> Vec<AsBox<StakingBundle>> {
-        let start_height = epoch_ix * epoch_len;
-        let last_height = (epoch_ix + 1) * epoch_len - 1;
-
-        let pool_id = force_any_val::<TokenId>();
-
+    fn gen_bundles(pool_id: PoolId, epoch_ix: u32, num: usize) -> Vec<AsBox<IndexedStakingBundle>> {
         let mut res = vec![];
-        for height in start_height..=last_height {
+        for _ in 0..num {
             let value = force_any_val::<BoxValue>();
+            let height = force_any_val::<u32>();
             let ergo_tree = bundle_validator();
 
             let mut builder = ErgoBoxCandidateBuilder::new(value, ergo_tree, height);
@@ -307,7 +291,7 @@ mod tests {
                 Constant::from(redeemer_prop.sigma_serialize_bytes().unwrap()),
             );
 
-            builder.set_register_value(NonMandatoryRegisterId::R5, Constant::from(pool_id));
+            builder.set_register_value(NonMandatoryRegisterId::R5, Constant::from(TokenId::from(pool_id)));
 
             let vlq = Token {
                 token_id: gen_from_rnd_digest_32::<TokenId>(),
@@ -333,7 +317,10 @@ mod tests {
             let tx_id = force_any_val::<TxId>();
             let eb = ErgoBox::from_box_candidate(&candidate, tx_id, 0).unwrap();
 
-            let staking_bundle = StakingBundle::try_from_box(eb.clone()).unwrap();
+            let staking_bundle = IndexedBundle {
+                bundle: StakingBundle::try_from_box(eb.clone()).unwrap(),
+                init_epoch_ix: epoch_ix,
+            };
             res.push(AsBox(eb, staking_bundle));
         }
         res

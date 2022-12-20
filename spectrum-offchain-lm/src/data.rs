@@ -17,13 +17,13 @@ use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 use crate::executor::{ConsumeExtra, ProduceExtra};
 
 pub mod assets;
+pub mod bundle;
 pub mod context;
 pub mod executor;
+pub mod funding;
 pub mod order;
 pub mod pool;
 pub mod redeemer;
-pub mod bundle;
-pub mod funding;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Serialize, Deserialize)]
 pub struct FundingId(BoxId);
@@ -38,6 +38,8 @@ impl From<BoxId> for OrderId {
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Into, Serialize, Deserialize)]
+#[serde(from = "PoolIdBytes")]
+#[serde(into = "PoolIdBytes")]
 pub struct PoolId(TokenId);
 
 impl Display for PoolId {
@@ -46,11 +48,49 @@ impl Display for PoolId {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Into, Serialize, Deserialize)]
+pub struct PoolIdBytes([u8; 32]);
+
+impl From<PoolIdBytes> for PoolId {
+    fn from(PoolIdBytes(xs): PoolIdBytes) -> Self {
+        Self(TokenId::from(Digest32::from(xs)))
+    }
+}
+
+impl From<PoolId> for PoolIdBytes {
+    fn from(pid: PoolId) -> Self {
+        Self(Digest32::from(TokenId::from(pid)).0)
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
 pub struct PoolStateId(BoxId);
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Into, Serialize, Deserialize)]
+#[serde(from = "BundleIdBytes")]
+#[serde(into = "BundleIdBytes")]
 pub struct BundleId(TokenId);
+
+impl Display for BundleId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&Digest32::from(self.0), f)
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Into, Serialize, Deserialize)]
+pub struct BundleIdBytes([u8; 32]);
+
+impl From<BundleIdBytes> for BundleId {
+    fn from(BundleIdBytes(xs): BundleIdBytes) -> Self {
+        Self(TokenId::from(Digest32::from(xs)))
+    }
+}
+
+impl From<BundleId> for BundleIdBytes {
+    fn from(bid: BundleId) -> Self {
+        Self(Digest32::from(TokenId::from(bid)).0)
+    }
+}
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Serialize, Deserialize)]
 pub struct BundleStateId(BoxId);

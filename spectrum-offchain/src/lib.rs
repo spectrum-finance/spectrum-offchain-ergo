@@ -8,3 +8,4 @@ pub mod executor;
 pub mod network;
 pub mod transaction;
 pub mod binary;
+pub mod combinators;
