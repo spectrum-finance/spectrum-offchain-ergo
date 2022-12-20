@@ -4,7 +4,6 @@ use chrono::Utc;
 use ergo_chain_sync::{
     cache::{
         chain_cache::{ChainCache, InMemoryCache},
-        redis::RedisClient,
         rocksdb::ChainCacheRocksDB,
     },
     model::Block,
@@ -14,12 +13,6 @@ use ergo_lib::{
     ergo_chain_types::{BlockId, Digest32},
 };
 use sigma_test_util::force_any_val;
-
-#[async_std::test]
-async fn test_redis() {
-    let client = RedisClient::new("redis://127.0.0.1/");
-    test_client(client).await;
-}
 
 #[tokio::test]
 async fn test_rocksdb() {

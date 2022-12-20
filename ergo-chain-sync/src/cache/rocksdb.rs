@@ -15,6 +15,17 @@ use super::chain_cache::ChainCache;
 
 static BEST_BLOCK: &str = "best_block";
 
+/// Given a block `B`, let `HB` denote the (lowercase) hex-representation of block's ID. Then
+///  - {HB}:p is the key which maps to the hex-representation of B's parent block ID.
+///  - {HB}:c is the key which maps to the hex-representation of B's child block ID, if it currently
+///    exists.
+///  - {HB}:h is the key which maps to the height of `B`.
+///  - {HB}:t is the key which maps to a binary-encoding of a Vec containing the hex-representation
+///    `HT` of the transaction ID of every transaction of `B`.
+///    - Every {HT} is a key which maps to the Ergo-binary-encoded representation of its
+///      transaction.
+///  - {BEST_BLOCK} is a key which maps to a Redis list of length 2, containing the
+///    hex-representations of the best block's ID and its parent ID, in that order.
 pub struct ChainCacheRocksDB {
     pub db: Arc<rocksdb::OptimisticTransactionDB>,
 }
@@ -29,18 +40,18 @@ impl ChainCache for ChainCacheRocksDB {
         spawn_blocking(move || {
             let mut batch = WriteBatchWithTransaction::<true>::default();
             batch.put(
-                &block_id_parent_bytes(&block.id),
+                &postfixed_key(&block.id, PARENT_POSTFIX),
                 bincode::serialize(&block.parent_id).unwrap(),
             );
             batch.put(
-                &block_id_height_bytes(&block.id),
+                &postfixed_key(&block.id, HEIGHT_POSTFIX),
                 bincode::serialize(&block.height).unwrap(),
             );
 
             let tx_ids: Vec<TxId> = block.transactions.iter().map(|t| t.id()).collect();
             // We package together all transactions ids into a Vec.
             batch.put(
-                &block_id_transaction_bytes(&block.id),
+                &postfixed_key(&block.id, TRANSACTION_POSTFIX),
                 bincode::serialize(&tx_ids).unwrap(),
             );
 
@@ -72,9 +83,13 @@ impl ChainCache for ChainCacheRocksDB {
 
     async fn exists(&mut self, block_id: BlockId) -> bool {
         let db = self.db.clone();
-        spawn_blocking(move || db.get(block_id_height_bytes(&block_id)).unwrap().is_some())
-            .await
-            .unwrap()
+        spawn_blocking(move || {
+            db.get(postfixed_key(&block_id, HEIGHT_POSTFIX))
+                .unwrap()
+                .is_some()
+        })
+        .await
+        .unwrap()
     }
 
     async fn get_best_block(&mut self) -> Option<BlockRecord> {
@@ -102,7 +117,7 @@ impl ChainCache for ChainCacheRocksDB {
                 if let Some(best_block_bytes) = db_tx.get_for_update(&best_block_key, true).unwrap() {
                     let BlockRecord { id, height } = bincode::deserialize(&best_block_bytes).unwrap();
 
-                    if let Some(tx_ids_bytes) = db_tx.get(&block_id_transaction_bytes(&id)).unwrap() {
+                    if let Some(tx_ids_bytes) = db_tx.get(&postfixed_key(&id, TRANSACTION_POSTFIX)).unwrap() {
                         let mut transactions = vec![];
                         let tx_ids: Vec<TxId> = bincode::deserialize(&tx_ids_bytes).unwrap();
                         for tx_id in tx_ids {
@@ -115,16 +130,23 @@ impl ChainCache for ChainCacheRocksDB {
                             transactions.push(Transaction::sigma_parse_bytes(&tx_bytes).unwrap());
                         }
 
-                        let parent_id_bytes = db_tx.get(&block_id_parent_bytes(&id)).unwrap().unwrap();
+                        let parent_id_bytes =
+                            db_tx.get(&postfixed_key(&id, PARENT_POSTFIX)).unwrap().unwrap();
                         let parent_id: BlockId = bincode::deserialize(&parent_id_bytes).unwrap();
 
                         db_tx.delete(&best_block_key).unwrap();
 
                         // The new best block will now be the parent of the old best block, if the parent
                         // exists in the cache.
-                        if db_tx.get(&block_id_parent_bytes(&parent_id)).unwrap().is_some() {
-                            let parent_id_height_bytes =
-                                db_tx.get(&block_id_height_bytes(&parent_id)).unwrap().unwrap();
+                        if db_tx
+                            .get(&postfixed_key(&parent_id, PARENT_POSTFIX))
+                            .unwrap()
+                            .is_some()
+                        {
+                            let parent_id_height_bytes = db_tx
+                                .get(&postfixed_key(&parent_id, HEIGHT_POSTFIX))
+                                .unwrap()
+                                .unwrap();
                             let parent_id_height: u32 =
                                 bincode::deserialize(&parent_id_height_bytes).unwrap();
 
@@ -170,21 +192,13 @@ impl ChainCache for ChainCacheRocksDB {
     }
 }
 
-fn block_id_parent_bytes(block_id: &BlockId) -> Vec<u8> {
-    append_block_id_bytes(block_id, ":p")
-}
-
-fn block_id_height_bytes(block_id: &BlockId) -> Vec<u8> {
-    append_block_id_bytes(block_id, ":h")
-}
-
-fn block_id_transaction_bytes(block_id: &BlockId) -> Vec<u8> {
-    append_block_id_bytes(block_id, ":t")
-}
-
-fn append_block_id_bytes(block_id: &BlockId, s: &str) -> Vec<u8> {
+fn postfixed_key(block_id: &BlockId, s: &str) -> Vec<u8> {
     let mut bytes = bincode::serialize(block_id).unwrap();
     let p_bytes = bincode::serialize(s).unwrap();
     bytes.extend_from_slice(&p_bytes);
     bytes
 }
+
+const PARENT_POSTFIX: &str = ":p";
+const HEIGHT_POSTFIX: &str = ":h";
+const TRANSACTION_POSTFIX: &str = ":t";

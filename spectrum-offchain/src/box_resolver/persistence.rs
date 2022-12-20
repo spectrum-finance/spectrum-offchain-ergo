@@ -73,11 +73,12 @@ pub fn last_unconfirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
 mod tests {
     use std::sync::Arc;
 
-    use ergo_chain_sync::cache::{redis::RedisClient, rocksdb::ChainCacheRocksDB};
+    use ergo_chain_sync::cache::rocksdb::ChainCacheRocksDB;
     use ergo_lib::{
         ergo_chain_types::Digest32,
         ergotree_ir::chain::{ergo_box::BoxId, token::TokenId},
     };
+    use rand::RngCore;
     use serde::{Deserialize, Serialize};
     use sigma_test_util::force_any_val;
 
@@ -109,30 +110,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_redis_predicted() {
-        let client = RedisClient::new("redis://127.0.0.1/");
-        test_entity_repo_predicted(client).await;
-    }
-
-    #[tokio::test]
-    async fn test_redis_confirmed() {
-        let client = RedisClient::new("redis://127.0.0.1/");
-        test_entity_repo_confirmed(client).await;
-    }
-
-    #[tokio::test]
-    async fn test_redis_unconfirmed() {
-        let client = RedisClient::new("redis://127.0.0.1/");
-        test_entity_repo_unconfirmed(client).await;
-    }
-
-    #[tokio::test]
-    async fn test_redis_invalidate() {
-        let client = RedisClient::new("redis://127.0.0.1/");
-        test_entity_repo_invalidate(client).await;
-    }
-
-    #[tokio::test]
     async fn test_rocksdb_predicted() {
         let client = rocks_db_client();
         test_entity_repo_predicted(client).await;
@@ -157,8 +134,9 @@ mod tests {
     }
 
     fn rocks_db_client() -> ChainCacheRocksDB {
+        let rnd = rand::thread_rng().next_u32();
         ChainCacheRocksDB {
-            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default("./tmp").unwrap()),
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
         }
     }
 
