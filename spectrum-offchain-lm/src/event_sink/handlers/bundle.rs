@@ -73,7 +73,7 @@ where
         match ev {
             LedgerTxEvent::AppliedTx { tx, timestamp } => {
                 let transitions = self.extract_transitions(tx.clone()).await;
-                let is_success = transitions.len() == 0;
+                let is_success = transitions.len() > 0;
                 for (old_state, new_state) in transitions {
                     self.topic
                         .send(Confirmed(StateUpdate::Transition { old_state, new_state }))
@@ -87,7 +87,7 @@ where
             }
             LedgerTxEvent::UnappliedTx(tx) => {
                 let transitions = self.extract_transitions(tx.clone()).await;
-                let is_success = transitions.len() == 0;
+                let is_success = transitions.len() > 0;
                 for (revived_state, rolled_back_state) in transitions {
                     self.topic
                         .send(Confirmed(StateUpdate::TransitionRollback {
