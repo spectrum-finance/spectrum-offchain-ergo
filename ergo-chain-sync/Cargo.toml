@@ -28,3 +28,4 @@ bincode = "1.3"
 async-std = {version = "1.12.0", features = ["attributes"] }
 ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "62b8dedc0577f01551b6f8be4585f39b028d70f7", features = ["json", "arbitrary"] }
 sigma-test-util = { git = "https://github.com/ergoplatform/sigma-rust", rev = "62b8dedc0577f01551b6f8be4585f39b028d70f7" }
+rand = "0.8.5"

@@ -461,6 +461,7 @@ mod tests {
         let rnd = rand::thread_rng().next_u32();
         let mut store = ChainCacheRocksDB {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
+            max_rollback_depth: 10,
         };
         for i in 0..30 {
             store.put(make_order(i, i as u64)).await;

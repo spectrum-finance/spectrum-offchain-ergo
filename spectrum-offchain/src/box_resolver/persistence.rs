@@ -67,8 +67,6 @@ pub fn last_unconfirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
     key_bytes
 }
 
-/// NOTE: do not run the tests in parallel! Rocksdb will complain about lock contention. Use the
-/// following command: cargo test -- --test-threads=1
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -137,6 +135,7 @@ mod tests {
         let rnd = rand::thread_rng().next_u32();
         ChainCacheRocksDB {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
+            max_rollback_depth: 10,
         }
     }
 
