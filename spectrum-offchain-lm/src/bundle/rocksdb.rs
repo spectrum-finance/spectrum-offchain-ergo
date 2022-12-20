@@ -25,10 +25,23 @@ pub struct BundleRepoRocksDB {
 fn epoch_index_prefix(pool_id: PoolId, epoch_ix: u32) -> Vec<u8> {
     let mut prefix_bytes = bincode::serialize(POOL_EPOCH_PREFIX).unwrap();
     let pool_id_bytes = bincode::serialize(&pool_id).unwrap();
-    let epoch_ix_bytes = bincode::serialize(&epoch_ix).unwrap();
+    let neg_epoch_ix = u32::MAX - epoch_ix;
+    let epoch_ix_bytes = bincode::serialize(&neg_epoch_ix).unwrap();
     prefix_bytes.extend_from_slice(&pool_id_bytes);
     prefix_bytes.extend_from_slice(&epoch_ix_bytes);
     prefix_bytes
+}
+
+fn destruct_epoch_index_key(key: &[u8]) -> Option<(BundleId, u32)> {
+    if key.len() == POOL_EPOCH_KEY_LEN {
+        let bundle_id =
+            bincode::deserialize::<'_, BundleId>(&key[POOL_EPOCH_KEY_LEN - 32..POOL_EPOCH_KEY_LEN]).ok();
+        let neg_epoch_ix = bincode::deserialize::<'_, u32>(&key[47..51]).ok();
+        if let (Some(bundle_id), Some(neg_epoch_ix)) = (bundle_id, neg_epoch_ix) {
+            return Some((bundle_id, u32::MAX - neg_epoch_ix));
+        }
+    }
+    None
 }
 
 fn epoch_index_key(pool_id: PoolId, init_epoch_ix: u32, bundle_id: BundleId) -> Vec<u8> {
@@ -45,19 +58,12 @@ impl BundleRepo for BundleRepoRocksDB {
         spawn_blocking(move || {
             let prefix = epoch_index_prefix(pool_id, epoch_ix);
             let mut acc = Vec::new();
-            while let Some(Ok((key_bytes, _))) = db
-                .iterator(IteratorMode::From(&*prefix, Direction::Forward))
-                .next()
-            {
-                if key_bytes.len() == POOL_EPOCH_KEY_LEN {
-                    let bundle_id =
-                        bincode::deserialize::<'_, BundleId>(&key_bytes[50..POOL_EPOCH_KEY_LEN]).ok();
-                    let init_epoch_ix = bincode::deserialize::<'_, u32>(&key_bytes[46..50]).ok();
-                    if let (Some(bundle_id), Some(init_epoch_ix)) = (bundle_id, init_epoch_ix) {
-                        if init_epoch_ix <= epoch_ix {
-                            acc.push(bundle_id);
-                            continue;
-                        }
+            let mut iter = db.iterator(IteratorMode::From(&*prefix, Direction::Forward));
+            while let Some(Ok((key_bytes, _))) = iter.next() {
+                if let Some((bundle_id, init_epoch_ix)) = destruct_epoch_index_key(&*key_bytes) {
+                    if init_epoch_ix <= epoch_ix {
+                        acc.push(bundle_id);
+                        continue;
                     }
                 }
                 break;
@@ -230,4 +236,4 @@ const LAST_PREDICTED_PREFIX: &str = "p:last";
 const LAST_CONFIRMED_PREFIX: &str = "c:last";
 // Key structure: {prefix}{pool_id}{init_epoch_ix}{bundle_id}
 const POOL_EPOCH_PREFIX: &str = "pl:epix";
-const POOL_EPOCH_KEY_LEN: usize = 82;
+const POOL_EPOCH_KEY_LEN: usize = 83;

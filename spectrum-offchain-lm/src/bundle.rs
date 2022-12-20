@@ -115,13 +115,14 @@ mod tests {
 
     use spectrum_offchain::{
         data::{
-            unique_entity::{Confirmed, Predicted, Traced, Unconfirmed},
+            unique_entity::{Confirmed, Predicted, Traced},
             OnChainEntity,
         },
         event_sink::handlers::types::TryFromBox,
     };
 
     use crate::data::bundle::{IndexedBundle, IndexedStakingBundle};
+    use crate::data::PoolId;
     use crate::{
         data::{AsBox, BundleStateId},
         validators::bundle_validator,
@@ -160,8 +161,8 @@ mod tests {
     }
 
     async fn test_bundle_repo_may_exist<C: BundleRepo>(client: C) {
-        let epoch_len = 1;
-        let bundles = gen_bundles(0, epoch_len);
+        let pool_id_0 = PoolId::from(force_any_val::<TokenId>());
+        let bundles = gen_bundles(pool_id_0, 0, 3);
         let box_ids: Vec<BoxId> = bundles.iter().map(|b| b.0.box_id()).collect();
         for bundle in bundles {
             client
@@ -178,8 +179,8 @@ mod tests {
     }
 
     async fn test_bundle_repo_predicted<C: BundleRepo>(client: C) {
-        let epoch_len = 1;
-        let bundles = gen_bundles(0, epoch_len);
+        let pool_id_0 = PoolId::from(force_any_val::<TokenId>());
+        let bundles = gen_bundles(pool_id_0, 0, 3);
         let box_ids: Vec<BoxId> = bundles.iter().map(|b| b.0.box_id()).collect();
 
         for i in 1..bundles.len() {
@@ -199,22 +200,22 @@ mod tests {
     }
 
     async fn test_bundle_repo_confirmed<C: BundleRepo>(client: C) {
-        let epoch_len = 1;
-        let i_bundles = gen_bundles(0, epoch_len);
+        let pool_id_0 = PoolId::from(force_any_val::<TokenId>());
+        let bundles = gen_bundles(pool_id_0, 0, 3);
 
-        for b in &i_bundles {
+        for b in &bundles {
             client.put_confirmed(Confirmed(b.clone())).await;
         }
 
-        for i_bundle in &i_bundles {
+        for i_bundle in &bundles {
             let pred = client.get_last_confirmed(i_bundle.1.bundle.bundle_id()).await;
             assert_eq!(pred.unwrap().0 .0, i_bundle.0);
         }
     }
 
     async fn test_bundle_repo_invalidate<C: BundleRepo>(client: C) {
-        let epoch_len = 1;
-        let bundles = gen_bundles(0, epoch_len);
+        let pool_id_0 = PoolId::from(force_any_val::<TokenId>());
+        let bundles = gen_bundles(pool_id_0, 0, 3);
 
         for i in 1..bundles.len() {
             let traced = Traced {
@@ -231,16 +232,39 @@ mod tests {
     }
 
     async fn test_bundle_repo_select<C: BundleRepo>(client: C) {
-        let epoch_len = 1;
-        let bundles_epoch_0 = gen_bundles(0, epoch_len);
-        let pool_id = bundles_epoch_0[0].1.bundle.pool_id;
-        for b in &bundles_epoch_0 {
+        let pool_id_0 = PoolId::from(TokenId::from(Digest32::from([0u8; 32])));
+        let pool_id_1 = PoolId::from(TokenId::from(Digest32::from([1u8; 32])));
+
+        let bundles_pool_0_epoch_1 = gen_bundles(pool_id_0, 1, 2);
+        let bundles_pool_0_epoch_2 = gen_bundles(pool_id_0, 2, 4);
+        let bundles_pool_1_epoch_1 = gen_bundles(pool_id_1, 1, 2);
+        let bundles_pool_1_epoch_2 = gen_bundles(pool_id_1, 2, 3);
+
+        let all_bundles = bundles_pool_0_epoch_1
+            .iter()
+            .chain(&bundles_pool_0_epoch_2)
+            .chain(&bundles_pool_1_epoch_1)
+            .chain(&bundles_pool_1_epoch_2);
+        for b in all_bundles {
             client.put_confirmed(Confirmed(b.clone())).await;
         }
-        let selected_bundles = client.select(pool_id, 1).await;
-        assert_eq!(selected_bundles.len(), bundles_epoch_0.len());
-        for b_id in selected_bundles {
-            assert!(bundles_epoch_0.iter().any(|b| b.1.bundle.bundle_id() == b_id));
+        let pool_0_ep_1_res = client.select(pool_id_0, 1).await;
+        let pool_0_ep_1_expected = bundles_pool_0_epoch_1.iter();
+        assert!(!pool_0_ep_1_res.is_empty());
+        for AsBox(_, bun) in pool_0_ep_1_expected {
+            assert!(pool_0_ep_1_res
+                .iter()
+                .find(|bid| bun.bundle.bundle_id() == **bid)
+                .is_some());
+        }
+        let pool_1_ep_2_res = client.select(pool_id_1, 2).await;
+        let pool_1_ep_2_expected = bundles_pool_1_epoch_1.iter().chain(bundles_pool_1_epoch_2.iter());
+        assert!(!pool_1_ep_2_res.is_empty());
+        for AsBox(_, bun) in pool_1_ep_2_expected {
+            assert!(pool_1_ep_2_res
+                .iter()
+                .find(|bid| bun.bundle.bundle_id() == **bid)
+                .is_some());
         }
     }
 
@@ -252,15 +276,11 @@ mod tests {
         }
     }
 
-    fn gen_bundles(epoch_ix: u32, epoch_len: u32) -> Vec<AsBox<IndexedStakingBundle>> {
-        let start_height = epoch_ix * epoch_len;
-        let last_height = (epoch_ix + 1) * epoch_len - 1;
-
-        let pool_id = force_any_val::<TokenId>();
-
+    fn gen_bundles(pool_id: PoolId, epoch_ix: u32, num: usize) -> Vec<AsBox<IndexedStakingBundle>> {
         let mut res = vec![];
-        for height in start_height..=last_height {
+        for _ in 0..num {
             let value = force_any_val::<BoxValue>();
+            let height = force_any_val::<u32>();
             let ergo_tree = bundle_validator();
 
             let mut builder = ErgoBoxCandidateBuilder::new(value, ergo_tree, height);
@@ -271,7 +291,7 @@ mod tests {
                 Constant::from(redeemer_prop.sigma_serialize_bytes().unwrap()),
             );
 
-            builder.set_register_value(NonMandatoryRegisterId::R5, Constant::from(pool_id));
+            builder.set_register_value(NonMandatoryRegisterId::R5, Constant::from(TokenId::from(pool_id)));
 
             let vlq = Token {
                 token_id: gen_from_rnd_digest_32::<TokenId>(),
@@ -299,7 +319,7 @@ mod tests {
 
             let staking_bundle = IndexedBundle {
                 bundle: StakingBundle::try_from_box(eb.clone()).unwrap(),
-                init_epoch_ix: 0,
+                init_epoch_ix: epoch_ix,
             };
             res.push(AsBox(eb, staking_bundle));
         }

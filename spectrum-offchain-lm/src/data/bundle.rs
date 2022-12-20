@@ -14,7 +14,7 @@ use spectrum_offchain::domain::{TypedAsset, TypedAssetAmount};
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 
 use crate::data::assets::{BundleKey, Tmp, VirtLq};
-use crate::data::pool::{Pool, ProgramConfig};
+use crate::data::pool::ProgramConfig;
 use crate::data::{BundleId, BundleStateId, PoolId};
 use crate::ergo::NanoErg;
 use crate::validators::bundle_validator;
