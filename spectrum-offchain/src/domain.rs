@@ -2,8 +2,9 @@ use std::marker::PhantomData;
 use std::ops::{Add, Sub};
 
 use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount, TokenId};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, Serialize, Deserialize)]
 pub struct TypedAsset<T> {
     pub token_id: TokenId,
     pub pd: PhantomData<T>,
@@ -34,7 +35,7 @@ impl AssetAmount {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Serialize, Deserialize)]
 pub struct TypedAssetAmount<T> {
     pub token_id: TokenId,
     pub amount: u64,

@@ -15,11 +15,11 @@ use ergo_lib::{
 };
 use sigma_test_util::force_any_val;
 
-#[async_std::test]
-async fn test_redis() {
-    let client = RedisClient::new("redis://127.0.0.1/");
-    test_client(client).await;
-}
+//#[async_std::test]
+//async fn test_redis() {
+//    let client = RedisClient::new("redis://127.0.0.1/");
+//    test_client(client).await;
+//}
 
 #[tokio::test]
 async fn test_rocksdb() {

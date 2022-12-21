@@ -243,13 +243,13 @@ where
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::fs;
     use std::sync::Arc;
 
     use async_trait::async_trait;
     use bounded_integer::BoundedU8;
     use chrono::{Duration, Utc};
     use ergo_chain_sync::cache::rocksdb::RocksDBClient;
+    use rand::RngCore;
     use serde::{Deserialize, Serialize};
     use type_equalities::IsEqual;
 
@@ -460,9 +460,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_rocksdb_backlog() {
-        fs::remove_dir_all("./tmp").unwrap();
+        let rnd = rand::thread_rng().next_u32();
         let mut store = RocksDBClient {
-            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default("./tmp").unwrap()),
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
         };
         for i in 0..30 {
             store.put(make_order(i, i as u64)).await;

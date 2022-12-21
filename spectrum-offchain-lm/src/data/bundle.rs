@@ -7,12 +7,14 @@ use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount, TokenId};
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
 use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
+use serde::{Deserialize, Serialize};
 
 use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::domain::{TypedAsset, TypedAssetAmount};
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 
 use crate::data::assets::{BundleKey, Tmp, VirtLq};
+use crate::data::pool::ProgramConfig;
 use crate::data::{BundleId, BundleStateId, PoolId};
 use crate::ergo::NanoErg;
 use crate::validators::bundle_validator;
@@ -76,7 +78,9 @@ pub const BUNDLE_KEY_AMOUNT: u64 = TokenAmount::MAX_RAW - 1;
 
 /// Guards virtual liquidity and temporal tokens.
 /// Staking Bundle is a persistent, self-reproducible, on-chain entity.
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(from = "StakingBundleWithErgoTreeBytes")]
+#[serde(into = "StakingBundleWithErgoTreeBytes")]
 pub struct StakingBundle {
     pub bundle_key_id: TypedAsset<BundleKey>,
     pub state_id: BundleStateId,
@@ -85,6 +89,46 @@ pub struct StakingBundle {
     pub tmp: TypedAssetAmount<Tmp>,
     pub redeemer_prop: ErgoTree,
     pub erg_value: NanoErg,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+struct StakingBundleWithErgoTreeBytes {
+    bundle_key_id: TypedAsset<BundleKey>,
+    state_id: BundleStateId,
+    pool_id: PoolId,
+    vlq: TypedAssetAmount<VirtLq>,
+    tmp: TypedAssetAmount<Tmp>,
+    /// Sigma-serialized byte representation of `ErgoTree`
+    redeemer_prop_bytes: Vec<u8>,
+    erg_value: NanoErg,
+}
+
+impl From<StakingBundleWithErgoTreeBytes> for StakingBundle {
+    fn from(s: StakingBundleWithErgoTreeBytes) -> Self {
+        Self {
+            bundle_key_id: s.bundle_key_id,
+            state_id: s.state_id,
+            pool_id: s.pool_id,
+            vlq: s.vlq,
+            tmp: s.tmp,
+            redeemer_prop: ErgoTree::sigma_parse_bytes(&s.redeemer_prop_bytes).unwrap(),
+            erg_value: s.erg_value,
+        }
+    }
+}
+
+impl From<StakingBundle> for StakingBundleWithErgoTreeBytes {
+    fn from(s: StakingBundle) -> Self {
+        Self {
+            bundle_key_id: s.bundle_key_id,
+            state_id: s.state_id,
+            pool_id: s.pool_id,
+            vlq: s.vlq,
+            tmp: s.tmp,
+            redeemer_prop_bytes: s.redeemer_prop.sigma_serialize_bytes().unwrap(),
+            erg_value: s.erg_value,
+        }
+    }
 }
 
 impl StakingBundle {
@@ -140,24 +184,18 @@ impl IntoBoxCandidate for StakingBundle {
 impl TryFromBox for StakingBundle {
     fn try_from_box(bx: ErgoBox) -> Option<StakingBundle> {
         if let Some(ref tokens) = bx.tokens {
-            if tokens.len() == 2 && bx.ergo_tree == bundle_validator() {
+            if tokens.len() == 3 && bx.ergo_tree == bundle_validator() {
                 let redeemer_prop = ErgoTree::sigma_parse_bytes(
-                    &*bx.additional_registers
-                        .get(NonMandatoryRegisterId::R4)?
-                        .as_option_constant()?
+                    &bx.get_register(NonMandatoryRegisterId::R4.into())?
                         .v
-                        .clone()
                         .try_extract_into::<Vec<u8>>()
                         .ok()?,
                 )
                 .ok()?;
                 let pool_id = TokenId::from(
                     Digest32::try_from(
-                        bx.additional_registers
-                            .get(NonMandatoryRegisterId::R5)?
-                            .as_option_constant()?
+                        bx.get_register(NonMandatoryRegisterId::R5.into())?
                             .v
-                            .clone()
                             .try_extract_into::<Vec<u8>>()
                             .ok()?,
                     )
@@ -178,5 +216,38 @@ impl TryFromBox for StakingBundle {
             }
         }
         None
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+pub struct IndexedBundle<B> {
+    pub bundle: B,
+    pub init_epoch_ix: u32,
+}
+
+impl IndexedBundle<StakingBundle> {
+    pub fn new(bundle: StakingBundle, conf: ProgramConfig) -> Self {
+        Self {
+            init_epoch_ix: conf.epoch_num - (bundle.tmp.amount / bundle.vlq.amount) as u32 + 1,
+            bundle,
+        }
+    }
+}
+
+pub type IndexedStakingBundle = IndexedBundle<StakingBundle>;
+
+impl<T> OnChainEntity for IndexedBundle<T>
+where
+    T: OnChainEntity,
+{
+    type TEntityId = T::TEntityId;
+    type TStateId = T::TStateId;
+
+    fn get_self_ref(&self) -> Self::TEntityId {
+        self.bundle.get_self_ref()
+    }
+
+    fn get_self_state_ref(&self) -> Self::TStateId {
+        self.bundle.get_self_state_ref()
     }
 }
