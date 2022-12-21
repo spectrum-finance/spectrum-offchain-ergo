@@ -43,50 +43,105 @@ impl ChainCache for ChainCacheRocksDB {
         let max_rollback_depth = self.max_rollback_depth;
         spawn_blocking(move || {
             let oldest_block_key = bincode::serialize(OLDEST_BLOCK).unwrap();
-            loop {
-                let db_tx = db.transaction();
-                db_tx
-                    .put(
-                        &postfixed_key(&block.id, PARENT_POSTFIX),
-                        bincode::serialize(&block.parent_id).unwrap(),
-                    )
-                    .unwrap();
-                db_tx
-                    .put(
-                        &postfixed_key(&block.parent_id, CHILD_POSTFIX),
-                        bincode::serialize(&block.id).unwrap(),
-                    )
-                    .unwrap();
-                db_tx
-                    .put(
-                        &postfixed_key(&block.id, HEIGHT_POSTFIX),
-                        bincode::serialize(&block.height).unwrap(),
-                    )
-                    .unwrap();
+            let db_tx = db.transaction();
+            db_tx
+                .put(
+                    &postfixed_key(&block.id, PARENT_POSTFIX),
+                    bincode::serialize(&block.parent_id).unwrap(),
+                )
+                .unwrap();
+            db_tx
+                .put(
+                    &postfixed_key(&block.parent_id, CHILD_POSTFIX),
+                    bincode::serialize(&block.id).unwrap(),
+                )
+                .unwrap();
+            db_tx
+                .put(
+                    &postfixed_key(&block.id, HEIGHT_POSTFIX),
+                    bincode::serialize(&block.height).unwrap(),
+                )
+                .unwrap();
 
-                let tx_ids: Vec<TxId> = block.transactions.iter().map(|t| t.id()).collect();
-                // We package together all transactions ids into a Vec.
-                db_tx
-                    .put(
-                        &postfixed_key(&block.id, TRANSACTION_POSTFIX),
-                        bincode::serialize(&tx_ids).unwrap(),
-                    )
-                    .unwrap();
+            let tx_ids: Vec<TxId> = block.transactions.iter().map(|t| t.id()).collect();
+            // We package together all transactions ids into a Vec.
+            db_tx
+                .put(
+                    &postfixed_key(&block.id, TRANSACTION_POSTFIX),
+                    bincode::serialize(&tx_ids).unwrap(),
+                )
+                .unwrap();
 
-                // Each transaction is stored in an Ergo-serialized binary representation.
-                let serialized_transactions = block
-                    .transactions
-                    .iter()
-                    .map(|t| t.sigma_serialize_bytes().unwrap());
+            // Each transaction is stored in an Ergo-serialized binary representation.
+            let serialized_transactions = block
+                .transactions
+                .iter()
+                .map(|t| t.sigma_serialize_bytes().unwrap());
 
-                // Map each transaction id to a bincode-encoded representation of its transaction.
-                for (tx_id, tx) in tx_ids.into_iter().zip(serialized_transactions) {
-                    db_tx.put(bincode::serialize(&tx_id).unwrap(), tx).unwrap();
+            // Map each transaction id to a bincode-encoded representation of its transaction.
+            for (tx_id, tx) in tx_ids.into_iter().zip(serialized_transactions) {
+                db_tx.put(bincode::serialize(&tx_id).unwrap(), tx).unwrap();
+            }
+
+            db_tx
+                .put(
+                    bincode::serialize(BEST_BLOCK).unwrap(),
+                    bincode::serialize(&BlockRecord {
+                        id: block.id,
+                        height: block.height,
+                    })
+                    .unwrap(),
+                )
+                .unwrap();
+
+            if let Some(bytes) = db_tx.get(&oldest_block_key).unwrap() {
+                let BlockRecord {
+                    id: oldest_id,
+                    height: oldest_height,
+                } = bincode::deserialize(&bytes).unwrap();
+
+                // Replace OLDEST_BLOCK if the persistent store is at capacity.
+                if block.height - oldest_height == max_rollback_depth {
+                    let new_oldest_block = BlockRecord {
+                        id: bincode::deserialize(
+                            &db_tx
+                                .get(&postfixed_key(&oldest_id, CHILD_POSTFIX))
+                                .unwrap()
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                        height: oldest_height + 1,
+                    };
+                    db_tx
+                        .put(
+                            bincode::serialize(OLDEST_BLOCK).unwrap(),
+                            bincode::serialize(&new_oldest_block).unwrap(),
+                        )
+                        .unwrap();
+
+                    // Delete all data relating to the 'old' oldest block
+                    let tx_ids_bytes = db_tx
+                        .get(&postfixed_key(&oldest_id, TRANSACTION_POSTFIX))
+                        .unwrap()
+                        .unwrap();
+                    let tx_ids: Vec<TxId> = bincode::deserialize(&tx_ids_bytes).unwrap();
+                    for tx_id in tx_ids {
+                        let tx_key = bincode::serialize(&tx_id).unwrap();
+                        db_tx.delete(tx_key).unwrap();
+                    }
+
+                    db_tx
+                        .delete(&postfixed_key(&oldest_id, TRANSACTION_POSTFIX))
+                        .unwrap();
+                    db_tx.delete(&postfixed_key(&oldest_id, HEIGHT_POSTFIX)).unwrap();
+                    db_tx.delete(&postfixed_key(&oldest_id, PARENT_POSTFIX)).unwrap();
+                    db_tx.delete(&postfixed_key(&oldest_id, CHILD_POSTFIX)).unwrap();
                 }
-
+            } else {
+                // This is the very first block to add to the store
                 db_tx
                     .put(
-                        bincode::serialize(BEST_BLOCK).unwrap(),
+                        bincode::serialize(OLDEST_BLOCK).unwrap(),
                         bincode::serialize(&BlockRecord {
                             id: block.id,
                             height: block.height,
@@ -94,77 +149,9 @@ impl ChainCache for ChainCacheRocksDB {
                         .unwrap(),
                     )
                     .unwrap();
-
-                if let Some(bytes) = db_tx.get(&oldest_block_key).unwrap() {
-                    let BlockRecord {
-                        id: oldest_id,
-                        height: oldest_height,
-                    } = bincode::deserialize(&bytes).unwrap();
-
-                    // Replace OLDEST_BLOCK if the persistent store is at capacity.
-                    if block.height - oldest_height == max_rollback_depth {
-                        let new_oldest_block = BlockRecord {
-                            id: bincode::deserialize(
-                                &db_tx
-                                    .get(&postfixed_key(&oldest_id, CHILD_POSTFIX))
-                                    .unwrap()
-                                    .unwrap(),
-                            )
-                            .unwrap(),
-                            height: oldest_height + 1,
-                        };
-                        db_tx
-                            .put(
-                                bincode::serialize(OLDEST_BLOCK).unwrap(),
-                                bincode::serialize(&new_oldest_block).unwrap(),
-                            )
-                            .unwrap();
-
-                        // Delete all data relating to the 'old' oldest block
-                        let tx_ids_bytes = db_tx
-                            .get(&postfixed_key(&oldest_id, TRANSACTION_POSTFIX))
-                            .unwrap()
-                            .unwrap();
-                        let tx_ids: Vec<TxId> = bincode::deserialize(&tx_ids_bytes).unwrap();
-                        for tx_id in tx_ids {
-                            let tx_key = bincode::serialize(&tx_id).unwrap();
-                            db_tx.delete(tx_key).unwrap();
-                        }
-
-                        db_tx
-                            .delete(&postfixed_key(&oldest_id, TRANSACTION_POSTFIX))
-                            .unwrap();
-                        db_tx.delete(&postfixed_key(&oldest_id, HEIGHT_POSTFIX)).unwrap();
-                        db_tx.delete(&postfixed_key(&oldest_id, PARENT_POSTFIX)).unwrap();
-                        db_tx.delete(&postfixed_key(&oldest_id, CHILD_POSTFIX)).unwrap();
-                    }
-                } else {
-                    // This is the very first block to add to the store
-                    db_tx
-                        .put(
-                            bincode::serialize(OLDEST_BLOCK).unwrap(),
-                            bincode::serialize(&BlockRecord {
-                                id: block.id,
-                                height: block.height,
-                            })
-                            .unwrap(),
-                        )
-                        .unwrap();
-                }
-
-                match db_tx.commit() {
-                    Ok(_) => {
-                        break;
-                    }
-                    Err(e) => {
-                        if e.kind() == rocksdb::ErrorKind::Busy {
-                            continue;
-                        } else {
-                            panic!("Unexpected error: {}", e);
-                        }
-                    }
-                }
             }
+
+            db_tx.commit().unwrap();
         })
         .await
         .unwrap();
