@@ -241,13 +241,13 @@ where
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::fs;
     use std::sync::Arc;
 
     use async_trait::async_trait;
     use bounded_integer::BoundedU8;
     use chrono::{Duration, Utc};
-    use ergo_chain_sync::cache::rocksdb::RocksDBClient;
+    use ergo_chain_sync::cache::rocksdb::ChainCacheRocksDB;
+    use rand::RngCore;
     use serde::{Deserialize, Serialize};
     use type_equalities::IsEqual;
 
@@ -458,29 +458,30 @@ mod tests {
 
     #[tokio::test]
     async fn test_rocksdb_backlog() {
-        fs::remove_dir_all("./tmp").unwrap();
-        let mut store = RocksDBClient {
-            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default("./tmp").unwrap()),
+        let rnd = rand::thread_rng().next_u32();
+        let mut store = ChainCacheRocksDB {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
+            max_rollback_depth: 10,
         };
         for i in 0..30 {
             store.put(make_order(i, i as u64)).await;
         }
 
         for i in 0..30 {
-            assert!(<RocksDBClient as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
+            assert!(<ChainCacheRocksDB as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
             assert_eq!(
                 make_order(i, i as u64),
-                <RocksDBClient as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
+                <ChainCacheRocksDB as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
                     .await
                     .unwrap()
             );
         }
 
         for i in 0..30 {
-            <RocksDBClient as BacklogStore<MockOrder>>::drop(&mut store, MockOrderId(i)).await;
-            assert!(!<RocksDBClient as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
+            <ChainCacheRocksDB as BacklogStore<MockOrder>>::drop(&mut store, MockOrderId(i)).await;
+            assert!(!<ChainCacheRocksDB as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
             assert!(
-                <RocksDBClient as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
+                <ChainCacheRocksDB as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
                     .await
                     .is_none()
             )
