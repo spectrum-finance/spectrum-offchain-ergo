@@ -1,147 +1,105 @@
-use std::marker::PhantomData;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
+use parking_lot::Mutex;
 use tokio::sync::mpsc::UnboundedSender;
 
 use ergo_mempool_sync::MempoolUpdate;
 
-use crate::backlog::data::BacklogOrder;
-use crate::backlog::persistence::BacklogStore;
-use crate::data::order::{EliminatedOrder, PendingOrder};
+use crate::backlog::Backlog;
+use crate::data::order::{OrderUpdate, PendingOrder};
 use crate::data::OnChainOrder;
 use crate::event_sink::handlers::types::TryFromBox;
 use crate::event_sink::types::EventHandler;
 use crate::event_source::data::LedgerTxEvent;
 
-pub struct PendingOrdersHandler<TOrd> {
-    topic: UnboundedSender<PendingOrder<TOrd>>,
+pub struct OrderUpdatesHandler<TOrd: OnChainOrder, TBacklog> {
+    topic: UnboundedSender<OrderUpdate<TOrd>>,
+    backlog: Arc<Mutex<TBacklog>>,
     order_lifespan: Duration,
 }
 
 #[async_trait(?Send)]
-impl<TOrd> EventHandler<LedgerTxEvent> for PendingOrdersHandler<TOrd>
+impl<TOrd, TBacklog> EventHandler<LedgerTxEvent> for OrderUpdatesHandler<TOrd, TBacklog>
 where
-    TOrd: TryFromBox,
+    TOrd: OnChainOrder + TryFromBox,
+    TOrd::TOrderId: From<BoxId> + Copy,
+    TBacklog: Backlog<TOrd>,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
         match ev {
             LedgerTxEvent::AppliedTx { tx, timestamp } => {
+                let mut is_success = false;
+                for i in tx.clone().inputs {
+                    let order_id = TOrd::TOrderId::from(i.box_id);
+                    if self.backlog.lock().exists(order_id).await {
+                        is_success = true;
+                        let _ = self.topic.send(OrderUpdate::OrderEliminated(order_id));
+                    }
+                }
                 let ts_now = Utc::now().timestamp();
                 if ts_now - timestamp <= self.order_lifespan.num_milliseconds() {
-                    let mut is_success = false;
                     for bx in &tx.outputs {
                         if let Some(order) = TOrd::try_from_box(bx.clone()) {
                             is_success = true;
-                            let _ = self.topic.send(PendingOrder {
+                            let _ = self.topic.send(OrderUpdate::NewOrder(PendingOrder {
                                 order,
                                 timestamp: Utc::now().timestamp(),
-                            });
+                            }));
                         }
                     }
-                    if is_success {
-                        return None;
-                    }
+                }
+                if is_success {
+                    return None;
                 }
                 Some(LedgerTxEvent::AppliedTx { tx, timestamp })
             }
-            ev => Some(ev),
-        }
-    }
-}
-
-/// Tracks unconfirmed order.
-pub struct PendingUnconfirmedOrdersHandler<TOrd> {
-    topic: UnboundedSender<PendingOrder<TOrd>>,
-}
-
-#[async_trait(?Send)]
-impl<TOrd> EventHandler<MempoolUpdate> for PendingUnconfirmedOrdersHandler<TOrd>
-where
-    TOrd: TryFromBox,
-{
-    async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
-        match ev {
-            MempoolUpdate::TxAccepted(tx) => {
+            LedgerTxEvent::UnappliedTx(tx) => {
                 let mut is_success = false;
                 for bx in &tx.outputs {
                     if let Some(order) = TOrd::try_from_box(bx.clone()) {
                         is_success = true;
-                        let _ = self.topic.send(PendingOrder {
-                            order,
-                            timestamp: Utc::now().timestamp(),
-                        });
+                        let _ = self
+                            .topic
+                            .send(OrderUpdate::OrderEliminated(order.get_self_ref()));
                     }
                 }
                 if is_success {
                     return None;
                 }
-                Some(MempoolUpdate::TxAccepted(tx))
+                Some(LedgerTxEvent::UnappliedTx(tx))
             }
-            ev => Some(ev),
         }
     }
 }
 
-pub struct EliminatedOrdersHandler<TOrd, TOrdId, TStore> {
-    topic: UnboundedSender<EliminatedOrder<TOrdId>>,
-    store: TStore,
-    pd: PhantomData<TOrd>,
-}
-
 #[async_trait(?Send)]
-impl<TOrd, TOrdId, TStore> EventHandler<LedgerTxEvent> for EliminatedOrdersHandler<TOrd, TOrdId, TStore>
+impl<TOrd, TBacklog> EventHandler<MempoolUpdate> for OrderUpdatesHandler<TOrd, TBacklog>
 where
-    TOrdId: From<BoxId> + Clone,
-    TOrd: OnChainOrder<TOrderId = TOrdId>,
-    TStore: BacklogStore<TOrd>,
-{
-    async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
-        match ev {
-            LedgerTxEvent::AppliedTx { tx, timestamp } => {
-                let mut is_success = false;
-                for i in tx.clone().inputs {
-                    let ord_id = TOrdId::from(i.box_id);
-                    if self.store.exists(ord_id.clone()).await {
-                        is_success = true;
-                        let _ = self.topic.send(EliminatedOrder { order_id: ord_id });
-                    }
-                }
-                if is_success {
-                    return None;
-                }
-                Some(LedgerTxEvent::AppliedTx { tx, timestamp })
-            }
-            ev => Some(ev),
-        }
-    }
-}
-
-pub struct EliminatedUnconfirmedOrdersHandler<TOrd, TOrdId, TStore> {
-    topic: UnboundedSender<EliminatedOrder<TOrdId>>,
-    store: TStore,
-    pd: PhantomData<TOrd>,
-}
-
-#[async_trait(?Send)]
-impl<TOrd, TOrdId, TStore> EventHandler<MempoolUpdate>
-    for EliminatedUnconfirmedOrdersHandler<TOrd, TOrdId, TStore>
-where
-    TOrdId: From<BoxId> + Clone,
-    TOrd: OnChainOrder<TOrderId = TOrdId> + TryFromBox,
-    TStore: BacklogStore<TOrd>,
+    TOrd: OnChainOrder + TryFromBox,
+    TOrd::TOrderId: From<BoxId> + Copy,
+    TBacklog: Backlog<TOrd>,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
         match ev {
             MempoolUpdate::TxAccepted(tx) => {
-                // order is consumed by another tx in mempool
                 let mut is_success = false;
                 for i in tx.clone().inputs {
-                    let ord_id = TOrdId::from(i.box_id);
-                    if let Some(BacklogOrder { .. }) = self.store.get(ord_id.clone()).await {
+                    let order_id = TOrd::TOrderId::from(i.box_id);
+                    if self.backlog.lock().exists(order_id).await {
                         is_success = true;
-                        let _ = self.topic.send(EliminatedOrder { order_id: ord_id });
+                        let _ = self.topic.send(OrderUpdate::OrderEliminated(order_id));
+                    }
+                }
+                for bx in &tx.outputs {
+                    if let Some(order) = TOrd::try_from_box(bx.clone()) {
+                        is_success = true;
+                        let _ = self.topic.send(OrderUpdate::NewOrder(PendingOrder {
+                            order,
+                            timestamp: Utc::now().timestamp(),
+                        }));
                     }
                 }
                 if is_success {
@@ -150,14 +108,13 @@ where
                 Some(MempoolUpdate::TxAccepted(tx))
             }
             MempoolUpdate::TxWithdrawn(tx) => {
-                // order tx is dropped from mempool
                 let mut is_success = false;
                 for bx in &tx.outputs {
                     if let Some(order) = TOrd::try_from_box(bx.clone()) {
                         is_success = true;
-                        let _ = self.topic.send(EliminatedOrder {
-                            order_id: order.get_self_ref(),
-                        });
+                        let _ = self
+                            .topic
+                            .send(OrderUpdate::OrderEliminated(order.get_self_ref()));
                     }
                 }
                 if is_success {

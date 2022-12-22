@@ -35,7 +35,7 @@ impl AssetAmount {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, Serialize, Deserialize)]
 pub struct TypedAssetAmount<T> {
     pub token_id: TokenId,
     pub amount: u64,

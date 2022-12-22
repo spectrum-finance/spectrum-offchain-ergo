@@ -1,6 +1,9 @@
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use ergo_lib::chain::transaction::Transaction;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use parking_lot::Mutex;
 use tokio::sync::mpsc::UnboundedSender;
@@ -8,165 +11,137 @@ use tokio::sync::mpsc::UnboundedSender;
 use ergo_mempool_sync::MempoolUpdate;
 
 use crate::box_resolver::persistence::EntityRepo;
-use crate::data::unique_entity::{Confirmed, Unconfirmed, Upgrade, UpgradeRollback};
+use crate::combinators::EitherOrBoth;
+use crate::data::unique_entity::{Confirmed, StateUpdate, Unconfirmed};
 use crate::data::OnChainEntity;
 use crate::event_sink::handlers::types::TryFromBox;
 use crate::event_sink::types::EventHandler;
 use crate::event_source::data::LedgerTxEvent;
 
-pub struct ConfirmedUpgradeHandler<TEntity> {
-    topic: UnboundedSender<Upgrade<Confirmed<TEntity>>>,
+pub struct ConfirmedUpdateHandler<TEntity, TRepo> {
+    topic: UnboundedSender<Confirmed<StateUpdate<TEntity>>>,
+    entities: Arc<Mutex<TRepo>>,
 }
 
-#[async_trait(?Send)]
-impl<TEntity> EventHandler<LedgerTxEvent> for ConfirmedUpgradeHandler<TEntity>
+async fn extract_transitions<TEntity, TRepo>(
+    entities: Arc<Mutex<TRepo>>,
+    tx: Transaction,
+) -> Vec<EitherOrBoth<TEntity, TEntity>>
 where
-    TEntity: TryFromBox,
+    TEntity: OnChainEntity + TryFromBox + Clone,
+    TEntity::TEntityId: Clone,
+    TEntity::TStateId: From<BoxId> + Copy,
+    TRepo: EntityRepo<TEntity>,
 {
-    async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
-        match ev {
-            LedgerTxEvent::AppliedTx { tx, timestamp } => {
-                let mut is_success = false;
-                for bx in &tx.outputs {
-                    if let Some(order) = TEntity::try_from_box(bx.clone()) {
-                        is_success = true;
-                        let _ = self.topic.send(Upgrade(Confirmed(order)));
-                    }
-                }
-                if is_success {
-                    return None;
-                }
-                Some(LedgerTxEvent::AppliedTx { tx, timestamp })
+    let mut consumed_entities = HashMap::<TEntity::TEntityId, TEntity>::new();
+    for i in tx.clone().inputs {
+        let state_id = TEntity::TStateId::from(i.box_id);
+        let entities = entities.lock();
+        if entities.may_exist(state_id).await {
+            if let Some(entity) = entities.get_state(state_id).await {
+                consumed_entities.insert(entity.get_self_ref(), entity);
             }
-            ev => Some(ev),
         }
     }
-}
-
-pub struct UnconfirmedUpgradeHandler<TEntity> {
-    topic: UnboundedSender<Upgrade<Unconfirmed<TEntity>>>,
-}
-
-#[async_trait(?Send)]
-impl<TEntity> EventHandler<MempoolUpdate> for UnconfirmedUpgradeHandler<TEntity>
-where
-    TEntity: TryFromBox,
-{
-    async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
-        match ev {
-            MempoolUpdate::TxAccepted(tx) => {
-                let mut is_success = false;
-                for bx in &tx.outputs {
-                    if let Some(order) = TEntity::try_from_box(bx.clone()) {
-                        is_success = true;
-                        let _ = self.topic.send(Upgrade(Unconfirmed(order)));
-                    }
-                }
-                if is_success {
-                    return None;
-                }
-                Some(MempoolUpdate::TxAccepted(tx))
-            }
-            ev => Some(ev),
+    let mut created_entities = HashMap::<TEntity::TEntityId, TEntity>::new();
+    for bx in &tx.outputs {
+        if let Some(entity) = TEntity::try_from_box(bx.clone()) {
+            created_entities.insert(entity.get_self_ref(), entity);
         }
     }
-}
-
-pub struct ConfirmedRollbackHandler<TEntity, TRepo> {
-    topic: UnboundedSender<UpgradeRollback<TEntity>>,
-    repo: Arc<Mutex<TRepo>>,
+    let consumed_keys = consumed_entities.keys().cloned().collect::<HashSet<_>>();
+    let created_keys = created_entities.keys().cloned().collect::<HashSet<_>>();
+    consumed_keys
+        .union(&created_keys)
+        .map(|k| {
+            EitherOrBoth::try_from((consumed_entities.remove(k), created_entities.remove(k)))
+                .map(|x| vec![x])
+                .unwrap_or(Vec::new())
+        })
+        .flatten()
+        .collect()
 }
 
 #[async_trait(?Send)]
-impl<TEntity, TRepo> EventHandler<LedgerTxEvent> for ConfirmedRollbackHandler<TEntity, TRepo>
+impl<TEntity, TRepo> EventHandler<LedgerTxEvent> for ConfirmedUpdateHandler<TEntity, TRepo>
 where
-    TEntity: OnChainEntity + TryFromBox,
+    TEntity: OnChainEntity + TryFromBox + Clone + Debug,
+    TEntity::TEntityId: Clone,
     TEntity::TStateId: From<BoxId> + Copy,
     TRepo: EntityRepo<TEntity>,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
         match ev {
             LedgerTxEvent::AppliedTx { tx, timestamp } => {
-                let mut is_success = false;
-                for i in tx.clone().inputs {
-                    let state_id = TEntity::TStateId::from(i.box_id);
-                    let repo = self.repo.lock();
-                    // since `repo.get_state` is an expensive operation we first check if it may exist.
-                    if repo.may_exist(state_id).await {
-                        if let Some(entity_snapshot) = repo.get_state(state_id).await {
-                            is_success = true;
-                            let _ = self.topic.send(UpgradeRollback(entity_snapshot));
-                        }
-                    }
+                let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
+                let is_success = transitions.len() > 0;
+                for tr in transitions {
+                    self.topic.send(Confirmed(StateUpdate::Transition(tr))).unwrap();
                 }
                 if is_success {
-                    return None;
+                    Some(LedgerTxEvent::AppliedTx { tx, timestamp })
+                } else {
+                    None
                 }
-                Some(LedgerTxEvent::AppliedTx { tx, timestamp })
             }
             LedgerTxEvent::UnappliedTx(tx) => {
-                let mut is_success = false;
-                for bx in &tx.outputs {
-                    if let Some(entity) = TEntity::try_from_box(bx.clone()) {
-                        is_success = true;
-                        let _ = self.topic.send(UpgradeRollback(entity));
-                    }
+                let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
+                let is_success = transitions.len() > 0;
+                for tr in transitions {
+                    self.topic
+                        .send(Confirmed(StateUpdate::TransitionRollback(tr.swap())))
+                        .unwrap();
                 }
                 if is_success {
-                    return None;
+                    Some(LedgerTxEvent::UnappliedTx(tx))
+                } else {
+                    None
                 }
-                Some(LedgerTxEvent::UnappliedTx(tx))
             }
         }
     }
 }
 
-pub struct UnconfirmedRollbackHandler<TEntity, TRepo> {
-    topic: UnboundedSender<UpgradeRollback<TEntity>>,
-    repo: Arc<Mutex<TRepo>>,
+pub struct UnconfirmedUpgradeHandler<TEntity, TRepo> {
+    topic: UnboundedSender<Unconfirmed<StateUpdate<TEntity>>>,
+    entities: Arc<Mutex<TRepo>>,
 }
 
 #[async_trait(?Send)]
-impl<TEntity, TRepo> EventHandler<MempoolUpdate> for UnconfirmedRollbackHandler<TEntity, TRepo>
+impl<TEntity, TRepo> EventHandler<MempoolUpdate> for UnconfirmedUpgradeHandler<TEntity, TRepo>
 where
-    TEntity: OnChainEntity + TryFromBox,
+    TEntity: OnChainEntity + TryFromBox + Clone + Debug,
+    TEntity::TEntityId: Clone,
     TEntity::TStateId: From<BoxId> + Copy,
     TRepo: EntityRepo<TEntity>,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
         match ev {
             MempoolUpdate::TxAccepted(tx) => {
-                // entity is consumed by another tx in mempool
-                let mut is_success = false;
-                for i in tx.clone().inputs {
-                    let state_id = TEntity::TStateId::from(i.box_id);
-                    let repo = self.repo.lock();
-                    // since `repo.get_state` is an expensive operation we first check if it may exist.
-                    if repo.may_exist(state_id).await {
-                        if let Some(entity) = repo.get_state(state_id).await {
-                            is_success = true;
-                            let _ = self.topic.send(UpgradeRollback(entity));
-                        }
-                    }
+                let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
+                let is_success = transitions.len() > 0;
+                for tr in transitions {
+                    self.topic.send(Unconfirmed(StateUpdate::Transition(tr))).unwrap();
                 }
                 if is_success {
-                    return None;
+                    Some(MempoolUpdate::TxAccepted(tx))
+                } else {
+                    None
                 }
-                Some(MempoolUpdate::TxAccepted(tx))
             }
             MempoolUpdate::TxWithdrawn(tx) => {
-                // entity tx is dropped from mempool
-                let mut is_success = false;
-                for bx in tx.clone().outputs {
-                    if let Some(entity) = TEntity::try_from_box(bx) {
-                        is_success = true;
-                        let _ = self.topic.send(UpgradeRollback(entity));
-                    }
+                let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
+                let is_success = transitions.len() > 0;
+                for tr in transitions {
+                    self.topic
+                        .send(Unconfirmed(StateUpdate::TransitionRollback(tr.swap())))
+                        .unwrap();
                 }
                 if is_success {
-                    return None;
+                    Some(MempoolUpdate::TxWithdrawn(tx))
+                } else {
+                    None
                 }
-                Some(MempoolUpdate::TxWithdrawn(tx))
             }
         }
     }

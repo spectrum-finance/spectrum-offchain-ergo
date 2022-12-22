@@ -6,12 +6,13 @@ use rocksdb::{Direction, IteratorMode};
 use serde::Serialize;
 use tokio::task::spawn_blocking;
 
-use spectrum_offchain::data::unique_entity::{Confirmed, Predicted};
-
 use spectrum_offchain::binary::prefixed_key;
-use crate::data::{AsBox, FundingId};
-use crate::ergo::{MAX_VALUE, NanoErg};
+use spectrum_offchain::data::unique_entity::{Confirmed, Predicted};
+use spectrum_offchain::rocksdb::RocksConfig;
+
 use crate::data::funding::DistributionFunding;
+use crate::data::{AsBox, FundingId};
+use crate::ergo::{NanoErg, MAX_VALUE};
 
 pub mod process;
 
@@ -45,9 +46,9 @@ mod db_models {
     use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
     use serde::{Deserialize, Serialize};
 
+    use crate::data::funding;
     use crate::data::FundingId;
     use crate::ergo::NanoErg;
-    use crate::data::funding;
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
     pub struct DistributionFunding {
@@ -79,6 +80,14 @@ mod db_models {
 
 pub struct FundingRepoRocksDB {
     db: Arc<rocksdb::OptimisticTransactionDB>,
+}
+
+impl FundingRepoRocksDB {
+    pub fn new(conf: RocksConfig) -> Self {
+        Self {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(conf.db_path).unwrap()),
+        }
+    }
 }
 
 const CONFIRMED_PRIORITY: usize = 0;
@@ -204,9 +213,9 @@ mod test {
 
     use spectrum_offchain::data::unique_entity::{Confirmed, Predicted};
 
+    use crate::data::funding::DistributionFunding;
     use crate::data::{AsBox, FundingId};
     use crate::ergo::NanoErg;
-    use crate::data::funding::DistributionFunding;
     use crate::funding::{FundingRepo, FundingRepoRocksDB};
 
     fn rocks_db_client() -> FundingRepoRocksDB {

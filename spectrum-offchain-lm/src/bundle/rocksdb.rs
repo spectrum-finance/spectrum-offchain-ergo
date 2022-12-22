@@ -11,6 +11,7 @@ use spectrum_offchain::{
         OnChainEntity,
     },
 };
+use spectrum_offchain::rocksdb::RocksConfig;
 
 use crate::data::bundle::IndexedStakingBundle;
 use crate::data::{AsBox, BundleId, BundleStateId, PoolId};
@@ -19,7 +20,14 @@ use super::{BundleRepo, StakingBundle};
 
 pub struct BundleRepoRocksDB {
     pub db: Arc<rocksdb::OptimisticTransactionDB>,
-    pub epoch_len: u32,
+}
+
+impl BundleRepoRocksDB {
+    pub fn new(conf: RocksConfig) -> Self {
+        Self {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(conf.db_path).unwrap()),
+        }
+    }
 }
 
 fn epoch_index_prefix(pool_id: PoolId, epoch_ix: u32) -> Vec<u8> {

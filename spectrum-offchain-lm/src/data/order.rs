@@ -1,3 +1,5 @@
+use std::hash::{Hash, Hasher};
+
 use ergo_lib::chain::transaction::TxIoVec;
 use ergo_lib::ergo_chain_types::{blake2b256_hash, Digest32};
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
@@ -10,6 +12,7 @@ use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use nonempty::NonEmpty;
+use serde::{Deserialize, Serialize};
 use type_equalities::IsEqual;
 
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
@@ -30,7 +33,7 @@ use crate::ergo::NanoErg;
 use crate::executor::{ConsumeExtra, ProduceExtra, RunOrder};
 use crate::validators::{deposit_validator_temp, redeem_validator_temp};
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Hash, Serialize, Deserialize)]
 pub struct Compound {
     pub pool_id: PoolId,
     pub epoch_ix: u32,
@@ -171,7 +174,9 @@ impl RunOrder for Compound {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(from = "RawDeposit")]
+#[serde(into = "RawDeposit")]
 pub struct Deposit {
     pub order_id: OrderId,
     pub pool_id: PoolId,
@@ -179,6 +184,53 @@ pub struct Deposit {
     pub lq: TypedAssetAmount<Lq>,
     pub erg_value: NanoErg,
     pub expected_num_epochs: u32,
+}
+
+impl From<RawDeposit> for Deposit {
+    fn from(rd: RawDeposit) -> Self {
+        Self {
+            order_id: rd.order_id,
+            pool_id: rd.pool_id,
+            redeemer_prop: ErgoTree::sigma_parse_bytes(&*rd.redeemer_prop_raw).unwrap(),
+            lq: TypedAssetAmount::new(rd.lq.0, rd.lq.1),
+            erg_value: NanoErg::from(rd.erg_value),
+            expected_num_epochs: rd.expected_num_epochs,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+pub struct RawDeposit {
+    pub order_id: OrderId,
+    pub pool_id: PoolId,
+    pub redeemer_prop_raw: Vec<u8>,
+    pub lq: (TokenId, u64),
+    pub erg_value: u64,
+    pub expected_num_epochs: u32,
+}
+
+impl From<Deposit> for RawDeposit {
+    fn from(d: Deposit) -> Self {
+        Self {
+            order_id: d.order_id,
+            pool_id: d.pool_id,
+            redeemer_prop_raw: d.redeemer_prop.sigma_serialize_bytes().unwrap(),
+            lq: (d.lq.token_id, d.lq.amount),
+            erg_value: d.erg_value.into(),
+            expected_num_epochs: d.expected_num_epochs,
+        }
+    }
+}
+
+impl Hash for Deposit {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.order_id.hash(state);
+        self.pool_id.hash(state);
+        state.write(&*self.redeemer_prop.sigma_serialize_bytes().unwrap());
+        self.lq.hash(state);
+        self.erg_value.hash(state);
+        self.expected_num_epochs.hash(state);
+    }
 }
 
 impl ConsumeExtra for Deposit {
@@ -292,7 +344,9 @@ impl TryFromBox for Deposit {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(from = "RawRedeem")]
+#[serde(into = "RawRedeem")]
 pub struct Redeem {
     pub order_id: OrderId,
     pub pool_id: PoolId,
@@ -300,6 +354,53 @@ pub struct Redeem {
     pub bundle_key: TypedAssetAmount<BundleKey>,
     pub expected_lq: TypedAssetAmount<Lq>,
     pub erg_value: NanoErg,
+}
+
+impl From<RawRedeem> for Redeem {
+    fn from(rr: RawRedeem) -> Self {
+        Self {
+            order_id: rr.order_id,
+            pool_id: rr.pool_id,
+            redeemer_prop: ErgoTree::sigma_parse_bytes(&*rr.redeemer_prop_bytes).unwrap(),
+            bundle_key: TypedAssetAmount::new(rr.bundle_key.0, rr.bundle_key.1),
+            expected_lq: TypedAssetAmount::new(rr.expected_lq.0, rr.expected_lq.1),
+            erg_value: NanoErg::from(rr.erg_value),
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+pub struct RawRedeem {
+    pub order_id: OrderId,
+    pub pool_id: PoolId,
+    pub redeemer_prop_bytes: Vec<u8>,
+    pub bundle_key: (TokenId, u64),
+    pub expected_lq: (TokenId, u64),
+    pub erg_value: u64,
+}
+
+impl From<Redeem> for RawRedeem {
+    fn from(r: Redeem) -> Self {
+        Self {
+            order_id: r.order_id,
+            pool_id: r.pool_id,
+            redeemer_prop_bytes: r.redeemer_prop.sigma_serialize_bytes().unwrap(),
+            bundle_key: (r.bundle_key.token_id, r.bundle_key.amount),
+            expected_lq: (r.expected_lq.token_id, r.expected_lq.amount),
+            erg_value: r.erg_value.into(),
+        }
+    }
+}
+
+impl Hash for Redeem {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.order_id.hash(state);
+        self.pool_id.hash(state);
+        state.write(&*self.redeemer_prop.sigma_serialize_bytes().unwrap());
+        self.bundle_key.hash(state);
+        self.expected_lq.hash(state);
+        self.erg_value.hash(state);
+    }
 }
 
 impl ConsumeExtra for Redeem {
@@ -415,7 +516,7 @@ impl TryFromBox for Redeem {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Hash, Serialize, Deserialize)]
 pub enum Order {
     Deposit(AsBox<Deposit>),
     Redeem(AsBox<Redeem>),

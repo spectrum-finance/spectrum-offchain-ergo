@@ -41,6 +41,10 @@ pub trait EntityRepo<TEntity: OnChainEntity> {
     where
         <TEntity as OnChainEntity>::TStateId: 'a,
         <TEntity as OnChainEntity>::TEntityId: 'a;
+    /// Invalidate particular state of the entity.
+    async fn eliminate<'a>(&mut self, entity: TEntity)
+    where
+        TEntity: 'a;
     /// False-positive analog of `exists()`.
     async fn may_exist<'a>(&self, sid: TEntity::TStateId) -> bool
     where

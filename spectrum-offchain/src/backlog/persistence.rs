@@ -1,11 +1,13 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
-use ergo_chain_sync::cache::rocksdb::RocksDBClient;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::task::spawn_blocking;
 
 use crate::backlog::data::BacklogOrder;
 use crate::data::OnChainOrder;
+use crate::rocksdb::RocksConfig;
 
 #[async_trait(?Send)]
 pub trait BacklogStore<TOrd>
@@ -18,8 +20,20 @@ where
     async fn get(&self, ord_id: TOrd::TOrderId) -> Option<BacklogOrder<TOrd>>;
 }
 
+pub struct BacklogStoreRocksDB {
+    pub db: Arc<rocksdb::OptimisticTransactionDB>,
+}
+
+impl BacklogStoreRocksDB {
+    pub fn new(conf: RocksConfig) -> Self {
+        Self {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(conf.db_path).unwrap()),
+        }
+    }
+}
+
 #[async_trait(?Send)]
-impl<TOrd> BacklogStore<TOrd> for RocksDBClient
+impl<TOrd> BacklogStore<TOrd> for BacklogStoreRocksDB
 where
     TOrd: OnChainOrder + Serialize + DeserializeOwned + Send + 'static,
     TOrd::TOrderId: Serialize + DeserializeOwned + Send,

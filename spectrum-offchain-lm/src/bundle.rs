@@ -272,7 +272,6 @@ mod tests {
         let rnd = rand::thread_rng().next_u32();
         BundleRepoRocksDB {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
-            epoch_len: 10,
         }
     }
 

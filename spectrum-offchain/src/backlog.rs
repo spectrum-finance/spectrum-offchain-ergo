@@ -6,6 +6,7 @@ use bounded_integer::BoundedU8;
 use chrono::{Duration, Utc};
 use priority_queue::PriorityQueue;
 use rand::Rng;
+use type_equalities::IsEqual;
 
 use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
 use crate::backlog::persistence::BacklogStore;
@@ -32,6 +33,8 @@ where
     async fn check_later(&mut self, ord: ProgressingOrder<TOrd>) -> bool;
     /// Pop best order.
     async fn try_pop(&mut self) -> Option<TOrd>;
+    /// Check if order with the given id exists already in backlog.
+    async fn exists(&self, ord_id: TOrd::TOrderId) -> bool;
     /// Remove order from backlog.
     async fn remove(&mut self, ord_id: TOrd::TOrderId);
     /// Return order back to backlog.
@@ -119,7 +122,7 @@ where
     TOrd: OnChainOrder + Weighted + Hash + Eq,
     TStore: BacklogStore<TOrd>,
 {
-    pub fn new(store: TStore, conf: BacklogConfig) -> Self {
+    pub fn new<TOrd0: IsEqual<TOrd>>(store: TStore, conf: BacklogConfig) -> Self {
         Self {
             store,
             conf,
@@ -222,6 +225,10 @@ where
         }
     }
 
+    async fn exists(&self, ord_id: TOrd::TOrderId) -> bool {
+        self.store.exists(ord_id).await
+    }
+
     async fn remove(&mut self, ord_id: TOrd::TOrderId) {
         self.store.drop(ord_id).await;
     }
@@ -248,13 +255,14 @@ mod tests {
     use async_trait::async_trait;
     use bounded_integer::BoundedU8;
     use chrono::{Duration, Utc};
-    use ergo_chain_sync::cache::rocksdb::RocksDBClient;
     use rand::RngCore;
     use serde::{Deserialize, Serialize};
     use type_equalities::IsEqual;
 
+    use ergo_chain_sync::cache::rocksdb::RocksDBClient;
+
     use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
-    use crate::backlog::persistence::BacklogStore;
+    use crate::backlog::persistence::{BacklogStore, BacklogStoreRocksDB};
     use crate::backlog::{Backlog, BacklogConfig, BacklogService};
     use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
     use crate::data::{Has, OnChainOrder};
@@ -461,7 +469,7 @@ mod tests {
     #[tokio::test]
     async fn test_rocksdb_backlog() {
         let rnd = rand::thread_rng().next_u32();
-        let mut store = RocksDBClient {
+        let mut store = BacklogStoreRocksDB {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
         };
         for i in 0..30 {

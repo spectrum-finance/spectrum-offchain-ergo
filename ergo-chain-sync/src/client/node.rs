@@ -10,9 +10,10 @@ pub trait ErgoNetwork {
     async fn get_block_at(&self, height: u32) -> Option<FullBlock>;
 }
 
+#[derive(Clone)]
 pub struct ErgoNodeHttpClient {
-    client: HttpClient,
-    base_url: Url,
+    pub client: HttpClient,
+    pub base_url: Url,
 }
 
 impl ErgoNodeHttpClient {

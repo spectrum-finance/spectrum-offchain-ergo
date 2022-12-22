@@ -11,9 +11,18 @@ use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::{Predicted, Traced};
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
 use crate::data::OnChainEntity;
+use crate::rocksdb::RocksConfig;
 
 pub struct EntityRepoRocksDB {
     pub db: Arc<rocksdb::OptimisticTransactionDB>,
+}
+
+impl EntityRepoRocksDB {
+    pub fn new(conf: RocksConfig) -> Self {
+        Self {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(conf.db_path).unwrap()),
+        }
+    }
 }
 
 const STATE_PREFIX: &str = "state";
@@ -190,6 +199,10 @@ where
         })
         .await
         .unwrap()
+    }
+
+    async fn eliminate<'a>(&mut self, entity: TEntity) where TEntity: 'a {
+        // todo: DEV-635
     }
 
     async fn may_exist<'a>(&self, sid: <TEntity as OnChainEntity>::TStateId) -> bool

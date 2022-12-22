@@ -1,5 +1,6 @@
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 
 use derive_more::{From, Into};
@@ -28,7 +29,7 @@ pub mod redeemer;
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Serialize, Deserialize)]
 pub struct FundingId(BoxId);
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Serialize, Deserialize)]
 pub struct OrderId(Digest32);
 
 impl From<BoxId> for OrderId {
@@ -98,6 +99,16 @@ pub struct BundleStateId(BoxId);
 /// Something that is represented as an `ErgoBox` on-chain.
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct AsBox<T>(pub ErgoBox, pub T);
+
+impl<T> Hash for AsBox<T>
+where
+    T: Hash,
+{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&*self.0.sigma_serialize_bytes().unwrap());
+        self.1.hash(state);
+    }
+}
 
 impl<T> Serialize for AsBox<T>
 where

@@ -2,11 +2,10 @@ use async_trait::async_trait;
 use derive_more::Display;
 use ergo_lib::chain::transaction::Transaction;
 use isahc::AsyncReadResponseExt;
-use isahc::HttpClient;
 use isahc::Request;
 use serde::Deserialize;
 
-use ergo_chain_sync::client::types::Url;
+use ergo_chain_sync::client::node::ErgoNodeHttpClient;
 
 #[derive(Debug, Display)]
 pub struct ClientError(String);
@@ -16,17 +15,6 @@ pub trait ErgoNetwork {
     /// Submit the given `Transaction` to Ergo network.
     async fn submit_tx(&self, tx: Transaction) -> Result<(), ClientError>;
     async fn get_height(&self) -> u32;
-}
-
-pub struct ErgoNodeHttpClient {
-    client: HttpClient,
-    base_url: Url,
-}
-
-impl ErgoNodeHttpClient {
-    pub fn new(client: HttpClient, base_url: Url) -> Self {
-        Self { client, base_url }
-    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
