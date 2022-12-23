@@ -14,8 +14,8 @@ pub trait SigmaProver {
 
 pub struct Wallet {
     secrets: Vec<PrivateInput>,
-    /// Necessary to use `sign_transaction` function from `sigma-rust`. This field needs to be
-    /// refreshed periodically with the latest Headers.
+    /// Necessary to use `sign_transaction` function from `sigma-rust`. If we're only signing P2PK
+    /// inputs, then this field can be any arbitrary value.
     ergo_state_context: ErgoStateContext,
 }
 
