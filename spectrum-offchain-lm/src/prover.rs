@@ -84,3 +84,74 @@ impl SigmaProver for NoopProver {
         Ok(tx.into_tx_without_proofs())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ergo_lib::{
+        chain::{
+            contract::Contract,
+            ergo_box::box_builder::ErgoBoxCandidateBuilder,
+            ergo_state_context::ErgoStateContext,
+            transaction::{TxId, TxIoVec},
+        },
+        ergo_chain_types::{Header, PreHeader},
+        ergotree_interpreter::sigma_protocol::{private_input::PrivateInput, prover::ContextExtension},
+        ergotree_ir::{
+            chain::{
+                address::Address,
+                ergo_box::{box_value::BoxValue, ErgoBox, NonMandatoryRegisters},
+            },
+            sigma_protocol::sigma_boolean::ProveDlog,
+        },
+        wallet::secret_key::SecretKey,
+    };
+    use sigma_test_util::force_any_val;
+    use spectrum_offchain::transaction::TransactionCandidate;
+
+    use super::{SigmaProver, Wallet};
+
+    #[test]
+    fn test_sigmaprover_sign() {
+        let headers = force_any_val::<[Header; 10]>();
+        let pre_header = PreHeader::from(headers.last().unwrap().clone());
+        let ergo_state_context = ErgoStateContext { pre_header, headers };
+
+        let secret_key = SecretKey::random_dlog();
+        let address = secret_key.get_address_from_public_image();
+
+        let wallet = Wallet {
+            secrets: vec![PrivateInput::from(secret_key)],
+            ergo_state_context,
+        };
+
+        let value = force_any_val::<BoxValue>();
+        let input_box = ErgoBox::new(
+            value,
+            Contract::pay_to_address(&address).unwrap().ergo_tree(),
+            None,
+            NonMandatoryRegisters::empty(),
+            0,
+            force_any_val::<TxId>(),
+            0,
+        )
+        .unwrap();
+        let inputs = vec![(input_box, ContextExtension::empty())];
+
+        let recipient = Address::P2Pk(force_any_val::<ProveDlog>());
+        let output_box = ErgoBoxCandidateBuilder::new(
+            BoxValue::try_from(value.as_u64() / 2).unwrap(),
+            Contract::pay_to_address(&recipient).unwrap().ergo_tree(),
+            0,
+        )
+        .build()
+        .unwrap();
+
+        let tx_candidate = TransactionCandidate {
+            inputs: TxIoVec::from_vec(inputs).unwrap(),
+            data_inputs: None,
+            output_candidates: TxIoVec::from_vec(vec![output_box]).unwrap(),
+        };
+
+        assert!(wallet.sign(tx_candidate).is_ok());
+    }
+}
