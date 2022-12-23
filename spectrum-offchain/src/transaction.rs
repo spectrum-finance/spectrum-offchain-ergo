@@ -1,5 +1,5 @@
 use ergo_lib::chain::transaction::prover_result::ProverResult;
-use ergo_lib::chain::transaction::{DataInput, Input, Transaction, TxIoVec};
+use ergo_lib::chain::transaction::{Input, Transaction, TxIoVec};
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::{ContextExtension, ProofBytes};
 use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, ErgoBoxCandidate};
 
@@ -9,7 +9,7 @@ pub struct TransactionCandidate {
     /// inputs, that are not going to be spent by transaction, but will be reachable from inputs
     /// scripts. `dataInputs` scripts will not be executed, thus their scripts costs are not
     /// included in transaction cost and they do not contain spending proofs.
-    pub data_inputs: Option<TxIoVec<DataInput>>,
+    pub data_inputs: Option<TxIoVec<ErgoBox>>,
     /// box candidates to be created by this transaction
     pub output_candidates: TxIoVec<ErgoBoxCandidate>,
 }
@@ -17,7 +17,7 @@ pub struct TransactionCandidate {
 impl TransactionCandidate {
     pub fn new(
         inputs: TxIoVec<(ErgoBox, ContextExtension)>,
-        data_inputs: Option<TxIoVec<DataInput>>,
+        data_inputs: Option<TxIoVec<ErgoBox>>,
         output_candidates: TxIoVec<ErgoBoxCandidate>,
     ) -> Self {
         Self {
@@ -46,6 +46,11 @@ impl UnsignedTransactionOps for TransactionCandidate {
 
         // safe since the serialization error is impossible here
         // since we already serialized this unsigned tx (on calc tx id)
-        Transaction::new(empty_proofs_input, self.data_inputs, self.output_candidates).unwrap()
+        Transaction::new(
+            empty_proofs_input,
+            self.data_inputs.map(|d| d.mapped(|b| b.box_id().into())),
+            self.output_candidates,
+        )
+        .unwrap()
     }
 }
