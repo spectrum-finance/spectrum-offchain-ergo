@@ -1,16 +1,15 @@
 use ergo_lib::chain::ergo_state_context::ErgoStateContext;
 use ergo_lib::chain::transaction::unsigned::UnsignedTransaction;
-use ergo_lib::chain::transaction::{Transaction, TransactionError, UnsignedInput};
+use ergo_lib::chain::transaction::{Transaction, UnsignedInput};
 use ergo_lib::ergotree_interpreter::sigma_protocol::private_input::PrivateInput;
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::Prover;
 
-use ergo_lib::ergotree_ir::chain::address::{Address, AddressError};
+use ergo_lib::ergotree_ir::chain::address::Address;
 use ergo_lib::wallet::signing::{sign_transaction, TransactionContext, TxSigningError};
 use spectrum_offchain::transaction::{TransactionCandidate, UnsignedTransactionOps};
-use thiserror::Error;
 
 pub trait SigmaProver {
-    fn sign(&self, tx: TransactionCandidate) -> Result<Transaction, SigmaProverError>;
+    fn sign(&self, tx: TransactionCandidate) -> Result<Transaction, TxSigningError>;
 }
 
 pub struct Wallet {
@@ -30,18 +29,8 @@ impl Prover for Wallet {
     }
 }
 
-#[derive(Error, Debug)]
-pub enum SigmaProverError {
-    #[error("Address error: ({0})")]
-    Address(#[from] AddressError),
-    #[error("Transaction error: ({0})")]
-    Transaction(#[from] TransactionError),
-    #[error("Transaction signing error: ({0})")]
-    TxSigning(#[from] TxSigningError),
-}
-
 impl SigmaProver for Wallet {
-    fn sign(&self, tx: TransactionCandidate) -> Result<Transaction, SigmaProverError> {
+    fn sign(&self, tx: TransactionCandidate) -> Result<Transaction, TxSigningError> {
         let TransactionCandidate {
             inputs,
             data_inputs,
@@ -50,7 +39,7 @@ impl SigmaProver for Wallet {
 
         let mut unsigned_inputs = Vec::with_capacity(inputs.len());
         for (eb, extension) in &inputs {
-            let addr = Address::recreate_from_ergo_tree(&eb.ergo_tree)?;
+            let addr = Address::recreate_from_ergo_tree(&eb.ergo_tree).unwrap();
             if let Address::P2Pk(_) = addr {
                 unsigned_inputs.push(UnsignedInput {
                     box_id: eb.box_id(),
@@ -66,21 +55,21 @@ impl SigmaProver for Wallet {
                 .map(|d| d.mapped(|b| b.box_id().into()).to_vec())
                 .unwrap_or_else(Vec::new),
             output_candidates.to_vec(),
-        )?;
+        )
+        .unwrap();
         let tx_context = TransactionContext::new(
             unsigned_tx,
             inputs.into_iter().map(|(b, _)| b).collect(),
             data_inputs.map(|d| d.to_vec()).unwrap_or_else(Vec::new),
         )?;
         sign_transaction(self, tx_context, &self.ergo_state_context, None)
-            .map_err(SigmaProverError::TxSigning)
     }
 }
 
 pub struct NoopProver;
 
 impl SigmaProver for NoopProver {
-    fn sign(&self, tx: TransactionCandidate) -> Result<Transaction, SigmaProverError> {
+    fn sign(&self, tx: TransactionCandidate) -> Result<Transaction, TxSigningError> {
         Ok(tx.into_tx_without_proofs())
     }
 }
