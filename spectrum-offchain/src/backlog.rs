@@ -259,8 +259,6 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use type_equalities::IsEqual;
 
-    use ergo_chain_sync::cache::rocksdb::RocksDBClient;
-
     use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
     use crate::backlog::persistence::{BacklogStore, BacklogStoreRocksDB};
     use crate::backlog::{Backlog, BacklogConfig, BacklogService};
@@ -368,7 +366,7 @@ mod tests {
             order_exec_time: Duration::seconds(order_exec_time_secs),
             retry_suspended_prob: <BoundedU8<0, 100>>::new(retry_suspended_prob).unwrap(),
         };
-        BacklogService::new(store, conf)
+        BacklogService::new::<MockOrder>(store, conf)
     }
 
     fn make_order(id: i64, weight: u64) -> BacklogOrder<MockOrder> {
@@ -477,20 +475,20 @@ mod tests {
         }
 
         for i in 0..30 {
-            assert!(<RocksDBClient as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
+            assert!(<BacklogStoreRocksDB as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
             assert_eq!(
                 make_order(i, i as u64),
-                <RocksDBClient as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
+                <BacklogStoreRocksDB as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
                     .await
                     .unwrap()
             );
         }
 
         for i in 0..30 {
-            <RocksDBClient as BacklogStore<MockOrder>>::drop(&mut store, MockOrderId(i)).await;
-            assert!(!<RocksDBClient as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
+            <BacklogStoreRocksDB as BacklogStore<MockOrder>>::drop(&mut store, MockOrderId(i)).await;
+            assert!(!<BacklogStoreRocksDB as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
             assert!(
-                <RocksDBClient as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
+                <BacklogStoreRocksDB as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
                     .await
                     .is_none()
             )
