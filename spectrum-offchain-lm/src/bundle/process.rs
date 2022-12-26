@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use futures::channel::mpsc::UnboundedReceiver;
 use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
 
@@ -12,11 +11,12 @@ use crate::bundle::BundleRepo;
 use crate::data::bundle::IndexedStakingBundle;
 use crate::data::AsBox;
 
-pub fn bundle_update_stream<'a, TBundles>(
-    upstream: UnboundedReceiver<Confirmed<StateUpdate<AsBox<IndexedStakingBundle>>>>,
+pub fn bundle_update_stream<'a, S, TBundles>(
+    upstream: S,
     bundles: Arc<Mutex<TBundles>>,
 ) -> impl Stream<Item = ()> + 'a
 where
+    S: Stream<Item = Confirmed<StateUpdate<AsBox<IndexedStakingBundle>>>> + 'a,
     TBundles: BundleRepo + 'a,
 {
     upstream.then(move |Confirmed(upd)| {

@@ -1,10 +1,11 @@
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
+use futures::{Sink, SinkExt};
 use parking_lot::Mutex;
-use tokio::sync::mpsc::UnboundedSender;
 
 use ergo_mempool_sync::MempoolUpdate;
 
@@ -15,28 +16,41 @@ use crate::event_sink::handlers::types::TryFromBox;
 use crate::event_sink::types::EventHandler;
 use crate::event_source::data::LedgerTxEvent;
 
-pub struct OrderUpdatesHandler<TOrd: OnChainOrder, TBacklog> {
-    topic: UnboundedSender<OrderUpdate<TOrd>>,
-    backlog: Arc<Mutex<TBacklog>>,
-    order_lifespan: Duration,
+pub struct OrderUpdatesHandler<TSink, TOrd, TBacklog> {
+    pub topic: TSink,
+    pub backlog: Arc<Mutex<TBacklog>>,
+    pub order_lifespan: Duration,
+    pub pd: PhantomData<TOrd>,
+}
+
+impl<TSink, TOrd, TBacklog> OrderUpdatesHandler<TSink, TOrd, TBacklog> {
+    pub fn new(topic: TSink, backlog: Arc<Mutex<TBacklog>>, order_lifespan: Duration) -> Self {
+        Self {
+            topic,
+            backlog,
+            order_lifespan,
+            pd: Default::default(),
+        }
+    }
 }
 
 #[async_trait(?Send)]
-impl<TOrd, TBacklog> EventHandler<LedgerTxEvent> for OrderUpdatesHandler<TOrd, TBacklog>
+impl<TSink, TOrd, TBacklog> EventHandler<LedgerTxEvent> for OrderUpdatesHandler<TSink, TOrd, TBacklog>
 where
+    TSink: Sink<OrderUpdate<TOrd>> + Unpin,
     TOrd: OnChainOrder + TryFromBox,
     TOrd::TOrderId: From<BoxId> + Copy,
     TBacklog: Backlog<TOrd>,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
-        match ev {
+        let res = match ev {
             LedgerTxEvent::AppliedTx { tx, timestamp } => {
                 let mut is_success = false;
                 for i in tx.clone().inputs {
                     let order_id = TOrd::TOrderId::from(i.box_id);
                     if self.backlog.lock().exists(order_id).await {
                         is_success = true;
-                        let _ = self.topic.send(OrderUpdate::OrderEliminated(order_id));
+                        let _ = self.topic.feed(OrderUpdate::OrderEliminated(order_id)).await;
                     }
                 }
                 let ts_now = Utc::now().timestamp();
@@ -44,10 +58,13 @@ where
                     for bx in &tx.outputs {
                         if let Some(order) = TOrd::try_from_box(bx.clone()) {
                             is_success = true;
-                            let _ = self.topic.send(OrderUpdate::NewOrder(PendingOrder {
-                                order,
-                                timestamp: Utc::now().timestamp(),
-                            }));
+                            let _ = self
+                                .topic
+                                .feed(OrderUpdate::NewOrder(PendingOrder {
+                                    order,
+                                    timestamp: Utc::now().timestamp(),
+                                }))
+                                .await;
                         }
                     }
                 }
@@ -63,7 +80,8 @@ where
                         is_success = true;
                         let _ = self
                             .topic
-                            .send(OrderUpdate::OrderEliminated(order.get_self_ref()));
+                            .feed(OrderUpdate::OrderEliminated(order.get_self_ref()))
+                            .await;
                     }
                 }
                 if is_success {
@@ -71,35 +89,41 @@ where
                 }
                 Some(LedgerTxEvent::UnappliedTx(tx))
             }
-        }
+        };
+        let _ = self.topic.flush().await;
+        res
     }
 }
 
 #[async_trait(?Send)]
-impl<TOrd, TBacklog> EventHandler<MempoolUpdate> for OrderUpdatesHandler<TOrd, TBacklog>
+impl<TSink, TOrd, TBacklog> EventHandler<MempoolUpdate> for OrderUpdatesHandler<TSink, TOrd, TBacklog>
 where
+    TSink: Sink<OrderUpdate<TOrd>> + Unpin,
     TOrd: OnChainOrder + TryFromBox,
     TOrd::TOrderId: From<BoxId> + Copy,
     TBacklog: Backlog<TOrd>,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
-        match ev {
+        let res = match ev {
             MempoolUpdate::TxAccepted(tx) => {
                 let mut is_success = false;
                 for i in tx.clone().inputs {
                     let order_id = TOrd::TOrderId::from(i.box_id);
                     if self.backlog.lock().exists(order_id).await {
                         is_success = true;
-                        let _ = self.topic.send(OrderUpdate::OrderEliminated(order_id));
+                        let _ = self.topic.feed(OrderUpdate::OrderEliminated(order_id)).await;
                     }
                 }
                 for bx in &tx.outputs {
                     if let Some(order) = TOrd::try_from_box(bx.clone()) {
                         is_success = true;
-                        let _ = self.topic.send(OrderUpdate::NewOrder(PendingOrder {
-                            order,
-                            timestamp: Utc::now().timestamp(),
-                        }));
+                        let _ = self
+                            .topic
+                            .feed(OrderUpdate::NewOrder(PendingOrder {
+                                order,
+                                timestamp: Utc::now().timestamp(),
+                            }))
+                            .await;
                     }
                 }
                 if is_success {
@@ -114,7 +138,8 @@ where
                         is_success = true;
                         let _ = self
                             .topic
-                            .send(OrderUpdate::OrderEliminated(order.get_self_ref()));
+                            .feed(OrderUpdate::OrderEliminated(order.get_self_ref()))
+                            .await;
                     }
                 }
                 if is_success {
@@ -122,6 +147,8 @@ where
                 }
                 Some(MempoolUpdate::TxWithdrawn(tx))
             }
-        }
+        };
+        let _ = self.topic.flush().await;
+        res
     }
 }

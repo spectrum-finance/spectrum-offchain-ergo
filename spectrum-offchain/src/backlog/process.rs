@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use futures::channel::mpsc::UnboundedReceiver;
 use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
 
@@ -9,11 +8,9 @@ use crate::data::order::OrderUpdate;
 use crate::data::OnChainOrder;
 
 /// Create backlog stream that drives processing of order events.
-pub fn backlog_stream<'a, TOrd, TBacklog>(
-    backlog: TBacklog,
-    upstream: UnboundedReceiver<OrderUpdate<TOrd>>,
-) -> impl Stream<Item = ()> + 'a
+pub fn backlog_stream<'a, S, TOrd, TBacklog>(backlog: TBacklog, upstream: S) -> impl Stream<Item = ()> + 'a
 where
+    S: Stream<Item = OrderUpdate<TOrd>> + 'a,
     TOrd: OnChainOrder + 'a,
     TBacklog: Backlog<TOrd> + 'a,
 {

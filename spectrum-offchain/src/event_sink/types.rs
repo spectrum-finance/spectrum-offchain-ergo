@@ -9,5 +9,18 @@ pub trait EventHandler<TEvent> {
 
 #[async_trait(?Send)]
 pub trait DefaultEventHandler<TEvent> {
-    async fn handle(&mut self, ev: TEvent);
+    async fn handle<'a>(&mut self, ev: TEvent)
+    where
+        TEvent: 'a;
+}
+
+pub struct NoopDefaultHandler;
+
+#[async_trait(?Send)]
+impl<TEvent> DefaultEventHandler<TEvent> for NoopDefaultHandler {
+    async fn handle<'a>(&mut self, ev: TEvent)
+    where
+        TEvent: 'a,
+    {
+    }
 }

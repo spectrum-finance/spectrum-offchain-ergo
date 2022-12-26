@@ -1,7 +1,6 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
-use futures::channel::mpsc::UnboundedReceiver;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
@@ -12,12 +11,14 @@ use crate::data::funding::{DistributionFunding, EliminatedFunding};
 use crate::data::AsBox;
 use crate::funding::FundingRepo;
 
-pub fn funding_update_stream<'a, TRepo>(
-    new: UnboundedReceiver<Confirmed<AsBox<DistributionFunding>>>,
-    eliminated: UnboundedReceiver<EliminatedFunding>,
+pub fn funding_update_stream<'a, S1, S2, TRepo>(
+    new: S1,
+    eliminated: S2,
     repo: Arc<Mutex<TRepo>>,
 ) -> impl Stream<Item = ()> + 'a
 where
+    S1: Stream<Item = Confirmed<AsBox<DistributionFunding>>> + 'a,
+    S2: Stream<Item = EliminatedFunding> + 'a,
     TRepo: FundingRepo + 'a,
 {
     select_all(vec![
@@ -26,11 +27,12 @@ where
     ])
 }
 
-fn track_new_funding_boxes<'a, TRepo>(
-    upstream: UnboundedReceiver<Confirmed<AsBox<DistributionFunding>>>,
+fn track_new_funding_boxes<'a, S, TRepo>(
+    upstream: S,
     repo: Arc<Mutex<TRepo>>,
 ) -> Pin<Box<dyn Stream<Item = ()> + 'a>>
 where
+    S: Stream<Item = Confirmed<AsBox<DistributionFunding>>> + 'a,
     TRepo: FundingRepo + 'a,
 {
     Box::pin(upstream.then(move |funding| {
@@ -39,11 +41,12 @@ where
     }))
 }
 
-fn track_eliminated_funding_boxes<'a, TRepo>(
-    upstream: UnboundedReceiver<EliminatedFunding>,
+fn track_eliminated_funding_boxes<'a, S, TRepo>(
+    upstream: S,
     repo: Arc<Mutex<TRepo>>,
 ) -> Pin<Box<dyn Stream<Item = ()> + 'a>>
 where
+    S: Stream<Item = EliminatedFunding> + 'a,
     TRepo: FundingRepo + 'a,
 {
     Box::pin(upstream.then(move |EliminatedFunding(fid)| {

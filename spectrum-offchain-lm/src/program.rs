@@ -1,3 +1,6 @@
+pub mod rocksdb;
+pub mod process;
+
 use async_trait::async_trait;
 
 use crate::data::pool::ProgramConfig;
@@ -10,4 +13,6 @@ pub trait ProgramRepo {
     async fn put(&self, pool_id: PoolId, conf: ProgramConfig);
     /// Get `ProgramConfig` corresponding to the given `PoolId`.
     async fn get(&self, pool_id: PoolId) -> Option<ProgramConfig>;
+    /// Check if given program already exists.
+    async fn exists(&self, pool_id: PoolId) -> bool;
 }

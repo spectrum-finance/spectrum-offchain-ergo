@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use ergo_lib::chain::transaction::Transaction;
+use futures::{Sink, SinkExt};
 use parking_lot::Mutex;
-use tokio::sync::mpsc::UnboundedSender;
 
 use spectrum_offchain::combinators::EitherOrBoth;
 use spectrum_offchain::data::unique_entity::{Confirmed, StateUpdate};
@@ -16,15 +16,15 @@ use spectrum_offchain::event_source::data::LedgerTxEvent;
 use crate::bundle::BundleRepo;
 use crate::data::bundle::{IndexedBundle, IndexedStakingBundle, StakingBundle};
 use crate::data::{AsBox, BundleId, BundleStateId};
-use crate::pool::ProgramRepo;
+use crate::program::ProgramRepo;
 
-pub struct ConfirmedBundleUpdateHadler<TBundles, TProgs> {
-    topic: UnboundedSender<Confirmed<StateUpdate<AsBox<IndexedStakingBundle>>>>,
-    bundles: Arc<Mutex<TBundles>>,
-    programs: Arc<Mutex<TProgs>>,
+pub struct ConfirmedBundleUpdateHadler<TSink, TBundles, TProgs> {
+    pub topic: TSink,
+    pub bundles: Arc<Mutex<TBundles>>,
+    pub programs: Arc<Mutex<TProgs>>,
 }
 
-impl<TBundles, TProgs> ConfirmedBundleUpdateHadler<TBundles, TProgs>
+impl<TSink, TBundles, TProgs> ConfirmedBundleUpdateHadler<TSink, TBundles, TProgs>
 where
     TBundles: BundleRepo,
     TProgs: ProgramRepo,
@@ -67,18 +67,20 @@ where
 }
 
 #[async_trait(?Send)]
-impl<TBundles, TProgs> EventHandler<LedgerTxEvent> for ConfirmedBundleUpdateHadler<TBundles, TProgs>
+impl<TSink, TBundles, TProgs> EventHandler<LedgerTxEvent>
+    for ConfirmedBundleUpdateHadler<TSink, TBundles, TProgs>
 where
+    TSink: Sink<Confirmed<StateUpdate<AsBox<IndexedStakingBundle>>>> + Unpin,
     TBundles: BundleRepo,
     TProgs: ProgramRepo,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
-        match ev {
+        let res = match ev {
             LedgerTxEvent::AppliedTx { tx, timestamp } => {
                 let transitions = self.extract_transitions(tx.clone()).await;
                 let is_success = transitions.len() > 0;
                 for tr in transitions {
-                    self.topic.send(Confirmed(StateUpdate::Transition(tr))).unwrap();
+                    let _ = self.topic.feed(Confirmed(StateUpdate::Transition(tr))).await;
                 }
                 if is_success {
                     Some(LedgerTxEvent::AppliedTx { tx, timestamp })
@@ -90,9 +92,10 @@ where
                 let transitions = self.extract_transitions(tx.clone()).await;
                 let is_success = transitions.len() > 0;
                 for tr in transitions {
-                    self.topic
-                        .send(Confirmed(StateUpdate::TransitionRollback(tr.swap())))
-                        .unwrap();
+                    let _ = self
+                        .topic
+                        .feed(Confirmed(StateUpdate::TransitionRollback(tr.swap())))
+                        .await;
                 }
                 if is_success {
                     Some(LedgerTxEvent::UnappliedTx(tx))
@@ -100,6 +103,8 @@ where
                     None
                 }
             }
-        }
+        };
+        let _ = self.topic.flush().await;
+        res
     }
 }

@@ -1,0 +1,24 @@
+# Spectrum Off-Chain Streams (Liquidity Mining)
+
+```mermaid
+flowchart TD
+    CS{{Chain Upgrade Stream}}
+        -->LS{{Ledger TX Event Stream}}
+        -->CPS{{Confirmed Pool Stream}}
+
+    CPS-->PR>Pool Tracker]
+    CPS-->PH>Program Tracker]
+    CPS-->ST>Schedule Tracker]
+
+    LS
+        -->OS{{Order Stream}}
+        -->BL>Backlog]
+
+    LS
+        -->BS{{Bundle Stream}}
+        -->BT>Bundle Tracker]
+
+    LS
+        -->FS{{Funding Stream}}
+        -->FT>Funding Tracker]
+```

@@ -3,15 +3,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use futures::{Stream, StreamExt};
-use futures::channel::mpsc::UnboundedReceiver;
 use futures::stream::select_all;
+use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
-use stream_throttle::{ThrottledStream, ThrottlePool, ThrottleRate};
+use stream_throttle::{ThrottlePool, ThrottleRate, ThrottledStream};
 
 use spectrum_offchain::backlog::Backlog;
+use spectrum_offchain::combinators::EitherOrBoth::{Both, Right};
 use spectrum_offchain::data::order::PendingOrder;
-use spectrum_offchain::data::unique_entity::{Confirmed, Upgrade};
+use spectrum_offchain::data::unique_entity::{Confirmed, StateUpdate, Upgrade};
 use spectrum_offchain::network::ErgoNetwork;
 
 use crate::bundle::BundleRepo;
@@ -20,8 +20,8 @@ use crate::data::pool::Pool;
 use crate::scheduler::data::{PoolSchedule, Tick};
 use crate::scheduler::ScheduleRepo;
 
-pub fn run_distribution_scheduler<'a, TBacklog, TSchedules, TBundles, TNetwork>(
-    confirmed_pools: UnboundedReceiver<Upgrade<Confirmed<Pool>>>,
+pub fn run_distribution_scheduler<'a, S, TBacklog, TSchedules, TBundles, TNetwork>(
+    confirmed_pools: S,
     backlog: Arc<Mutex<TBacklog>>,
     schedules: Arc<Mutex<TSchedules>>,
     bundles: Arc<Mutex<TBundles>>,
@@ -30,6 +30,7 @@ pub fn run_distribution_scheduler<'a, TBacklog, TSchedules, TBundles, TNetwork>(
     poll_interval: Duration,
 ) -> impl Stream<Item = ()> + 'a
 where
+    S: Stream<Item = Confirmed<StateUpdate<Pool>>> + 'a,
     TSchedules: ScheduleRepo + 'a,
     TBacklog: Backlog<Order> + 'a,
     TSchedules: ScheduleRepo + 'a,
@@ -116,19 +117,22 @@ where
     }))
 }
 
-fn track_pools<'a, TSchedules>(
-    upstream: UnboundedReceiver<Upgrade<Confirmed<Pool>>>,
+fn track_pools<'a, S, TSchedules>(
+    upstream: S,
     schedules: Arc<Mutex<TSchedules>>,
 ) -> Pin<Box<dyn Stream<Item = ()> + 'a>>
 where
+    S: Stream<Item = Confirmed<StateUpdate<Pool>>> + 'a,
     TSchedules: ScheduleRepo + 'a,
 {
-    Box::pin(upstream.then(move |Upgrade(Confirmed(pool))| {
+    Box::pin(upstream.then(move |Confirmed(upd)| {
         let schedules = Arc::clone(&schedules);
         async move {
-            let mut schedules = schedules.lock();
-            if !schedules.exists(pool.pool_id).await {
-                schedules.put_schedule(PoolSchedule::from(pool)).await
+            if let StateUpdate::Transition(Right(pool) | Both(_, pool)) = upd {
+                let mut schedules = schedules.lock();
+                if !schedules.exists(pool.pool_id).await {
+                    schedules.put_schedule(PoolSchedule::from(pool)).await
+                }
             }
         }
     }))

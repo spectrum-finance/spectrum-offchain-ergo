@@ -6,6 +6,7 @@ use ergo_lib::ergotree_ir::chain::ergo_box::{
 use ergo_lib::ergotree_ir::chain::token::Token;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
 use nonempty::NonEmpty;
+use serde::{Deserialize, Serialize};
 
 use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::domain::TypedAssetAmount;
@@ -22,7 +23,7 @@ use crate::data::{PoolId, PoolStateId};
 use crate::ergo::{NanoErg, MAX_VALUE};
 use crate::validators::pool_validator;
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Serialize, Deserialize)]
 pub struct ProgramConfig {
     pub epoch_len: u32,
     pub epoch_num: u32,

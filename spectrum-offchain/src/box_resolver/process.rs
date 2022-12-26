@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use futures::channel::mpsc::UnboundedReceiver;
 use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
 
@@ -9,11 +8,12 @@ use crate::combinators::EitherOrBoth;
 use crate::data::unique_entity::{Confirmed, StateUpdate};
 use crate::data::OnChainEntity;
 
-pub fn entity_tracking_stream<'a, TRepo, TEntity>(
-    upstream: UnboundedReceiver<Confirmed<StateUpdate<TEntity>>>,
+pub fn entity_tracking_stream<'a, S, TRepo, TEntity>(
+    upstream: S,
     entities: Arc<Mutex<TRepo>>,
 ) -> impl Stream<Item = ()> + 'a
 where
+    S: Stream<Item = Confirmed<StateUpdate<TEntity>>> + 'a,
     TEntity: OnChainEntity + 'a,
     TRepo: EntityRepo<TEntity> + 'a,
 {

@@ -1,12 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use ergo_lib::chain::transaction::Transaction;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
+use futures::{Sink, SinkExt};
 use parking_lot::Mutex;
-use tokio::sync::mpsc::UnboundedSender;
 
 use ergo_mempool_sync::MempoolUpdate;
 
@@ -18,9 +19,20 @@ use crate::event_sink::handlers::types::TryFromBox;
 use crate::event_sink::types::EventHandler;
 use crate::event_source::data::LedgerTxEvent;
 
-pub struct ConfirmedUpdateHandler<TEntity, TRepo> {
-    topic: UnboundedSender<Confirmed<StateUpdate<TEntity>>>,
-    entities: Arc<Mutex<TRepo>>,
+pub struct ConfirmedUpdateHandler<TSink, TEntity, TRepo> {
+    pub topic: TSink,
+    pub entities: Arc<Mutex<TRepo>>,
+    pub pd: PhantomData<TEntity>,
+}
+
+impl<TSink, TEntity, TRepo> ConfirmedUpdateHandler<TSink, TEntity, TRepo> {
+    pub fn new(topic: TSink, entities: Arc<Mutex<TRepo>>) -> Self {
+        Self {
+            topic,
+            entities,
+            pd: Default::default(),
+        }
+    }
 }
 
 async fn extract_transitions<TEntity, TRepo>(
@@ -63,20 +75,21 @@ where
 }
 
 #[async_trait(?Send)]
-impl<TEntity, TRepo> EventHandler<LedgerTxEvent> for ConfirmedUpdateHandler<TEntity, TRepo>
+impl<TSink, TEntity, TRepo> EventHandler<LedgerTxEvent> for ConfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
+    TSink: Sink<Confirmed<StateUpdate<TEntity>>> + Unpin,
     TEntity: OnChainEntity + TryFromBox + Clone + Debug,
     TEntity::TEntityId: Clone,
     TEntity::TStateId: From<BoxId> + Copy,
     TRepo: EntityRepo<TEntity>,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
-        match ev {
+        let res = match ev {
             LedgerTxEvent::AppliedTx { tx, timestamp } => {
                 let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
                 let is_success = transitions.len() > 0;
                 for tr in transitions {
-                    self.topic.send(Confirmed(StateUpdate::Transition(tr))).unwrap();
+                    let _ = self.topic.feed(Confirmed(StateUpdate::Transition(tr))).await;
                 }
                 if is_success {
                     Some(LedgerTxEvent::AppliedTx { tx, timestamp })
@@ -88,9 +101,10 @@ where
                 let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
                 let is_success = transitions.len() > 0;
                 for tr in transitions {
-                    self.topic
-                        .send(Confirmed(StateUpdate::TransitionRollback(tr.swap())))
-                        .unwrap();
+                    let _ = self
+                        .topic
+                        .feed(Confirmed(StateUpdate::TransitionRollback(tr.swap())))
+                        .await;
                 }
                 if is_success {
                     Some(LedgerTxEvent::UnappliedTx(tx))
@@ -98,30 +112,34 @@ where
                     None
                 }
             }
-        }
+        };
+        let _ = self.topic.flush().await;
+        res
     }
 }
 
-pub struct UnconfirmedUpgradeHandler<TEntity, TRepo> {
-    topic: UnboundedSender<Unconfirmed<StateUpdate<TEntity>>>,
-    entities: Arc<Mutex<TRepo>>,
+pub struct UnconfirmedUpgradeHandler<TSink, TEntity, TRepo> {
+    pub topic: TSink,
+    pub entities: Arc<Mutex<TRepo>>,
+    pub pd: PhantomData<TEntity>,
 }
 
 #[async_trait(?Send)]
-impl<TEntity, TRepo> EventHandler<MempoolUpdate> for UnconfirmedUpgradeHandler<TEntity, TRepo>
+impl<TSink, TEntity, TRepo> EventHandler<MempoolUpdate> for UnconfirmedUpgradeHandler<TSink, TEntity, TRepo>
 where
+    TSink: Sink<Unconfirmed<StateUpdate<TEntity>>> + Unpin,
     TEntity: OnChainEntity + TryFromBox + Clone + Debug,
     TEntity::TEntityId: Clone,
     TEntity::TStateId: From<BoxId> + Copy,
     TRepo: EntityRepo<TEntity>,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
-        match ev {
+        let res = match ev {
             MempoolUpdate::TxAccepted(tx) => {
                 let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
                 let is_success = transitions.len() > 0;
                 for tr in transitions {
-                    self.topic.send(Unconfirmed(StateUpdate::Transition(tr))).unwrap();
+                    let _ = self.topic.feed(Unconfirmed(StateUpdate::Transition(tr))).await;
                 }
                 if is_success {
                     Some(MempoolUpdate::TxAccepted(tx))
@@ -133,9 +151,10 @@ where
                 let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
                 let is_success = transitions.len() > 0;
                 for tr in transitions {
-                    self.topic
-                        .send(Unconfirmed(StateUpdate::TransitionRollback(tr.swap())))
-                        .unwrap();
+                    let _ = self
+                        .topic
+                        .feed(Unconfirmed(StateUpdate::TransitionRollback(tr.swap())))
+                        .await;
                 }
                 if is_success {
                     Some(MempoolUpdate::TxWithdrawn(tx))
@@ -143,6 +162,8 @@ where
                     None
                 }
             }
-        }
+        };
+        let _ = self.topic.flush().await;
+        res
     }
 }
