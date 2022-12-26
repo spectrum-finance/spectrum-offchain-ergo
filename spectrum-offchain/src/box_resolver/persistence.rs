@@ -124,6 +124,12 @@ mod tests {
         test_entity_repo_invalidate(client).await;
     }
 
+    #[tokio::test]
+    async fn test_rocksdb_eliminate() {
+        let client = rocks_db_client();
+        test_entity_repo_eliminate(client).await;
+    }
+
     fn rocks_db_client() -> EntityRepoRocksDB {
         let rnd = rand::thread_rng().next_u32();
         EntityRepoRocksDB {
@@ -217,6 +223,30 @@ mod tests {
 
             // Invalidate
             <C as EntityRepo<ErgoEntity>>::invalidate(&mut client, box_ids[i]).await;
+            let predicted: Option<Predicted<ErgoEntity>> = client.get_last_predicted(token_ids[i]).await;
+            let unconfirmed: Option<Unconfirmed<ErgoEntity>> =
+                client.get_last_unconfirmed(token_ids[i]).await;
+            assert!(predicted.is_none());
+            assert!(unconfirmed.is_none());
+        }
+    }
+
+    async fn test_entity_repo_eliminate<C: EntityRepo<ErgoEntity>>(mut client: C) {
+        let (box_ids, token_ids, n) = gen_box_and_token_ids();
+        for i in 1..n {
+            let ee = ErgoEntity {
+                token_id: token_ids[i],
+                box_id: box_ids[i],
+            };
+            let entity = Traced {
+                state: Predicted(ee.clone()),
+                prev_state_id: box_ids.get(i - 1).cloned(),
+            };
+            client.put_predicted(entity.clone()).await;
+            client.put_unconfirmed(Unconfirmed(ee.clone())).await;
+
+            // Invalidate
+            <C as EntityRepo<ErgoEntity>>::eliminate(&mut client, ee).await;
             let predicted: Option<Predicted<ErgoEntity>> = client.get_last_predicted(token_ids[i]).await;
             let unconfirmed: Option<Unconfirmed<ErgoEntity>> =
                 client.get_last_unconfirmed(token_ids[i]).await;

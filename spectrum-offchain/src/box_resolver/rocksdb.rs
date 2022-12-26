@@ -201,8 +201,29 @@ where
         .unwrap()
     }
 
-    async fn eliminate<'a>(&mut self, entity: TEntity) where TEntity: 'a {
-        // todo: DEV-635
+    async fn eliminate<'a>(&mut self, entity: TEntity)
+    where
+        TEntity: 'a,
+    {
+        let state_key = prefixed_key(STATE_PREFIX, &entity.get_self_state_ref());
+        let last_predicted_index_key = prefixed_key(LAST_PREDICTED_PREFIX, &entity.get_self_ref());
+        let link_key = prefixed_key(PREDICTION_LINK_PREFIX, &entity.get_self_state_ref());
+
+        let last_confirmed_index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &entity.get_self_ref());
+        let last_unconfirmed_index_key = prefixed_key(LAST_UNCONFIRMED_PREFIX, &entity.get_self_ref());
+
+        let db = self.db.clone();
+        spawn_blocking(move || {
+            let tx = db.transaction();
+            tx.delete(state_key).unwrap();
+            tx.delete(link_key).unwrap();
+            tx.delete(last_predicted_index_key).unwrap();
+            tx.delete(last_confirmed_index_key).unwrap();
+            tx.delete(last_unconfirmed_index_key).unwrap();
+            tx.commit().unwrap();
+        })
+        .await
+        .unwrap()
     }
 
     async fn may_exist<'a>(&self, sid: <TEntity as OnChainEntity>::TStateId) -> bool
