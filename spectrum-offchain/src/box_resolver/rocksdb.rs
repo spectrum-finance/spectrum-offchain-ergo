@@ -189,11 +189,9 @@ where
         <TEntity as OnChainEntity>::TStateId: 'a,
     {
         let db = self.db.clone();
-        let state_key = prefixed_key(STATE_PREFIX, &sid);
         let link_key = prefixed_key(PREDICTION_LINK_PREFIX, &sid);
         spawn_blocking(move || {
             let tx = db.transaction();
-            tx.delete(state_key).unwrap();
             tx.delete(link_key).unwrap();
             tx.commit().unwrap();
         })
@@ -205,7 +203,6 @@ where
     where
         TEntity: 'a,
     {
-        let state_key = prefixed_key(STATE_PREFIX, &entity.get_self_state_ref());
         let last_predicted_index_key = prefixed_key(LAST_PREDICTED_PREFIX, &entity.get_self_ref());
         let link_key = prefixed_key(PREDICTION_LINK_PREFIX, &entity.get_self_state_ref());
 
@@ -215,7 +212,6 @@ where
         let db = self.db.clone();
         spawn_blocking(move || {
             let tx = db.transaction();
-            tx.delete(state_key).unwrap();
             tx.delete(link_key).unwrap();
             tx.delete(last_predicted_index_key).unwrap();
             tx.delete(last_confirmed_index_key).unwrap();
