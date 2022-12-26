@@ -64,8 +64,25 @@ impl From<PoolId> for PoolIdBytes {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Into, Serialize, Deserialize)]
+#[serde(from = "PoolStateIdBytes")]
+#[serde(into = "PoolStateIdBytes")]
 pub struct PoolStateId(BoxId);
+
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Into, Serialize, Deserialize)]
+pub struct PoolStateIdBytes([u8; 32]);
+
+impl From<PoolStateId> for PoolStateIdBytes {
+    fn from(sid: PoolStateId) -> Self {
+        Self(Digest32::from(sid.0).0)
+    }
+}
+
+impl From<PoolStateIdBytes> for PoolStateId {
+    fn from(sid: PoolStateIdBytes) -> Self {
+        Self(BoxId::from(Digest32::from(sid.0)))
+    }
+}
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Into, Serialize, Deserialize)]
 #[serde(from = "BundleIdBytes")]

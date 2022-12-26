@@ -1,72 +1,62 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::{Sink, SinkExt};
 use parking_lot::Mutex;
-use tokio::sync::mpsc::UnboundedSender;
 
 use spectrum_offchain::data::unique_entity::Confirmed;
 use spectrum_offchain::event_sink::handlers::types::TryFromBoxCtx;
 use spectrum_offchain::event_sink::types::EventHandler;
 use spectrum_offchain::event_source::data::LedgerTxEvent;
 
+use crate::data::funding::{DistributionFunding, ExecutorWallet, FundingUpdate};
 use crate::data::{AsBox, FundingId};
-use crate::data::funding::{DistributionFunding, EliminatedFunding, ExecutorWallet};
 use crate::funding::FundingRepo;
 
-pub struct ConfirmedFundingHadler {
-    topic: UnboundedSender<Confirmed<AsBox<DistributionFunding>>>,
-    wallet: ExecutorWallet,
+pub struct ConfirmedFundingHadler<TSink, TRepo> {
+    pub topic: TSink,
+    pub repo: Arc<Mutex<TRepo>>,
+    pub wallet: ExecutorWallet,
 }
 
 #[async_trait(?Send)]
-impl EventHandler<LedgerTxEvent> for ConfirmedFundingHadler {
-    async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
-        match ev {
-            LedgerTxEvent::AppliedTx { tx, timestamp } => {
-                let mut is_success = false;
-                for bx in &tx.outputs {
-                    if let Some(order) = DistributionFunding::try_from_box(bx.clone(), self.wallet.clone()) {
-                        is_success = true;
-                        let _ = self.topic.send(Confirmed(AsBox(bx.clone(), order)));
-                    }
-                }
-                if is_success {
-                    return None;
-                }
-                Some(LedgerTxEvent::AppliedTx { tx, timestamp })
-            }
-            ev => Some(ev),
-        }
-    }
-}
-
-pub struct ConfirmedFundingDiscardHadler<TFundingRepo> {
-    topic: UnboundedSender<EliminatedFunding>,
-    funding_repo: Arc<Mutex<TFundingRepo>>,
-    wallet: ExecutorWallet,
-}
-
-#[async_trait(?Send)]
-impl<TFundingRepo> EventHandler<LedgerTxEvent> for ConfirmedFundingDiscardHadler<TFundingRepo>
+impl<TSink, TRepo> EventHandler<LedgerTxEvent> for ConfirmedFundingHadler<TSink, TRepo>
 where
-    TFundingRepo: FundingRepo,
+    TSink: Sink<Confirmed<FundingUpdate>> + Unpin,
+    TRepo: FundingRepo,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
-        match ev {
+        let res = match ev {
             LedgerTxEvent::AppliedTx { tx, timestamp } => {
                 let mut is_success = false;
-                let funding_repo = self.funding_repo.lock();
                 for i in tx.clone().inputs {
                     let fid = FundingId::from(i.box_id);
-                    if funding_repo.may_exist(fid.clone()).await {
+                    if self.repo.lock().may_exist(fid.clone()).await {
                         is_success = true;
-                        let _ = self.topic.send(EliminatedFunding(fid));
+                        let _ = self
+                            .topic
+                            .feed(Confirmed(FundingUpdate::FundingEliminated(fid)))
+                            .await;
+                    }
+                }
+                for bx in &tx.outputs {
+                    if let Some(funding) = DistributionFunding::try_from_box(bx.clone(), self.wallet.clone())
+                    {
+                        is_success = true;
+                        let _ = self
+                            .topic
+                            .feed(Confirmed(FundingUpdate::FundingCreated(AsBox(
+                                bx.clone(),
+                                funding,
+                            ))))
+                            .await;
                     }
                 }
                 if is_success {
-                    return None;
+                    None
+                } else {
+                    Some(LedgerTxEvent::AppliedTx { tx, timestamp })
                 }
-                Some(LedgerTxEvent::AppliedTx { tx, timestamp })
             }
             LedgerTxEvent::UnappliedTx(tx) => {
                 let mut is_success = false;
@@ -74,14 +64,20 @@ where
                     if let Some(funding) = DistributionFunding::try_from_box(bx.clone(), self.wallet.clone())
                     {
                         is_success = true;
-                        let _ = self.topic.send(EliminatedFunding(funding.id));
+                        let _ = self
+                            .topic
+                            .feed(Confirmed(FundingUpdate::FundingEliminated(funding.id)))
+                            .await;
                     }
                 }
                 if is_success {
-                    return None;
+                    None
+                } else {
+                    Some(LedgerTxEvent::UnappliedTx(tx))
                 }
-                Some(LedgerTxEvent::UnappliedTx(tx))
             }
-        }
+        };
+        let _ = self.topic.flush().await;
+        res
     }
 }

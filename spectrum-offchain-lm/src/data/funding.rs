@@ -4,7 +4,7 @@ use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBoxCtx};
 
-use crate::data::FundingId;
+use crate::data::{AsBox, FundingId};
 use crate::ergo::NanoErg;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -51,12 +51,20 @@ pub struct DistributionFunding {
     pub erg_value: NanoErg,
 }
 
-/// Discarded on-chain entity.
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub struct EliminatedFunding(pub FundingId);
+pub enum FundingUpdate {
+    FundingCreated(AsBox<DistributionFunding>),
+    FundingEliminated(FundingId)
+}
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct ExecutorWallet(Address);
+
+impl From<Address> for ExecutorWallet {
+    fn from(addr: Address) -> Self {
+        Self(addr)
+    }
+}
 
 impl TryFromBoxCtx<ExecutorWallet> for DistributionFunding {
     fn try_from_box(bx: ErgoBox, ExecutorWallet(addr): ExecutorWallet) -> Option<Self> {

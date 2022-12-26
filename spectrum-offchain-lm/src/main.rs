@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bounded_integer::BoundedU8;
+use ergo_lib::ergotree_ir::chain::address::Address;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::Constant;
 use ergo_lib::ergotree_ir::mir::expr::Expr;
@@ -21,16 +22,19 @@ use spectrum_offchain::data::unique_entity::{Confirmed, StateUpdate};
 use spectrum_offchain::event_sink::handlers::entity::ConfirmedUpdateHandler;
 use spectrum_offchain::event_sink::handlers::order::OrderUpdatesHandler;
 use spectrum_offchain::event_sink::process_events;
-use spectrum_offchain::event_sink::types::NoopDefaultHandler;
+use spectrum_offchain::event_sink::types::{EventHandler, NoopDefaultHandler};
+use spectrum_offchain::event_source::data::LedgerTxEvent;
 use spectrum_offchain::event_source::event_source_ledger;
 use spectrum_offchain::rocksdb::RocksConfig;
 
 use crate::bundle::rocksdb::BundleRepoRocksDB;
 use crate::data::bundle::IndexedStakingBundle;
+use crate::data::funding::{ExecutorWallet, FundingUpdate};
 use crate::data::order::Order;
 use crate::data::pool::Pool;
 use crate::data::AsBox;
 use crate::event_sink::handlers::bundle::ConfirmedBundleUpdateHadler;
+use crate::event_sink::handlers::funding::ConfirmedFundingHadler;
 use crate::executor::OrderExecutor;
 use crate::funding::FundingRepoRocksDB;
 use crate::program::rocksdb::ProgramRepoRocksDB;
@@ -91,7 +95,7 @@ async fn main() {
         Arc::clone(&backlog),
         Arc::clone(&pools),
         Arc::clone(&bundles),
-        funding,
+        Arc::clone(&funding),
         prover,
         executor_prop,
     );
@@ -116,7 +120,19 @@ async fn main() {
         programs: Arc::clone(&programs),
     };
     // funding
+    let (funding_snd, funding_recv) = mpsc::unbounded::<Confirmed<FundingUpdate>>();
+    let funding_han = ConfirmedFundingHadler {
+        topic: funding_snd,
+        repo: Arc::clone(&funding),
+        wallet: ExecutorWallet::from(Address::P2SH([0u8; 24])),
+    };
+    let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent>>> = vec![
+        Box::new(pool_han),
+        Box::new(order_han),
+        Box::new(bundle_han),
+        Box::new(funding_han),
+    ];
 
     let event_source = event_source_ledger(chain_sync);
-    let event_sink = process_events(event_source, Vec::new(), default_handler);
+    let event_sink = process_events(event_source, handlers, default_handler);
 }

@@ -62,7 +62,7 @@ pub enum TemporalError {
     LiquidityMoveBlocked,
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Pool {
     pub pool_id: PoolId,
     pub state_id: PoolStateId,
