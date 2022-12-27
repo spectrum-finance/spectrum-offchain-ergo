@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use futures::{Stream, StreamExt};
+use log::trace;
 use parking_lot::Mutex;
 
 use crate::backlog::Backlog;
@@ -17,6 +18,7 @@ where
     TOrd: OnChainOrder + 'a,
     TBacklog: Backlog<TOrd> + 'a,
 {
+    trace!(target: "offchain_lm", "Watching for Backlog events..");
     upstream.then(move |upd| {
         let backlog = Arc::clone(&backlog);
         async move {

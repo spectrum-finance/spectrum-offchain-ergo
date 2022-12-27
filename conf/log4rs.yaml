@@ -4,11 +4,21 @@ appenders:
     kind: console
   file:
     kind: file
-    path: "log/chain-sync.log"
+    path: "log/spectrum-offchain.log"
     encoder:
       pattern: "{d} - {m}{n}"
+root:
+  level: info
+  appenders:
+    - stdout
 loggers:
   ergo_chain_sync:
     level: trace
     appenders:
       - stdout
+    additive: false
+  offchain_lm:
+    level: trace
+    appenders:
+      - stdout
+    additive: false

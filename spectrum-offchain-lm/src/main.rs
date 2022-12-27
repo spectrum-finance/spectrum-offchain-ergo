@@ -7,6 +7,8 @@ use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::Constant;
 use ergo_lib::ergotree_ir::mir::expr::Expr;
 use futures::channel::mpsc;
+use futures::stream::select_all;
+use futures::StreamExt;
 use isahc::{prelude::*, HttpClient};
 use parking_lot::Mutex;
 
@@ -27,6 +29,7 @@ use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::event_sink::types::{EventHandler, NoopDefaultHandler};
 use spectrum_offchain::event_source::data::LedgerTxEvent;
 use spectrum_offchain::event_source::event_source_ledger;
+use spectrum_offchain::executor::executor_stream;
 use spectrum_offchain::rocksdb::RocksConfig;
 
 use crate::bundle::process::bundle_update_stream;
@@ -44,7 +47,7 @@ use crate::funding::FundingRepoRocksDB;
 use crate::program::process::track_programs;
 use crate::program::rocksdb::ProgramRepoRocksDB;
 use crate::prover::NoopProver;
-use crate::streaming::AsSink;
+use crate::streaming::{boxed, AsSink};
 
 pub mod bundle;
 pub mod data;
@@ -106,13 +109,14 @@ async fn main() {
         prover,
         executor_prop,
     );
+    let executor_stream = boxed(executor_stream(executor));
 
     let default_handler = NoopDefaultHandler;
 
     // pools
     let (pool_snd, pool_recv) = async_channel::unbounded();
     let pool_han = ConfirmedUpdateHandler::<_, Pool, _>::new(AsSink(pool_snd), Arc::clone(&pools));
-    let pool_update_stream = entity_tracking_stream(pool_recv.clone(), pools);
+    let pool_update_stream = boxed(entity_tracking_stream(pool_recv.clone(), pools));
 
     // orders
     let (order_snd, order_recv) = mpsc::unbounded::<OrderUpdate<Order>>();
@@ -121,7 +125,7 @@ async fn main() {
         Arc::clone(&backlog),
         chrono::Duration::seconds(60 * 60 * 24),
     );
-    let backlog_stream = backlog_stream(Arc::clone(&backlog), order_recv);
+    let backlog_stream = boxed(backlog_stream(Arc::clone(&backlog), order_recv));
 
     // bundles
     let (bundle_snd, bundle_recv) = mpsc::unbounded::<Confirmed<StateUpdate<AsBox<IndexedStakingBundle>>>>();
@@ -130,7 +134,7 @@ async fn main() {
         bundles: Arc::clone(&bundles),
         programs: Arc::clone(&programs),
     };
-    let bundle_update_stream = bundle_update_stream(bundle_recv, Arc::clone(&bundles));
+    let bundle_update_stream = boxed(bundle_update_stream(bundle_recv, Arc::clone(&bundles)));
 
     // funding
     let (funding_snd, funding_recv) = mpsc::unbounded::<Confirmed<FundingUpdate>>();
@@ -139,10 +143,10 @@ async fn main() {
         repo: Arc::clone(&funding),
         wallet: ExecutorWallet::from(Address::P2SH([0u8; 24])),
     };
-    let funding_update_stream = funding_update_stream(funding_recv, Arc::clone(&funding));
+    let funding_update_stream = boxed(funding_update_stream(funding_recv, Arc::clone(&funding)));
 
     // program
-    let program_update_stream = track_programs(pool_recv, Arc::clone(&programs));
+    let program_update_stream = boxed(track_programs(pool_recv, Arc::clone(&programs)));
 
     let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent>>> = vec![
         Box::new(pool_han),
@@ -152,5 +156,19 @@ async fn main() {
     ];
 
     let event_source = event_source_ledger(chain_sync);
-    let event_sink = process_events(event_source, handlers, default_handler);
+    let process_events_stream = boxed(process_events(event_source, handlers, default_handler));
+
+    let mut app = select_all(vec![
+        process_events_stream,
+        executor_stream,
+        pool_update_stream,
+        backlog_stream,
+        bundle_update_stream,
+        funding_update_stream,
+        program_update_stream,
+    ]);
+
+    loop {
+        app.select_next_some().await;
+    }
 }

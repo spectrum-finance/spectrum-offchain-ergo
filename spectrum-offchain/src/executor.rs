@@ -1,9 +1,13 @@
 use std::fmt::Display;
 use std::marker::PhantomData;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::{stream, Stream, StreamExt};
+use futures_timer::Delay;
 use log::warn;
 use parking_lot::Mutex;
 use type_equalities::{trivial_eq, IsEqual};
@@ -51,7 +55,7 @@ pub trait RunOrder<TEntity, TCtx>: OnChainOrder + Sized {
 pub trait Executor {
     /// Execute next available order.
     /// Drives execution to completion (submit tx or handle error).
-    async fn execute_next(&mut self);
+    async fn try_execute_next(&mut self) -> Result<(), ()>;
 }
 
 /// A generic executor suitable for cases when single order is applied to a signle entity (pool).
@@ -77,7 +81,7 @@ where
     TEntities: EntityRepo<TEntity>,
     TCtx: Clone,
 {
-    async fn execute_next(&mut self) {
+    async fn try_execute_next(&mut self) -> Result<(), ()> {
         if let Some(ord) = self.backlog.try_pop().await {
             let entity_id = ord.get_entity_ref();
             let mut entity_repo = self.entity_repo.lock();
@@ -108,10 +112,14 @@ where
                         self.backlog.remove(ord.get_self_ref()).await;
                     }
                 }
+                return Ok(())
             }
         }
+        Err(())
     }
 }
+
+const THROTTLE_SECS: u64 = 1;
 
 #[allow(clippy::await_holding_lock)]
 /// Construct Executor stream that drives sequential order execution.
@@ -121,7 +129,9 @@ pub fn executor_stream<'a, TExecutor: Executor + 'a>(executor: TExecutor) -> imp
         let executor = executor.clone();
         async move {
             let mut executor_quard = executor.lock();
-            executor_quard.execute_next().await
+            if let Err(_) = executor_quard.try_execute_next().await {
+                Delay::new(Duration::from_secs(THROTTLE_SECS)).await;
+            }
         }
     })
 }

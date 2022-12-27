@@ -2,7 +2,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use async_channel::{Sender, TrySendError};
-use futures::Sink;
+use futures::{Sink, Stream};
 
 pub struct AsSink<T>(pub Sender<T>);
 
@@ -40,4 +40,8 @@ impl<T> Sink<T> for AsSink<T> {
         self.0.close();
         Poll::Ready(Ok(()))
     }
+}
+
+pub fn boxed<'a, T>(s: impl Stream<Item = T> + 'a) -> Pin<Box<dyn Stream<Item = T> + 'a>> {
+    Box::pin(s)
 }

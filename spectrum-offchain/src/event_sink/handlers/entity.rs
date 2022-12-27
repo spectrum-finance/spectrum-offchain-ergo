@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use ergo_lib::chain::transaction::Transaction;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use futures::{Sink, SinkExt};
+use log::trace;
 use parking_lot::Mutex;
 
 use ergo_mempool_sync::MempoolUpdate;
@@ -87,10 +88,12 @@ where
         let res = match ev {
             LedgerTxEvent::AppliedTx { tx, timestamp } => {
                 let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
-                let is_success = transitions.len() > 0;
+                let num_transitions = transitions.len();
+                let is_success = num_transitions > 0;
                 for tr in transitions {
                     let _ = self.topic.feed(Confirmed(StateUpdate::Transition(tr))).await;
                 }
+                trace!(target: "offchain_lm", "[{}] entities parsed from applied tx", num_transitions);
                 if is_success {
                     Some(LedgerTxEvent::AppliedTx { tx, timestamp })
                 } else {
@@ -99,13 +102,15 @@ where
             }
             LedgerTxEvent::UnappliedTx(tx) => {
                 let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
-                let is_success = transitions.len() > 0;
+                let num_transitions = transitions.len();
+                let is_success = num_transitions > 0;
                 for tr in transitions {
                     let _ = self
                         .topic
                         .feed(Confirmed(StateUpdate::TransitionRollback(tr.swap())))
                         .await;
                 }
+                trace!(target: "offchain_lm", "[{}] entities parsed from unapplied tx", num_transitions);
                 if is_success {
                     Some(LedgerTxEvent::UnappliedTx(tx))
                 } else {

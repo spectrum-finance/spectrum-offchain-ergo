@@ -119,7 +119,7 @@ where
     TFunding: FundingRepo,
     TProver: SigmaProver,
 {
-    async fn execute_next(&mut self) {
+    async fn try_execute_next(&mut self) -> Result<(), ()> {
         if let Some(ord) = self.backlog.lock().try_pop().await {
             let entity_id = ord.get_entity_ref();
             if let Some(pool) = resolve_entity_state(entity_id, Arc::clone(&self.pool_repo)).await {
@@ -158,7 +158,7 @@ where
                                 .map_err(|err| err.map(Order::Compound))
                         } else {
                             error!("No funding can be found for managed compounding");
-                            return;
+                            return Err(());
                         }
                     }
                     (Order::Compound(_), _) => Err(RunOrderError::Fatal(
@@ -167,7 +167,7 @@ where
                     )),
                     (Order::Redeem(redeem), None) => {
                         error!("Bunle not found for Redeem [{:?}]", redeem.get_self_ref());
-                        return;
+                        return Err(());
                     }
                 };
                 match run_result {
@@ -239,7 +239,9 @@ where
                         self.backlog.lock().remove(ord.get_self_ref()).await;
                     }
                 }
+                return Ok(())
             }
         }
+        Err(())
     }
 }
