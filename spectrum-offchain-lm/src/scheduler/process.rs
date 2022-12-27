@@ -81,8 +81,8 @@ where
                                 })
                                 .await
                         }
-                        // todo: DEV-601: Check later instead of just removing.
-                        schedules.remove(tick).await;
+
+                        schedules.check_later(tick).await;
                     }
                 }
             }
