@@ -15,7 +15,9 @@ use ergo_chain_sync::client::node::ErgoNodeHttpClient;
 use ergo_chain_sync::client::types::Url;
 use ergo_chain_sync::ChainSync;
 use spectrum_offchain::backlog::persistence::BacklogStoreRocksDB;
+use spectrum_offchain::backlog::process::backlog_stream;
 use spectrum_offchain::backlog::{BacklogConfig, BacklogService};
+use spectrum_offchain::box_resolver::process::entity_tracking_stream;
 use spectrum_offchain::box_resolver::rocksdb::EntityRepoRocksDB;
 use spectrum_offchain::data::order::OrderUpdate;
 use spectrum_offchain::data::unique_entity::{Confirmed, StateUpdate};
@@ -27,6 +29,7 @@ use spectrum_offchain::event_source::data::LedgerTxEvent;
 use spectrum_offchain::event_source::event_source_ledger;
 use spectrum_offchain::rocksdb::RocksConfig;
 
+use crate::bundle::process::bundle_update_stream;
 use crate::bundle::rocksdb::BundleRepoRocksDB;
 use crate::data::bundle::IndexedStakingBundle;
 use crate::data::funding::{ExecutorWallet, FundingUpdate};
@@ -36,9 +39,12 @@ use crate::data::AsBox;
 use crate::event_sink::handlers::bundle::ConfirmedBundleUpdateHadler;
 use crate::event_sink::handlers::funding::ConfirmedFundingHadler;
 use crate::executor::OrderExecutor;
+use crate::funding::process::funding_update_stream;
 use crate::funding::FundingRepoRocksDB;
+use crate::program::process::track_programs;
 use crate::program::rocksdb::ProgramRepoRocksDB;
 use crate::prover::NoopProver;
+use crate::streaming::AsSink;
 
 pub mod bundle;
 pub mod data;
@@ -49,6 +55,7 @@ pub mod funding;
 pub mod program;
 pub mod prover;
 pub mod scheduler;
+mod streaming;
 pub mod validators;
 
 #[tokio::main]
@@ -101,17 +108,21 @@ async fn main() {
     );
 
     let default_handler = NoopDefaultHandler;
-    // hadnler:
+
     // pools
-    let (pool_snd, pool_recv) = mpsc::unbounded::<Confirmed<StateUpdate<Pool>>>();
-    let pool_han = ConfirmedUpdateHandler::<_, Pool, _>::new(pool_snd, Arc::clone(&pools));
+    let (pool_snd, pool_recv) = async_channel::unbounded();
+    let pool_han = ConfirmedUpdateHandler::<_, Pool, _>::new(AsSink(pool_snd), Arc::clone(&pools));
+    let pool_update_stream = entity_tracking_stream(pool_recv.clone(), pools);
+
     // orders
-    let (order_snd, pool_recv) = mpsc::unbounded::<OrderUpdate<Order>>();
+    let (order_snd, order_recv) = mpsc::unbounded::<OrderUpdate<Order>>();
     let order_han = OrderUpdatesHandler::<_, Order, _>::new(
         order_snd,
         Arc::clone(&backlog),
         chrono::Duration::seconds(60 * 60 * 24),
     );
+    let backlog_stream = backlog_stream(Arc::clone(&backlog), order_recv);
+
     // bundles
     let (bundle_snd, bundle_recv) = mpsc::unbounded::<Confirmed<StateUpdate<AsBox<IndexedStakingBundle>>>>();
     let bundle_han = ConfirmedBundleUpdateHadler {
@@ -119,6 +130,8 @@ async fn main() {
         bundles: Arc::clone(&bundles),
         programs: Arc::clone(&programs),
     };
+    let bundle_update_stream = bundle_update_stream(bundle_recv, Arc::clone(&bundles));
+
     // funding
     let (funding_snd, funding_recv) = mpsc::unbounded::<Confirmed<FundingUpdate>>();
     let funding_han = ConfirmedFundingHadler {
@@ -126,6 +139,11 @@ async fn main() {
         repo: Arc::clone(&funding),
         wallet: ExecutorWallet::from(Address::P2SH([0u8; 24])),
     };
+    let funding_update_stream = funding_update_stream(funding_recv, Arc::clone(&funding));
+
+    // program
+    let program_update_stream = track_programs(pool_recv, Arc::clone(&programs));
+
     let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent>>> = vec![
         Box::new(pool_han),
         Box::new(order_han),
