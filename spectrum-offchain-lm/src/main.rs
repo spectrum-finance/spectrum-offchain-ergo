@@ -179,7 +179,7 @@ async fn main() {
 
     let mut app = select_all(vec![
         process_events_stream,
-        // executor_stream,
+        executor_stream,
         pool_update_stream,
         backlog_stream,
         bundle_update_stream,

@@ -1,14 +1,12 @@
 use std::fmt::Display;
 use std::marker::PhantomData;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::{stream, Stream, StreamExt};
+use futures::{stream, Stream};
 use futures_timer::Delay;
-use log::warn;
+use log::{trace, warn};
 use parking_lot::Mutex;
 use type_equalities::{trivial_eq, IsEqual};
 
@@ -112,26 +110,29 @@ where
                         self.backlog.remove(ord.get_self_ref()).await;
                     }
                 }
-                return Ok(())
+                return Ok(());
             }
         }
         Err(())
     }
 }
 
-const THROTTLE_SECS: u64 = 1;
+const THROTTLE_SECS: u64 = 2;
 
 #[allow(clippy::await_holding_lock)]
 /// Construct Executor stream that drives sequential order execution.
 pub fn executor_stream<'a, TExecutor: Executor + 'a>(executor: TExecutor) -> impl Stream<Item = ()> + 'a {
     let executor = Arc::new(Mutex::new(executor));
-    stream::iter(0..).then(move |_| {
+    stream::unfold((), move |_| {
         let executor = executor.clone();
         async move {
+            trace!(target: "offchain_lm", "Trying to execute next order ..");
             let mut executor_quard = executor.lock();
             if let Err(_) = executor_quard.try_execute_next().await {
+                trace!(target: "offchain_lm", "Execution attempt failed, throttling ..");
                 Delay::new(Duration::from_secs(THROTTLE_SECS)).await;
             }
+            Some(((), ()))
         }
     })
 }
