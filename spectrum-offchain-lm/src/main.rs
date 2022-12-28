@@ -1,5 +1,6 @@
+use chrono::Duration;
+use ergo_chain_sync::cache::chain_cache::InMemoryCache;
 use std::sync::Arc;
-use std::time::Duration;
 
 use bounded_integer::BoundedU8;
 use ergo_lib::ergotree_ir::chain::address::Address;
@@ -17,6 +18,7 @@ use ergo_chain_sync::client::node::ErgoNodeHttpClient;
 use ergo_chain_sync::client::types::Url;
 use ergo_chain_sync::rocksdb::RocksConfig;
 use ergo_chain_sync::ChainSync;
+use serde::{Deserialize, Serialize};
 use spectrum_offchain::backlog::persistence::BacklogStoreRocksDB;
 use spectrum_offchain::backlog::process::backlog_stream;
 use spectrum_offchain::backlog::{BacklogConfig, BacklogService};
@@ -66,44 +68,40 @@ pub mod validators;
 
 #[tokio::main]
 async fn main() {
-    log4rs::init_file("conf/log4rs.yaml", Default::default()).unwrap();
+    let s = std::fs::read_to_string("lm_config.yml").unwrap();
+    let config: LMConfig = serde_yaml::from_str(&s).unwrap();
+
+    log4rs::init_file(config.log4rs_yaml_path, Default::default()).unwrap();
 
     let client = HttpClient::builder()
-        .timeout(Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(
+            config.http_client_timeout_duration_secs as u64,
+        ))
         .build()
         .unwrap();
 
-    let node = ErgoNodeHttpClient::new(client, Url::from("http://213.239.193.208:9053"));
-    let cache = ChainCacheRocksDB::new(RocksConfig {
-        db_path: format!("./tmp/chain_sync"),
-    });
-    let chain_sync = ChainSync::init(905390, node.clone(), cache).await;
+    let node = ErgoNodeHttpClient::new(client, config.node_addr);
+    let cache = InMemoryCache::new();
+    let chain_sync = ChainSync::init(config.chain_sync_starting_height, node.clone(), cache).await;
 
     let backlog_store = BacklogStoreRocksDB::new(RocksConfig {
-        db_path: format!("./tmp/backlog"),
+        db_path: config.backlog_store_db_path.into(),
     });
-    let backlog_conf = BacklogConfig {
-        order_lifespan: chrono::Duration::seconds(60 * 60 * 24),
-        order_exec_time: chrono::Duration::seconds(60 * 60 * 24),
-        retry_suspended_prob: <BoundedU8<0, 100>>::new(20).unwrap(),
-    };
     let backlog = Arc::new(Mutex::new(BacklogService::new::<Order>(
         backlog_store,
-        backlog_conf,
+        config.backlog_config,
     )));
-    let pools = Arc::new(Mutex::new(EntityRepoTracing::wrap(EntityRepoRocksDB::new(
-        RocksConfig {
-            db_path: format!("./tmp/pools"),
-        },
-    ))));
+    let pools = Arc::new(Mutex::new(EntityRepoRocksDB::new(RocksConfig {
+        db_path: config.entity_repo_db_path.into(),
+    })));
     let programs = Arc::new(Mutex::new(ProgramRepoRocksDB::new(RocksConfig {
-        db_path: format!("./tmp/programs"),
+        db_path: config.program_repo_db_path.into(),
     })));
     let bundles = Arc::new(Mutex::new(BundleRepoRocksDB::new(RocksConfig {
-        db_path: format!("./tmp/bundles"),
+        db_path: config.bundle_repo_db_path.into(),
     })));
     let funding = Arc::new(Mutex::new(FundingRepoRocksDB::new(RocksConfig {
-        db_path: format!("./tmp/funding"),
+        db_path: config.funding_repo_db_path.into(),
     })));
     let prover = NoopProver;
     let executor_prop = ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap();
@@ -166,7 +164,7 @@ async fn main() {
     let process_events_stream = boxed(process_events(event_source, handlers, default_handler));
 
     let schedules = Arc::new(Mutex::new(ScheduleRepoRocksDB::new(RocksConfig {
-        db_path: format!("./tmp/schedules"),
+        db_path: config.schedule_repo_db_path.into(),
     })));
     let scheduer_stream = boxed(run_distribution_scheduler(
         pool_recv,
@@ -175,7 +173,7 @@ async fn main() {
         bundles,
         node,
         20,
-        Duration::from_secs(60),
+        std::time::Duration::from_secs(60),
     ));
 
     let mut app = select_all(vec![
@@ -192,4 +190,19 @@ async fn main() {
     loop {
         app.select_next_some().await;
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct LMConfig<'a> {
+    node_addr: Url,
+    http_client_timeout_duration_secs: u32,
+    chain_sync_starting_height: u32,
+    backlog_config: BacklogConfig,
+    log4rs_yaml_path: &'a str,
+    backlog_store_db_path: &'a str,
+    entity_repo_db_path: &'a str,
+    program_repo_db_path: &'a str,
+    bundle_repo_db_path: &'a str,
+    funding_repo_db_path: &'a str,
+    schedule_repo_db_path: &'a str,
 }

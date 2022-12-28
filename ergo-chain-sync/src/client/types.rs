@@ -1,6 +1,8 @@
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Url(String);
 
 impl Display for Url {

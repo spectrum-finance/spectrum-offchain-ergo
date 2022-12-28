@@ -23,6 +23,7 @@ tailcall = "0.1.6"
 parallel-stream = "2.1.3"
 chrono = "0.4.23"
 serde = { version = "1.0.147", features = ["derive"] }
+serde_yaml = "0.9"
 priority-queue = "1.3.0"
 bounded-integer = "0.5.3"
 rand = "0.8.5"
