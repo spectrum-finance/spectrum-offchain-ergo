@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::task::spawn_blocking;
 
-use spectrum_offchain::rocksdb::RocksConfig;
+use ergo_chain_sync::rocksdb::RocksConfig;
 
 use crate::data::pool::ProgramConfig;
 use crate::data::PoolId;

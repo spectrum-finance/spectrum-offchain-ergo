@@ -6,12 +6,13 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::task::spawn_blocking;
 
+use ergo_chain_sync::rocksdb::RocksConfig;
+
 use crate::binary::prefixed_key;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::{Predicted, Traced};
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
 use crate::data::OnChainEntity;
-use crate::rocksdb::RocksConfig;
 
 pub struct EntityRepoRocksDB {
     pub db: Arc<rocksdb::OptimisticTransactionDB>,

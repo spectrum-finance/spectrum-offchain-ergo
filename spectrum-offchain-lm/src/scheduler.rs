@@ -5,6 +5,7 @@ use rocksdb::{Direction, IteratorMode};
 use tokio::task::spawn_blocking;
 
 use spectrum_offchain::binary::prefixed_key;
+use ergo_chain_sync::rocksdb::RocksConfig;
 
 use crate::data::PoolId;
 use crate::scheduler::data::{PoolSchedule, Tick};
@@ -28,6 +29,14 @@ pub trait ScheduleRepo {
 
 pub struct ScheduleRepoRocksDB {
     db: Arc<rocksdb::OptimisticTransactionDB>,
+}
+
+impl ScheduleRepoRocksDB {
+    pub fn new(conf: RocksConfig) -> Self {
+        Self {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(conf.db_path).unwrap()),
+        }
+    }
 }
 
 static TICK_PREFIX: &str = "tick";

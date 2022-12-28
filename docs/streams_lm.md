@@ -6,6 +6,10 @@ flowchart TD
         -->LS{{Ledger TX Event Stream}}
         -->CPS{{Confirmed Pool Stream}}
 
+    subgraph chain_sync
+        CS
+    end
+
     CPS-->PR>Pool Tracker]
     CPS-->PH>Program Tracker]
     CPS-->ST>Schedule Tracker]
@@ -21,4 +25,19 @@ flowchart TD
     LS
         -->FS{{Funding Stream}}
         -->FT>Funding Tracker]
+
+    subgraph offchain_lm
+        LS
+        CPS
+        PR
+        PH
+        ST
+        OS
+        BL
+        BS
+        BT
+        FS
+        FT
+    end
+
 ```

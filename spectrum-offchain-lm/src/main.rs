@@ -8,11 +8,13 @@ use ergo_lib::ergotree_ir::mir::constant::Constant;
 use ergo_lib::ergotree_ir::mir::expr::Expr;
 use futures::channel::mpsc;
 use futures::stream::select_all;
-use futures::StreamExt;
+use futures::{stream, StreamExt};
+use futures_timer::Delay;
 use isahc::{prelude::*, HttpClient};
 use parking_lot::Mutex;
 
 use ergo_chain_sync::cache::chain_cache::InMemoryCache;
+use ergo_chain_sync::cache::rocksdb::ChainCacheRocksDB;
 use ergo_chain_sync::client::node::ErgoNodeHttpClient;
 use ergo_chain_sync::client::types::Url;
 use ergo_chain_sync::ChainSync;
@@ -30,7 +32,7 @@ use spectrum_offchain::event_sink::types::{EventHandler, NoopDefaultHandler};
 use spectrum_offchain::event_source::data::LedgerTxEvent;
 use spectrum_offchain::event_source::event_source_ledger;
 use spectrum_offchain::executor::executor_stream;
-use spectrum_offchain::rocksdb::RocksConfig;
+use ergo_chain_sync::rocksdb::RocksConfig;
 
 use crate::bundle::process::bundle_update_stream;
 use crate::bundle::rocksdb::BundleRepoRocksDB;
@@ -47,6 +49,8 @@ use crate::funding::FundingRepoRocksDB;
 use crate::program::process::track_programs;
 use crate::program::rocksdb::ProgramRepoRocksDB;
 use crate::prover::NoopProver;
+use crate::scheduler::process::run_distribution_scheduler;
+use crate::scheduler::ScheduleRepoRocksDB;
 use crate::streaming::{boxed, AsSink};
 
 pub mod bundle;
@@ -71,8 +75,10 @@ async fn main() {
         .unwrap();
 
     let node = ErgoNodeHttpClient::new(client, Url::from("http://213.239.193.208:9053"));
-    let cache = InMemoryCache::new();
-    let chain_sync = ChainSync::init(500000, node.clone(), cache).await;
+    let cache = ChainCacheRocksDB::new(RocksConfig {
+        db_path: format!("./tmp/chain_sync"),
+    });
+    let chain_sync = ChainSync::init(905390, node.clone(), cache).await;
 
     let backlog_store = BacklogStoreRocksDB::new(RocksConfig {
         db_path: format!("./tmp/backlog"),
@@ -146,7 +152,7 @@ async fn main() {
     let funding_update_stream = boxed(funding_update_stream(funding_recv, Arc::clone(&funding)));
 
     // program
-    let program_update_stream = boxed(track_programs(pool_recv, Arc::clone(&programs)));
+    let program_update_stream = boxed(track_programs(pool_recv.clone(), Arc::clone(&programs)));
 
     let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent>>> = vec![
         Box::new(pool_han),
@@ -158,14 +164,28 @@ async fn main() {
     let event_source = event_source_ledger(chain_sync);
     let process_events_stream = boxed(process_events(event_source, handlers, default_handler));
 
+    let schedules = Arc::new(Mutex::new(ScheduleRepoRocksDB::new(RocksConfig {
+        db_path: format!("./tmp/schedules"),
+    })));
+    let scheduer_stream = boxed(run_distribution_scheduler(
+        pool_recv,
+        backlog,
+        schedules,
+        bundles,
+        node,
+        20,
+        Duration::from_secs(60),
+    ));
+
     let mut app = select_all(vec![
         process_events_stream,
-        executor_stream,
+        // executor_stream,
         pool_update_stream,
         backlog_stream,
         bundle_update_stream,
         funding_update_stream,
         program_update_stream,
+        scheduer_stream,
     ]);
 
     loop {

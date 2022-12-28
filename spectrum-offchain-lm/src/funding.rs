@@ -8,7 +8,7 @@ use tokio::task::spawn_blocking;
 
 use spectrum_offchain::binary::prefixed_key;
 use spectrum_offchain::data::unique_entity::{Confirmed, Predicted};
-use spectrum_offchain::rocksdb::RocksConfig;
+use ergo_chain_sync::rocksdb::RocksConfig;
 
 use crate::data::funding::DistributionFunding;
 use crate::data::{AsBox, FundingId};

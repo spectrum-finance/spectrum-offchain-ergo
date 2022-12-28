@@ -5,7 +5,7 @@ use ergo_chain_sync::{
     cache::{
         chain_cache::{ChainCache, InMemoryCache},
         redis::RedisClient,
-        rocksdb::RocksDBClient,
+        rocksdb::ChainCacheRocksDB,
     },
     model::Block,
 };
@@ -23,7 +23,7 @@ use sigma_test_util::force_any_val;
 
 #[tokio::test]
 async fn test_rocksdb() {
-    test_client(RocksDBClient {
+    test_client(ChainCacheRocksDB {
         db: Arc::new(rocksdb::OptimisticTransactionDB::open_default("./tmp").unwrap()),
     })
     .await;

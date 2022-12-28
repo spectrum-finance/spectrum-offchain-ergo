@@ -9,4 +9,3 @@ pub mod network;
 pub mod transaction;
 pub mod binary;
 pub mod combinators;
-pub mod rocksdb;

@@ -7,7 +7,7 @@ use tokio::task::spawn_blocking;
 
 use crate::backlog::data::BacklogOrder;
 use crate::data::OnChainOrder;
-use crate::rocksdb::RocksConfig;
+use ergo_chain_sync::rocksdb::RocksConfig;
 
 #[async_trait(?Send)]
 pub trait BacklogStore<TOrd>

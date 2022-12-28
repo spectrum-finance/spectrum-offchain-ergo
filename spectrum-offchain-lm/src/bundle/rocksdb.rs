@@ -11,7 +11,7 @@ use spectrum_offchain::{
         OnChainEntity,
     },
 };
-use spectrum_offchain::rocksdb::RocksConfig;
+use ergo_chain_sync::rocksdb::RocksConfig;
 
 use crate::data::bundle::IndexedStakingBundle;
 use crate::data::{AsBox, BundleId, BundleStateId, PoolId};
