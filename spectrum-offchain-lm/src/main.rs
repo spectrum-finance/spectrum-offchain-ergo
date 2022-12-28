@@ -8,15 +8,14 @@ use ergo_lib::ergotree_ir::mir::constant::Constant;
 use ergo_lib::ergotree_ir::mir::expr::Expr;
 use futures::channel::mpsc;
 use futures::stream::select_all;
-use futures::{stream, StreamExt};
-use futures_timer::Delay;
+use futures::StreamExt;
 use isahc::{prelude::*, HttpClient};
 use parking_lot::Mutex;
 
-use ergo_chain_sync::cache::chain_cache::InMemoryCache;
 use ergo_chain_sync::cache::rocksdb::ChainCacheRocksDB;
 use ergo_chain_sync::client::node::ErgoNodeHttpClient;
 use ergo_chain_sync::client::types::Url;
+use ergo_chain_sync::rocksdb::RocksConfig;
 use ergo_chain_sync::ChainSync;
 use spectrum_offchain::backlog::persistence::BacklogStoreRocksDB;
 use spectrum_offchain::backlog::process::backlog_stream;
@@ -32,7 +31,6 @@ use spectrum_offchain::event_sink::types::{EventHandler, NoopDefaultHandler};
 use spectrum_offchain::event_source::data::LedgerTxEvent;
 use spectrum_offchain::event_source::event_source_ledger;
 use spectrum_offchain::executor::executor_stream;
-use ergo_chain_sync::rocksdb::RocksConfig;
 
 use crate::bundle::process::bundle_update_stream;
 use crate::bundle::rocksdb::BundleRepoRocksDB;
