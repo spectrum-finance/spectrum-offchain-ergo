@@ -1,9 +1,12 @@
 use async_trait::async_trait;
 use ergo_lib::ergo_chain_types::BlockId;
+use isahc::http::Uri;
 use isahc::{AsyncReadResponseExt, HttpClient};
 
 use crate::client::model::FullBlock;
 use crate::client::types::Url;
+
+use super::types::with_path;
 
 #[async_trait(?Send)]
 pub trait ErgoNetwork {
@@ -27,7 +30,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
     async fn get_block_at(&self, height: u32) -> Option<FullBlock> {
         let blocks = self
             .client
-            .get_async(format!("{}/blocks/at/{}", self.base_url, height))
+            .get_async(with_path(&self.base_url, &format!("/blocks/at/{}", height)))
             .await
             .ok()?
             .json::<Vec<BlockId>>()
@@ -36,10 +39,9 @@ impl ErgoNetwork for ErgoNodeHttpClient {
         if !blocks.is_empty() {
             let mut resp = self
                 .client
-                .get_async(format!(
-                    "{}/blocks/{}",
-                    self.base_url,
-                    base16::encode_lower(&blocks[0].0 .0)
+                .get_async(with_path(
+                    &self.base_url,
+                    &format!("/blocks/{}", base16::encode_lower(&blocks[0].0 .0)),
                 ))
                 .await
                 .ok()?;

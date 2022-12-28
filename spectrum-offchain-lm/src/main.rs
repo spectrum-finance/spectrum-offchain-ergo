@@ -1,8 +1,7 @@
-use chrono::Duration;
 use ergo_chain_sync::cache::chain_cache::InMemoryCache;
+use std::str::FromStr;
 use std::sync::Arc;
 
-use bounded_integer::BoundedU8;
 use ergo_lib::ergotree_ir::chain::address::Address;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::Constant;
@@ -13,7 +12,6 @@ use futures::StreamExt;
 use isahc::{prelude::*, HttpClient};
 use tokio::sync::Mutex;
 
-use ergo_chain_sync::cache::rocksdb::ChainCacheRocksDB;
 use ergo_chain_sync::client::node::ErgoNodeHttpClient;
 use ergo_chain_sync::client::types::Url;
 use ergo_chain_sync::rocksdb::RocksConfig;
@@ -22,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use spectrum_offchain::backlog::persistence::BacklogStoreRocksDB;
 use spectrum_offchain::backlog::process::backlog_stream;
 use spectrum_offchain::backlog::{BacklogConfig, BacklogService};
-use spectrum_offchain::box_resolver::persistence::EntityRepoTracing;
 use spectrum_offchain::box_resolver::process::entity_tracking_stream;
 use spectrum_offchain::box_resolver::rocksdb::EntityRepoRocksDB;
 use spectrum_offchain::data::order::OrderUpdate;
@@ -80,7 +77,7 @@ async fn main() {
         .build()
         .unwrap();
 
-    let node = ErgoNodeHttpClient::new(client, config.node_addr);
+    let node = ErgoNodeHttpClient::new(client, Url::from_str(config.node_addr).unwrap());
     let cache = InMemoryCache::new();
     let chain_sync = ChainSync::init(config.chain_sync_starting_height, node.clone(), cache).await;
 
@@ -194,7 +191,7 @@ async fn main() {
 
 #[derive(Serialize, Deserialize)]
 struct LMConfig<'a> {
-    node_addr: Url,
+    node_addr: &'a str,
     http_client_timeout_duration_secs: u32,
     chain_sync_starting_height: u32,
     backlog_config: BacklogConfig,
