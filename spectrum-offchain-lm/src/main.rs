@@ -2,6 +2,7 @@ use ergo_chain_sync::cache::chain_cache::InMemoryCache;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use clap::{arg, Parser};
 use ergo_lib::ergotree_ir::chain::address::Address;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::Constant;
@@ -65,10 +66,15 @@ pub mod validators;
 
 #[tokio::main]
 async fn main() {
-    let s = std::fs::read_to_string("lm_config.yml").unwrap();
+    let args = CLIArgs::parse();
+    let s = std::fs::read_to_string(args.config_yaml_path).unwrap();
     let config: LMConfig = serde_yaml::from_str(&s).unwrap();
 
-    log4rs::init_file(config.log4rs_yaml_path, Default::default()).unwrap();
+    if let Some(log4rs_path) = args.log4rs_path {
+        log4rs::init_file(log4rs_path, Default::default()).unwrap();
+    } else {
+        log4rs::init_file(config.log4rs_yaml_path, Default::default()).unwrap();
+    }
 
     let client = HttpClient::builder()
         .timeout(std::time::Duration::from_secs(
@@ -202,4 +208,18 @@ struct LMConfig<'a> {
     bundle_repo_db_path: &'a str,
     funding_repo_db_path: &'a str,
     schedule_repo_db_path: &'a str,
+}
+
+#[derive(Parser)]
+#[command(name = "spectrum-offchain-lm")]
+#[command(author = "Ilya Oskin (@oskin1), Timothy Ling (@kettlebell) for Spectrum Finance")]
+#[command(version = "0.1")]
+#[command(about = "Spectrum Finance Liquidity Mining Reference Node", long_about = None)]
+struct CLIArgs {
+    /// Path to the YAML configuration file.
+    #[arg(long, short)]
+    config_yaml_path: String,
+    /// Optional path to the log4rs YAML configuration file. NOTE: overrides path specified in config YAML file.
+    #[arg(long, short)]
+    log4rs_path: Option<String>,
 }
