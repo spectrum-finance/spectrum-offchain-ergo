@@ -17,6 +17,10 @@ loggers:
     appenders:
       - stdout
     additive: false
+  box_resolver:
+    level: trace
+    appenders: []
+    additive: false
   offchain_lm:
     level: trace
     appenders:

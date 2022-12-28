@@ -20,6 +20,7 @@ use ergo_chain_sync::ChainSync;
 use spectrum_offchain::backlog::persistence::BacklogStoreRocksDB;
 use spectrum_offchain::backlog::process::backlog_stream;
 use spectrum_offchain::backlog::{BacklogConfig, BacklogService};
+use spectrum_offchain::box_resolver::persistence::EntityRepoTracing;
 use spectrum_offchain::box_resolver::process::entity_tracking_stream;
 use spectrum_offchain::box_resolver::rocksdb::EntityRepoRocksDB;
 use spectrum_offchain::data::order::OrderUpdate;
@@ -90,9 +91,11 @@ async fn main() {
         backlog_store,
         backlog_conf,
     )));
-    let pools = Arc::new(Mutex::new(EntityRepoRocksDB::new(RocksConfig {
-        db_path: format!("./tmp/pools"),
-    })));
+    let pools = Arc::new(Mutex::new(EntityRepoTracing::wrap(EntityRepoRocksDB::new(
+        RocksConfig {
+            db_path: format!("./tmp/pools"),
+        },
+    ))));
     let programs = Arc::new(Mutex::new(ProgramRepoRocksDB::new(RocksConfig {
         db_path: format!("./tmp/programs"),
     })));
