@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 
 use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Traced};
 use spectrum_offchain::data::OnChainEntity;
@@ -37,7 +37,6 @@ pub trait BundleRepo {
     async fn get_prediction_predecessor(&self, id: BundleStateId) -> Option<BundleStateId>;
 }
 
-#[allow(clippy::await_holding_lock)]
 pub async fn resolve_bundle_state<TRepo>(
     bundle_id: BundleId,
     repo: Arc<Mutex<TRepo>>,
@@ -45,10 +44,12 @@ pub async fn resolve_bundle_state<TRepo>(
 where
     TRepo: BundleRepo,
 {
-    let repo_guard = repo.lock();
-    let predicted = repo_guard.get_last_predicted(bundle_id).await;
-    let confirmed = repo_guard.get_last_confirmed(bundle_id).await;
-    drop(repo_guard);
+    let (predicted, confirmed) = {
+        let repo_guard = repo.lock().await;
+        let predicted = repo_guard.get_last_predicted(bundle_id).await;
+        let confirmed = repo_guard.get_last_confirmed(bundle_id).await;
+        (predicted, confirmed)
+    };
     match (confirmed, predicted) {
         (Some(Confirmed(conf)), Some(Predicted(pred))) => {
             let anchoring_point = conf;
@@ -73,14 +74,15 @@ where
 async fn is_linking<TRepo>(
     sid: BundleStateId,
     anchoring_sid: BundleStateId,
-    persistence: Arc<Mutex<TRepo>>,
+    repo: Arc<Mutex<TRepo>>,
 ) -> bool
 where
     TRepo: BundleRepo,
 {
     let mut head_sid = sid;
+    let repo = repo.lock().await;
     loop {
-        match persistence.lock().get_prediction_predecessor(head_sid).await {
+        match repo.get_prediction_predecessor(head_sid).await {
             None => return false,
             Some(prev_state_id) => {
                 if prev_state_id == anchoring_sid {

@@ -10,7 +10,7 @@ use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::StreamExt;
 use isahc::{prelude::*, HttpClient};
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 
 use ergo_chain_sync::cache::rocksdb::ChainCacheRocksDB;
 use ergo_chain_sync::client::node::ErgoNodeHttpClient;

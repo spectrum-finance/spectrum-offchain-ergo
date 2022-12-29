@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use futures::{Stream, StreamExt};
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 
 use spectrum_offchain::combinators::EitherOrBoth;
 use spectrum_offchain::data::unique_entity::{Confirmed, StateUpdate};
@@ -22,18 +22,17 @@ where
     upstream.then(move |Confirmed(upd)| {
         let bundles = Arc::clone(&bundles);
         async move {
+            let bundles = bundles.lock().await;
             match upd {
                 StateUpdate::Transition(EitherOrBoth::Right(new_state))
                 | StateUpdate::Transition(EitherOrBoth::Both(_, new_state))
                 | StateUpdate::TransitionRollback(EitherOrBoth::Right(new_state))
                 | StateUpdate::TransitionRollback(EitherOrBoth::Both(_, new_state)) => {
-                    bundles.lock().put_confirmed(Confirmed(new_state)).await
+                    bundles.put_confirmed(Confirmed(new_state)).await
                 }
-                StateUpdate::Transition(EitherOrBoth::Left(AsBox(_, st))) => {
-                    bundles.lock().eliminate(st).await
-                }
+                StateUpdate::Transition(EitherOrBoth::Left(AsBox(_, st))) => bundles.eliminate(st).await,
                 StateUpdate::TransitionRollback(EitherOrBoth::Left(AsBox(_, st))) => {
-                    bundles.lock().invalidate(st.get_self_state_ref()).await
+                    bundles.invalidate(st.get_self_state_ref()).await
                 }
             }
         }

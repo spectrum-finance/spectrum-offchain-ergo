@@ -8,7 +8,7 @@ use ergo_lib::chain::transaction::Transaction;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use futures::{Sink, SinkExt};
 use log::trace;
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 
 use ergo_mempool_sync::MempoolUpdate;
 
@@ -49,7 +49,7 @@ where
     let mut consumed_entities = HashMap::<TEntity::TEntityId, TEntity>::new();
     for i in tx.clone().inputs {
         let state_id = TEntity::TStateId::from(i.box_id);
-        let entities = entities.lock();
+        let entities = entities.lock().await;
         if entities.may_exist(state_id).await {
             if let Some(entity) = entities.get_state(state_id).await {
                 consumed_entities.insert(entity.get_self_ref(), entity);
@@ -93,11 +93,11 @@ where
                 for tr in transitions {
                     let _ = self.topic.feed(Confirmed(StateUpdate::Transition(tr))).await;
                 }
-                trace!(target: "offchain_lm", "[{}] entities parsed from applied tx", num_transitions);
                 if is_success {
-                    Some(LedgerTxEvent::AppliedTx { tx, timestamp })
-                } else {
+                    trace!(target: "offchain_lm", "[{}] entities parsed from applied tx", num_transitions);
                     None
+                } else {
+                    Some(LedgerTxEvent::AppliedTx { tx, timestamp })
                 }
             }
             LedgerTxEvent::UnappliedTx(tx) => {
@@ -110,11 +110,11 @@ where
                         .feed(Confirmed(StateUpdate::TransitionRollback(tr.swap())))
                         .await;
                 }
-                trace!(target: "offchain_lm", "[{}] entities parsed from unapplied tx", num_transitions);
                 if is_success {
-                    Some(LedgerTxEvent::UnappliedTx(tx))
-                } else {
+                    trace!(target: "offchain_lm", "[{}] entities parsed from unapplied tx", num_transitions);
                     None
+                } else {
+                    Some(LedgerTxEvent::UnappliedTx(tx))
                 }
             }
         };

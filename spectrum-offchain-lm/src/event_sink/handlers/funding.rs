@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::{Sink, SinkExt};
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 
 use spectrum_offchain::data::unique_entity::Confirmed;
 use spectrum_offchain::event_sink::handlers::types::TryFromBoxCtx;
@@ -29,14 +29,17 @@ where
         let res = match ev {
             LedgerTxEvent::AppliedTx { tx, timestamp } => {
                 let mut is_success = false;
-                for i in tx.clone().inputs {
-                    let fid = FundingId::from(i.box_id);
-                    if self.repo.lock().may_exist(fid.clone()).await {
-                        is_success = true;
-                        let _ = self
-                            .topic
-                            .feed(Confirmed(FundingUpdate::FundingEliminated(fid)))
-                            .await;
+                {
+                    let repo = self.repo.lock().await;
+                    for i in tx.clone().inputs {
+                        let fid = FundingId::from(i.box_id);
+                        if repo.may_exist(fid.clone()).await {
+                            is_success = true;
+                            let _ = self
+                                .topic
+                                .feed(Confirmed(FundingUpdate::FundingEliminated(fid)))
+                                .await;
+                        }
                     }
                 }
                 for bx in &tx.outputs {

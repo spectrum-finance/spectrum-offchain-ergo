@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use futures::{stream, Stream};
 use futures_timer::Delay;
 use log::{trace, warn};
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 use type_equalities::{trivial_eq, IsEqual};
 
 use crate::backlog::Backlog;
@@ -82,12 +82,12 @@ where
     async fn try_execute_next(&mut self) -> Result<(), ()> {
         if let Some(ord) = self.backlog.try_pop().await {
             let entity_id = ord.get_entity_ref();
-            let mut entity_repo = self.entity_repo.lock();
             if let Some(entity) =
                 resolve_entity_state(trivial_eq().coerce(entity_id), Arc::clone(&self.entity_repo)).await
             {
                 match ord.clone().try_run(entity.clone(), self.ctx.clone()) {
                     Ok((tx, next_entity_state)) => {
+                        let mut entity_repo = self.entity_repo.lock().await;
                         if let Err(err) = self.network.submit_tx(tx.into_tx_without_proofs()).await {
                             warn!("Execution failed while submitting tx due to {}", err);
                             entity_repo.invalidate(entity.get_self_state_ref()).await;
@@ -117,9 +117,8 @@ where
     }
 }
 
-const THROTTLE_SECS: u64 = 2;
+const THROTTLE_SECS: u64 = 1;
 
-#[allow(clippy::await_holding_lock)]
 /// Construct Executor stream that drives sequential order execution.
 pub fn executor_stream<'a, TExecutor: Executor + 'a>(executor: TExecutor) -> impl Stream<Item = ()> + 'a {
     let executor = Arc::new(Mutex::new(executor));
@@ -127,7 +126,7 @@ pub fn executor_stream<'a, TExecutor: Executor + 'a>(executor: TExecutor) -> imp
         let executor = executor.clone();
         async move {
             trace!(target: "offchain_lm", "Trying to execute next order ..");
-            let mut executor_quard = executor.lock();
+            let mut executor_quard = executor.lock().await;
             if let Err(_) = executor_quard.try_execute_next().await {
                 trace!(target: "offchain_lm", "Execution attempt failed, throttling ..");
                 Delay::new(Duration::from_secs(THROTTLE_SECS)).await;

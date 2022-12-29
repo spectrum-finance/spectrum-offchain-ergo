@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use futures::{Stream, StreamExt};
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 
 use spectrum_offchain::data::unique_entity::Confirmed;
 
@@ -19,7 +19,7 @@ where
     upstream.then(move |Confirmed(upd)| {
         let repo = Arc::clone(&repo);
         async move {
-            let mut repo = repo.lock();
+            let mut repo = repo.lock().await;
             match upd {
                 FundingUpdate::FundingCreated(funding) => repo.put_confirmed(Confirmed(funding)).await,
                 FundingUpdate::FundingEliminated(fid) => repo.remove(fid).await,

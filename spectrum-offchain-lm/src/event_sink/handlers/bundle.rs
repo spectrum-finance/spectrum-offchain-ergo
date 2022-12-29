@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use ergo_lib::chain::transaction::Transaction;
 use futures::{Sink, SinkExt};
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 
 use spectrum_offchain::combinators::EitherOrBoth;
 use spectrum_offchain::data::unique_entity::{Confirmed, StateUpdate};
@@ -34,21 +34,27 @@ where
         tx: Transaction,
     ) -> Vec<EitherOrBoth<AsBox<IndexedStakingBundle>, AsBox<IndexedStakingBundle>>> {
         let mut consumed_bundles = HashMap::<BundleId, AsBox<IndexedStakingBundle>>::new();
-        for i in tx.clone().inputs {
-            let state_id = BundleStateId::from(i.box_id);
-            let bundles = self.bundles.lock();
-            if bundles.may_exist(state_id).await {
-                if let Some(indexed_bundle) = bundles.get_state(state_id).await {
-                    consumed_bundles.insert(indexed_bundle.get_self_ref(), indexed_bundle);
+        {
+            let bundles = self.bundles.lock().await;
+            for i in tx.clone().inputs {
+                let state_id = BundleStateId::from(i.box_id);
+                if bundles.may_exist(state_id).await {
+                    if let Some(indexed_bundle) = bundles.get_state(state_id).await {
+                        consumed_bundles.insert(indexed_bundle.get_self_ref(), indexed_bundle);
+                    }
                 }
             }
         }
         let mut created_bundles = HashMap::<BundleId, AsBox<IndexedStakingBundle>>::new();
-        for bx in &tx.outputs {
-            if let Some(bundle) = StakingBundle::try_from_box(bx.clone()) {
-                if let Some(prog) = self.programs.lock().get(bundle.pool_id).await {
-                    let indexed_bundle = IndexedBundle::new(bundle, prog);
-                    created_bundles.insert(indexed_bundle.get_self_ref(), AsBox(bx.clone(), indexed_bundle));
+        {
+            let programs = self.programs.lock().await;
+            for bx in &tx.outputs {
+                if let Some(bundle) = StakingBundle::try_from_box(bx.clone()) {
+                    if let Some(prog) = programs.get(bundle.pool_id).await {
+                        let indexed_bundle = IndexedBundle::new(bundle, prog);
+                        created_bundles
+                            .insert(indexed_bundle.get_self_ref(), AsBox(bx.clone(), indexed_bundle));
+                    }
                 }
             }
         }

@@ -8,7 +8,7 @@ use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use futures::{stream, StreamExt};
 use itertools::{EitherOrBoth, Itertools};
 use log::{error, warn};
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 
 use spectrum_offchain::backlog::Backlog;
 use spectrum_offchain::box_resolver::persistence::EntityRepo;
@@ -120,7 +120,11 @@ where
     TProver: SigmaProver,
 {
     async fn try_execute_next(&mut self) -> Result<(), ()> {
-        if let Some(ord) = self.backlog.lock().try_pop().await {
+        let next_ord = {
+            let mut backlog = self.backlog.lock().await;
+            backlog.try_pop().await
+        };
+        if let Some(ord) = next_ord {
             let entity_id = ord.get_entity_ref();
             if let Some(pool) = resolve_entity_state(entity_id, Arc::clone(&self.pool_repo)).await {
                 let conf = pool.1.conf;
@@ -147,6 +151,7 @@ where
                         let funding = self
                             .funding_repo
                             .lock()
+                            .await
                             .collect(compound.estimated_min_value())
                             .await;
                         if let Ok(funding) = funding {
@@ -181,24 +186,35 @@ where
                                     // todo: In the future more precise error handling may be possible if we
                                     // todo: implement a way to find out which input failed exactly.
                                     warn!("Execution failed while submitting tx due to {}", client_err);
-                                    self.pool_repo.lock().invalidate(pool.get_self_state_ref()).await;
-                                    self.backlog.lock().recharge(ord).await; // Return order to backlog
+                                    self.pool_repo
+                                        .lock()
+                                        .await
+                                        .invalidate(pool.get_self_state_ref())
+                                        .await;
+                                    self.backlog.lock().await.recharge(ord).await;
+                                // Return order to backlog
                                 } else {
                                     self.pool_repo
                                         .lock()
+                                        .await
                                         .put_predicted(Traced {
                                             state: next_pool,
                                             prev_state_id: Some(pool.get_self_state_ref()),
                                         })
                                         .await;
                                     if let Some(residual_funding) = residual_funding {
-                                        self.funding_repo.lock().put_predicted(residual_funding).await;
+                                        self.funding_repo
+                                            .lock()
+                                            .await
+                                            .put_predicted(residual_funding)
+                                            .await;
                                     }
                                     for bundle_st in next_bundles.into_iter().zip_longest(bundles) {
                                         match bundle_st {
                                             EitherOrBoth::Both(next_bundle, prev_bundle) => {
                                                 self.bundle_repo
                                                     .lock()
+                                                    .await
                                                     .put_predicted(Traced {
                                                         state: next_bundle.map(|as_box| {
                                                             as_box.map(|b| IndexedBundle::new(b, conf))
@@ -212,6 +228,7 @@ where
                                             EitherOrBoth::Left(next_bundle) => {
                                                 self.bundle_repo
                                                     .lock()
+                                                    .await
                                                     .put_predicted(Traced {
                                                         state: next_bundle.map(|as_box| {
                                                             as_box.map(|b| IndexedBundle::new(b, conf))
@@ -232,14 +249,14 @@ where
                     }
                     Err(RunOrderError::NonFatal(err, ord)) => {
                         warn!("Order suspended due to non-fatal error {}", err);
-                        self.backlog.lock().suspend(ord).await;
+                        self.backlog.lock().await.suspend(ord).await;
                     }
                     Err(RunOrderError::Fatal(err, ord)) => {
                         warn!("Order dropped due to fatal error {}", err);
-                        self.backlog.lock().remove(ord.get_self_ref()).await;
+                        self.backlog.lock().await.remove(ord.get_self_ref()).await;
                     }
                 }
-                return Ok(())
+                return Ok(());
             }
         }
         Err(())

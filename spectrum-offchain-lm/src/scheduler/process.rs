@@ -5,8 +5,8 @@ use std::time::Duration;
 use chrono::Utc;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
-use parking_lot::Mutex;
 use stream_throttle::{ThrottlePool, ThrottleRate, ThrottledStream};
+use tokio::sync::Mutex;
 
 use spectrum_offchain::backlog::Backlog;
 use spectrum_offchain::combinators::EitherOrBoth::{Both, Right};
@@ -72,7 +72,7 @@ where
         let backlog = Arc::clone(&backlog);
         let network = network.clone();
         async move {
-            let mut schedules = schedules.lock();
+            let mut schedules = schedules.lock().await;
             if let Some(
                 tick @ Tick {
                     pool_id,
@@ -83,7 +83,7 @@ where
             {
                 let height_now = network.get_height().await;
                 if height >= height_now {
-                    let stakers = bundles.lock().select(pool_id, epoch_ix).await;
+                    let stakers = bundles.lock().await.select(pool_id, epoch_ix).await;
                     if stakers.is_empty() {
                         schedules.remove(tick).await;
                     } else {
@@ -99,7 +99,7 @@ where
                                     stakers: Vec::from(xs),
                                 });
                         let ts_now = Utc::now().timestamp();
-                        let mut backlog = backlog.lock();
+                        let mut backlog = backlog.lock().await;
                         for order in orders {
                             backlog
                                 .put(PendingOrder {
@@ -129,7 +129,7 @@ where
         let schedules = Arc::clone(&schedules);
         async move {
             if let StateUpdate::Transition(Right(pool) | Both(_, pool)) = upd {
-                let mut schedules = schedules.lock();
+                let mut schedules = schedules.lock().await;
                 if !schedules.exists(pool.pool_id).await {
                     schedules.put_schedule(PoolSchedule::from(pool)).await
                 }

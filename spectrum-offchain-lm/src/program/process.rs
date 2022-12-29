@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use futures::{Stream, StreamExt};
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 
 use spectrum_offchain::combinators::EitherOrBoth::{Both, Right};
 use spectrum_offchain::data::unique_entity::{Confirmed, StateUpdate};
@@ -21,7 +21,7 @@ where
         let repo = Arc::clone(&repo);
         async move {
             if let StateUpdate::Transition(Right(pool) | Both(_, pool)) = upd {
-                let repo = repo.lock();
+                let repo = repo.lock().await;
                 if !repo.exists(pool.pool_id).await {
                     repo.put(pool.pool_id, pool.conf).await;
                 }

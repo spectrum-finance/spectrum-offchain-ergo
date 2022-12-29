@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use futures::{Stream, StreamExt};
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 
 use crate::box_resolver::persistence::EntityRepo;
 use crate::combinators::EitherOrBoth;
@@ -20,16 +20,17 @@ where
     upstream.then(move |Confirmed(upd)| {
         let entities = Arc::clone(&entities);
         async move {
+            let mut repo = entities.lock().await;
             match upd {
                 StateUpdate::Transition(EitherOrBoth::Right(new_state))
                 | StateUpdate::Transition(EitherOrBoth::Both(_, new_state))
                 | StateUpdate::TransitionRollback(EitherOrBoth::Right(new_state))
                 | StateUpdate::TransitionRollback(EitherOrBoth::Both(_, new_state)) => {
-                    entities.lock().put_confirmed(Confirmed(new_state)).await
+                    repo.put_confirmed(Confirmed(new_state)).await
                 }
-                StateUpdate::Transition(EitherOrBoth::Left(st)) => entities.lock().eliminate(st).await,
+                StateUpdate::Transition(EitherOrBoth::Left(st)) => repo.eliminate(st).await,
                 StateUpdate::TransitionRollback(EitherOrBoth::Left(st)) => {
-                    entities.lock().invalidate(st.get_self_state_ref()).await
+                    repo.invalidate(st.get_self_state_ref()).await
                 }
             }
         }

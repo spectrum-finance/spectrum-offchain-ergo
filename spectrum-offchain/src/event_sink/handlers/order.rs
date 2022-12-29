@@ -5,7 +5,8 @@ use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use futures::{Sink, SinkExt};
-use parking_lot::Mutex;
+use log::trace;
+use tokio::sync::Mutex;
 
 use ergo_mempool_sync::MempoolUpdate;
 
@@ -48,7 +49,7 @@ where
                 let mut is_success = false;
                 for i in tx.clone().inputs {
                     let order_id = TOrd::TOrderId::from(i.box_id);
-                    if self.backlog.lock().exists(order_id).await {
+                    if self.backlog.lock().await.exists(order_id).await {
                         is_success = true;
                         let _ = self.topic.feed(OrderUpdate::OrderEliminated(order_id)).await;
                     }
@@ -69,6 +70,7 @@ where
                     }
                 }
                 if is_success {
+                    trace!(target: "offchain_lm", "Observing new order");
                     return None;
                 }
                 Some(LedgerTxEvent::AppliedTx { tx, timestamp })
@@ -85,6 +87,7 @@ where
                     }
                 }
                 if is_success {
+                    trace!(target: "offchain_lm", "Known order is eliminated");
                     return None;
                 }
                 Some(LedgerTxEvent::UnappliedTx(tx))
@@ -109,7 +112,7 @@ where
                 let mut is_success = false;
                 for i in tx.clone().inputs {
                     let order_id = TOrd::TOrderId::from(i.box_id);
-                    if self.backlog.lock().exists(order_id).await {
+                    if self.backlog.lock().await.exists(order_id).await {
                         is_success = true;
                         let _ = self.topic.feed(OrderUpdate::OrderEliminated(order_id)).await;
                     }
@@ -127,6 +130,7 @@ where
                     }
                 }
                 if is_success {
+                    trace!(target: "offchain_lm", "Observing new order in mempool");
                     return None;
                 }
                 Some(MempoolUpdate::TxAccepted(tx))
@@ -143,6 +147,7 @@ where
                     }
                 }
                 if is_success {
+                    trace!(target: "offchain_lm", "Known order is eliminated in mempool");
                     return None;
                 }
                 Some(MempoolUpdate::TxWithdrawn(tx))

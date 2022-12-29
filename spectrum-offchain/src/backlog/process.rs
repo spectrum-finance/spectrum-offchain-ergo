@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use futures::{Stream, StreamExt};
 use log::trace;
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 
 use crate::backlog::Backlog;
 use crate::data::order::OrderUpdate;
@@ -22,9 +22,10 @@ where
     upstream.then(move |upd| {
         let backlog = Arc::clone(&backlog);
         async move {
+            let mut backlog = backlog.lock().await;
             match upd {
-                OrderUpdate::NewOrder(pending_order) => backlog.lock().put(pending_order).await,
-                OrderUpdate::OrderEliminated(elim_oid) => backlog.lock().remove(elim_oid).await,
+                OrderUpdate::NewOrder(pending_order) => backlog.put(pending_order).await,
+                OrderUpdate::OrderEliminated(elim_oid) => backlog.remove(elim_oid).await,
             }
         }
     })
