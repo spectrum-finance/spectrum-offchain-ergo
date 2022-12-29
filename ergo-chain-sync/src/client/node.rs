@@ -1,11 +1,11 @@
 use async_trait::async_trait;
-use ergo_lib::ergo_chain_types::BlockId;
-use isahc::http::Uri;
+use ergo_lib::ergo_chain_types::{BlockId, Header};
 use isahc::{AsyncReadResponseExt, HttpClient};
 
 use crate::client::model::FullBlock;
 use crate::client::types::Url;
 
+use super::model::BlockTransactions;
 use super::types::with_path;
 
 #[async_trait(?Send)]
@@ -37,18 +37,36 @@ impl ErgoNetwork for ErgoNodeHttpClient {
             .await
             .ok()?;
         if !blocks.is_empty() {
+            let header_id = base16::encode_lower(&blocks[0].0 .0);
+            let transactions_path = format!("/blocks/{}/transactions", header_id);
             let mut resp = self
                 .client
-                .get_async(with_path(
-                    &self.base_url,
-                    &format!("/blocks/{}", base16::encode_lower(&blocks[0].0 .0)),
-                ))
+                .get_async(with_path(&self.base_url, &transactions_path))
                 .await
                 .ok()?;
-            if resp.status().is_success() {
-                return resp.json::<FullBlock>().await.ok();
-            }
+            let block_transactions = if resp.status().is_success() {
+                resp.json::<BlockTransactions>().await.ok()?
+            } else {
+                return None;
+            };
+
+            let header_path = format!("/blocks/{}/header", header_id);
+            let mut resp = self
+                .client
+                .get_async(with_path(&self.base_url, &header_path))
+                .await
+                .ok()?;
+            let header = if resp.status().is_success() {
+                resp.json::<Header>().await.ok()?
+            } else {
+                return None;
+            };
+            Some(FullBlock {
+                header,
+                block_transactions,
+            })
+        } else {
+            None
         }
-        None
     }
 }
