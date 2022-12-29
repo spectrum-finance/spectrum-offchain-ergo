@@ -6,6 +6,8 @@ use bounded_integer::BoundedU8;
 use chrono::{Duration, Utc};
 use priority_queue::PriorityQueue;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use type_equalities::IsEqual;
 
 use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
@@ -41,8 +43,12 @@ where
     async fn recharge(&mut self, ord: TOrd);
 }
 
+#[serde_with::serde_as]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BacklogConfig {
+    #[serde_as(as = "serde_with::DurationSeconds<i64>")]
     pub order_lifespan: Duration,
+    #[serde_as(as = "serde_with::DurationSeconds<i64>")]
     pub order_exec_time: Duration,
     pub retry_suspended_prob: BoundedU8<0, 100>,
 }
