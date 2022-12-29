@@ -7,7 +7,7 @@ use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use futures::{stream, StreamExt};
 use itertools::{EitherOrBoth, Itertools};
-use log::{error, warn};
+use log::{error, info, trace, warn};
 use tokio::sync::Mutex;
 
 use spectrum_offchain::backlog::Backlog;
@@ -125,8 +125,10 @@ where
             backlog.try_pop().await
         };
         if let Some(ord) = next_ord {
+            trace!(target: "offchain_lm", "Order acquired [{:?}]", ord.get_self_ref());
             let entity_id = ord.get_entity_ref();
             if let Some(pool) = resolve_entity_state(entity_id, Arc::clone(&self.pool_repo)).await {
+                trace!(target: "offchain_lm", "Pool for order [{:?}] is [{:?}]", ord.get_self_ref(), pool.get_self_ref());
                 let conf = pool.1.conf;
                 let bundle_ids = ord.get::<Vec<BundleId>>();
                 let bundle_resolver = Arc::clone(&self.bundle_repo);
@@ -177,6 +179,7 @@ where
                 };
                 match run_result {
                     Ok((tx, next_pool, next_bundles, residual_funding)) => {
+                        trace!(target: "offchain_lm", "Order [{:?}] successfully evaluated", ord.get_self_ref());
                         match self.prover.sign(tx) {
                             Ok(tx) => {
                                 if let Err(client_err) = self.network.submit_tx(tx).await {
@@ -248,15 +251,25 @@ where
                         }
                     }
                     Err(RunOrderError::NonFatal(err, ord)) => {
-                        warn!("Order suspended due to non-fatal error {}", err);
+                        warn!(
+                            "Order [{:?}] suspended due to non-fatal error {}",
+                            ord.get_self_ref(),
+                            err
+                        );
                         self.backlog.lock().await.suspend(ord).await;
                     }
                     Err(RunOrderError::Fatal(err, ord)) => {
-                        warn!("Order dropped due to fatal error {}", err);
+                        warn!(
+                            "Order [{:?}] dropped due to fatal error {}",
+                            ord.get_self_ref(),
+                            err
+                        );
                         self.backlog.lock().await.remove(ord.get_self_ref()).await;
                     }
                 }
                 return Ok(());
+            } else {
+                warn!(target: "offchain_lm", "No pool is found for order [{:?}]", ord.get_self_ref());
             }
         }
         Err(())

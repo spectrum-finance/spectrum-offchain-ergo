@@ -206,7 +206,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::Arc;
 
     use ergo_lib::{
@@ -227,9 +227,9 @@ mod tests {
     };
 
     #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
-    struct ErgoEntity {
-        token_id: TokenId,
-        box_id: BoxId,
+    pub struct ErgoEntity {
+        pub token_id: TokenId,
+        pub box_id: BoxId,
     }
     impl OnChainEntity for ErgoEntity {
         type TEntityId = TokenId;
@@ -281,7 +281,7 @@ mod tests {
         test_entity_repo_eliminate(client).await;
     }
 
-    fn rocks_db_client() -> EntityRepoRocksDB {
+    pub fn rocks_db_client() -> EntityRepoRocksDB {
         let rnd = rand::thread_rng().next_u32();
         EntityRepoRocksDB {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),

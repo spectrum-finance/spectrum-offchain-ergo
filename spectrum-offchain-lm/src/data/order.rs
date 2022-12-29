@@ -575,3 +575,34 @@ impl Weighted for Order {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
+
+    use spectrum_offchain::event_sink::handlers::types::TryFromBox;
+
+    use crate::data::order::Order;
+
+    #[test]
+    fn parse_order() {
+        let sample_json = r#"{
+            "boxId": "df9f57d34ddcfe4f7609d86ca7be10124f37044e1bd5679522141bb59347625d",
+            "value": 180000,
+            "ergoTree": "19c8021104000e206e61f1352cebd8e2cd05883b2c53939f6f41cc6b7e17f90ccf8c61e72caacd6404020e240008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0404040008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec040005fcffffffffffffffff010400040604000408040a040205020404d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1eded938cb27202730700017203ed93c27204720593860272067308b2db63087204730900edededed93e4c67207040e720593e4c67207050e72039386028cb27202730a00017208b2db63087207730b009386028cb27202730c00019c72087e730d05b2db63087207730e009386027206730fb2db63087207731000",
+            "assets": [
+                {
+                    "tokenId": "98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45",
+                    "amount": 545
+                }
+            ],
+            "creationHeight": 906102,
+            "additionalRegisters": {},
+            "transactionId": "c6a071533d89dee3e1b6ced5e24a4adc5e0751bb815c04e8a44b9aa78067fd83",
+            "index": 0
+        }"#;
+        let bx: ErgoBox = serde_json::from_str(sample_json).unwrap();
+        let res = Order::try_from_box(bx);
+        assert!(res.is_some())
+    }
+}

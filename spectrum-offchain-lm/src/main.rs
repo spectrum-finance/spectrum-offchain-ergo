@@ -121,8 +121,8 @@ async fn main() {
     let default_handler = NoopDefaultHandler;
 
     // pools
-    let (pool_snd, pool_recv) = async_channel::unbounded();
-    let pool_han = ConfirmedUpdateHandler::<_, Pool, _>::new(AsSink(pool_snd), Arc::clone(&pools));
+    let (pool_snd, pool_recv) = async_channel::unbounded::<Confirmed<StateUpdate<AsBox<Pool>>>>();
+    let pool_han = ConfirmedUpdateHandler::<_, AsBox<Pool>, _>::new(AsSink(pool_snd), Arc::clone(&pools));
     let pool_update_stream = boxed(entity_tracking_stream(pool_recv.clone(), pools));
 
     // orders

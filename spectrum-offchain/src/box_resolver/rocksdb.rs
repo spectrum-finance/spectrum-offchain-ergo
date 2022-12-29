@@ -72,6 +72,7 @@ where
                 .and_then(|bytes| bincode::deserialize::<'_, TEntity::TStateId>(&bytes).ok())
                 .and_then(|sid| db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap())
                 .and_then(|bytes| bincode::deserialize(&bytes).ok())
+                .map(Predicted)
         })
         .await
         .unwrap()
@@ -92,6 +93,7 @@ where
                 .and_then(|bytes| bincode::deserialize::<'_, TEntity::TStateId>(&bytes).ok())
                 .and_then(|sid| db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap())
                 .and_then(|bytes| bincode::deserialize(&bytes).ok())
+                .map(Confirmed)
         })
         .await
         .unwrap()
@@ -112,6 +114,7 @@ where
                 .and_then(|bytes| bincode::deserialize::<'_, TEntity::TStateId>(&bytes).ok())
                 .and_then(|sid| db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap())
                 .and_then(|bytes| bincode::deserialize(&bytes).ok())
+                .map(Unconfirmed)
         })
         .await
         .unwrap()

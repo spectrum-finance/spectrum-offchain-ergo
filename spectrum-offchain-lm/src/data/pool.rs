@@ -232,7 +232,7 @@ impl Pool {
     }
 
     fn num_epochs_remain(&self, height: u32) -> u32 {
-        self.conf.epoch_num - self.current_epoch_ix(height)
+        self.conf.epoch_num.saturating_sub(self.current_epoch_ix(height))
     }
 
     fn current_epoch_ix(&self, height: u32) -> u32 {
@@ -578,6 +578,6 @@ mod tests {
         }"#;
         let bx: ErgoBox = serde_json::from_str(sample_json).unwrap();
         let res = Pool::try_from_box(bx);
-        println!("{:?}", res);
+        assert!(res.is_some())
     }
 }

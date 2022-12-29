@@ -72,7 +72,7 @@ impl<'a, TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity> Executor
 where
     TOrd: OnChainOrder + RunOrder<TEntity, TCtx> + Clone + Display,
     TEntity: OnChainEntity + Clone,
-    TEntity::TEntityId: Clone,
+    TEntity::TEntityId: Copy,
     TOrd::TEntityId: IsEqual<TEntity::TEntityId>,
     TNetwork: ErgoNetwork,
     TBacklog: Backlog<TOrd>,

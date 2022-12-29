@@ -10,11 +10,13 @@ use tokio::sync::Mutex;
 
 use spectrum_offchain::backlog::Backlog;
 use spectrum_offchain::combinators::EitherOrBoth::{Both, Right};
+use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::data::order::PendingOrder;
 use spectrum_offchain::data::unique_entity::{Confirmed, StateUpdate, Upgrade};
 use spectrum_offchain::network::ErgoNetwork;
 
 use crate::bundle::BundleRepo;
+use crate::data::AsBox;
 use crate::data::order::{Compound, Order};
 use crate::data::pool::Pool;
 use crate::scheduler::data::{PoolSchedule, Tick};
@@ -30,7 +32,7 @@ pub fn run_distribution_scheduler<'a, S, TBacklog, TSchedules, TBundles, TNetwor
     poll_interval: Duration,
 ) -> impl Stream<Item = ()> + 'a
 where
-    S: Stream<Item = Confirmed<StateUpdate<Pool>>> + 'a,
+    S: Stream<Item = Confirmed<StateUpdate<AsBox<Pool>>>> + 'a,
     TSchedules: ScheduleRepo + 'a,
     TBacklog: Backlog<Order> + 'a,
     TSchedules: ScheduleRepo + 'a,
@@ -122,7 +124,7 @@ fn track_pools<'a, S, TSchedules>(
     schedules: Arc<Mutex<TSchedules>>,
 ) -> Pin<Box<dyn Stream<Item = ()> + 'a>>
 where
-    S: Stream<Item = Confirmed<StateUpdate<Pool>>> + 'a,
+    S: Stream<Item = Confirmed<StateUpdate<AsBox<Pool>>>> + 'a,
     TSchedules: ScheduleRepo + 'a,
 {
     Box::pin(upstream.then(move |Confirmed(upd)| {
@@ -130,8 +132,8 @@ where
         async move {
             if let StateUpdate::Transition(Right(pool) | Both(_, pool)) = upd {
                 let mut schedules = schedules.lock().await;
-                if !schedules.exists(pool.pool_id).await {
-                    schedules.put_schedule(PoolSchedule::from(pool)).await
+                if !schedules.exists(pool.get_self_ref()).await {
+                    schedules.put_schedule(PoolSchedule::from(pool.1)).await
                 }
             }
         }
