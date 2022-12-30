@@ -1,23 +1,18 @@
-use ergo_chain_sync::cache::chain_cache::InMemoryCache;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use clap::{arg, Parser};
-use ergo_lib::ergotree_ir::chain::address::Address;
-use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
-use ergo_lib::ergotree_ir::mir::constant::Constant;
-use ergo_lib::ergotree_ir::mir::expr::Expr;
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::StreamExt;
 use isahc::{prelude::*, HttpClient};
+use serde::Deserialize;
 use tokio::sync::Mutex;
 
+use ergo_chain_sync::cache::chain_cache::InMemoryCache;
 use ergo_chain_sync::client::node::ErgoNodeHttpClient;
 use ergo_chain_sync::client::types::Url;
 use ergo_chain_sync::rocksdb::RocksConfig;
 use ergo_chain_sync::ChainSync;
-use serde::{Deserialize, Serialize};
 use spectrum_offchain::backlog::persistence::BacklogStoreRocksDB;
 use spectrum_offchain::backlog::process::backlog_stream;
 use spectrum_offchain::backlog::{BacklogConfig, BacklogService};
@@ -67,8 +62,8 @@ pub mod validators;
 #[tokio::main]
 async fn main() {
     let args = AppArgs::parse();
-    let s = std::fs::read_to_string(args.config_yaml_path).unwrap();
-    let config: AppConfig = serde_yaml::from_str(&s).unwrap();
+    let raw_config = std::fs::read_to_string(args.config_yaml_path).expect("Cannot load configuration file");
+    let config: AppConfig = serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
 
     if let Some(log4rs_path) = args.log4rs_path {
         log4rs::init_file(log4rs_path, Default::default()).unwrap();
@@ -83,7 +78,7 @@ async fn main() {
         .build()
         .unwrap();
 
-    let node = ErgoNodeHttpClient::new(client, Url::from_str(config.node_addr).unwrap());
+    let node = ErgoNodeHttpClient::new(client, config.node_addr);
     let cache = InMemoryCache::new();
     let chain_sync = ChainSync::init(config.chain_sync_starting_height, node.clone(), cache).await;
 
@@ -92,7 +87,7 @@ async fn main() {
     });
     let backlog = Arc::new(Mutex::new(BacklogService::new::<Order>(
         backlog_store,
-        config.backlog_config,
+        config.backlog_config.clone(),
     )));
     let pools = Arc::new(Mutex::new(EntityRepoRocksDB::new(RocksConfig {
         db_path: config.entity_repo_db_path.into(),
@@ -107,7 +102,6 @@ async fn main() {
         db_path: config.funding_repo_db_path.into(),
     })));
     let prover = NoopProver;
-    let executor_prop = ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap();
     let executor = OrderExecutor::new(
         node.clone(),
         Arc::clone(&backlog),
@@ -115,7 +109,7 @@ async fn main() {
         Arc::clone(&bundles),
         Arc::clone(&funding),
         prover,
-        executor_prop,
+        config.operator_reward_addr.ergo_tree(),
     );
     let executor_stream = boxed(executor_stream(executor));
 
@@ -131,7 +125,7 @@ async fn main() {
     let order_han = OrderUpdatesHandler::<_, Order, _>::new(
         order_snd,
         Arc::clone(&backlog),
-        chrono::Duration::seconds(60 * 60 * 24),
+        config.backlog_config.order_lifespan,
     );
     let backlog_stream = boxed(backlog_stream(Arc::clone(&backlog), order_recv));
 
@@ -149,7 +143,7 @@ async fn main() {
     let funding_han = ConfirmedFundingHadler {
         topic: funding_snd,
         repo: Arc::clone(&funding),
-        wallet: ExecutorWallet::from(Address::P2SH([0u8; 24])),
+        wallet: config.operator_funding_addr,
     };
     let funding_update_stream = boxed(funding_update_stream(funding_recv, Arc::clone(&funding)));
 
@@ -195,9 +189,9 @@ async fn main() {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct AppConfig<'a> {
-    node_addr: &'a str,
+    node_addr: Url,
     http_client_timeout_duration_secs: u32,
     chain_sync_starting_height: u32,
     backlog_config: BacklogConfig,
@@ -208,6 +202,8 @@ struct AppConfig<'a> {
     bundle_repo_db_path: &'a str,
     funding_repo_db_path: &'a str,
     schedule_repo_db_path: &'a str,
+    operator_funding_addr: ExecutorWallet,
+    operator_reward_addr: ExecutorWallet,
 }
 
 #[derive(Parser)]

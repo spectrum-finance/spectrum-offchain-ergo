@@ -1,6 +1,7 @@
-use ergo_lib::ergotree_ir::chain::address::Address;
+use ergo_lib::ergotree_ir::chain::address::{Address, AddressEncoder};
 use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, ErgoBoxCandidate, NonMandatoryRegisters};
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
+use serde::{Deserialize, Serialize};
 
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBoxCtx};
 
@@ -54,11 +55,28 @@ pub struct DistributionFunding {
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum FundingUpdate {
     FundingCreated(AsBox<DistributionFunding>),
-    FundingEliminated(FundingId)
+    FundingEliminated(FundingId),
 }
 
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Eq, PartialEq, Debug, Clone, Deserialize)]
+#[serde(try_from = "String")]
 pub struct ExecutorWallet(Address);
+
+impl ExecutorWallet {
+    pub fn ergo_tree(&self) -> ErgoTree {
+        self.0.script().unwrap()
+    }
+}
+
+impl TryFrom<String> for ExecutorWallet {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        AddressEncoder::unchecked_parse_address_from_str(&*value)
+            .map(Self)
+            .map_err(|err| err.to_string())
+    }
+}
 
 impl From<Address> for ExecutorWallet {
     fn from(addr: Address) -> Self {

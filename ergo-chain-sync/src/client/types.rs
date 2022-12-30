@@ -3,10 +3,21 @@ use std::{
     str::FromStr,
 };
 
+use derive_more::Display;
 use isahc::http::{uri::InvalidUri, Uri};
+use serde::Deserialize;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(try_from = "String")]
 pub struct Url(Uri);
+
+impl TryFrom<String> for Url {
+    type Error = InvalidUrl;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Url::from_str(&*value)
+    }
+}
 
 impl Display for Url {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
@@ -14,7 +25,7 @@ impl Display for Url {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Display)]
 pub enum InvalidUrl {
     Uri(InvalidUri),
     NoScheme,
