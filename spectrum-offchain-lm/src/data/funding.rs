@@ -14,7 +14,7 @@ pub struct DistributionFundingProto {
 }
 
 impl DistributionFundingProto {
-    pub fn complete(self, id: FundingId) -> DistributionFunding {
+    pub fn finalize(self, id: FundingId) -> DistributionFunding {
         DistributionFunding {
             id,
             prop: self.prop,

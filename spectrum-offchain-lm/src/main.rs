@@ -66,9 +66,9 @@ pub mod validators;
 
 #[tokio::main]
 async fn main() {
-    let args = CLIArgs::parse();
+    let args = AppArgs::parse();
     let s = std::fs::read_to_string(args.config_yaml_path).unwrap();
-    let config: LMConfig = serde_yaml::from_str(&s).unwrap();
+    let config: AppConfig = serde_yaml::from_str(&s).unwrap();
 
     if let Some(log4rs_path) = args.log4rs_path {
         log4rs::init_file(log4rs_path, Default::default()).unwrap();
@@ -196,7 +196,7 @@ async fn main() {
 }
 
 #[derive(Serialize, Deserialize)]
-struct LMConfig<'a> {
+struct AppConfig<'a> {
     node_addr: &'a str,
     http_client_timeout_duration_secs: u32,
     chain_sync_starting_height: u32,
@@ -215,7 +215,7 @@ struct LMConfig<'a> {
 #[command(author = "Ilya Oskin (@oskin1), Timothy Ling (@kettlebell) for Spectrum Finance")]
 #[command(version = "0.1")]
 #[command(about = "Spectrum Finance Liquidity Mining Reference Node", long_about = None)]
-struct CLIArgs {
+struct AppArgs {
     /// Path to the YAML configuration file.
     #[arg(long, short)]
     config_yaml_path: String,

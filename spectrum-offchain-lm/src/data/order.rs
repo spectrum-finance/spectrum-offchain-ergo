@@ -157,7 +157,7 @@ impl RunOrder for Compound {
                 let next_funding_as_box = next_funding.map(|nf| {
                     let out = outputs.get(1).unwrap().clone();
                     let funding_id = FundingId::from(out.box_id());
-                    Predicted(AsBox(out, nf.complete(funding_id)))
+                    Predicted(AsBox(out, nf.finalize(funding_id)))
                 });
                 Ok((
                     tx,
