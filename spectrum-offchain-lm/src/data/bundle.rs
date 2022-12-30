@@ -16,7 +16,7 @@ use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBo
 use crate::data::assets::{BundleKey, Tmp, VirtLq};
 use crate::data::pool::ProgramConfig;
 use crate::data::{BundleId, BundleStateId, PoolId};
-use crate::ergo::NanoErg;
+use crate::ergo::{MAX_VALUE, NanoErg};
 use crate::validators::bundle_validator;
 
 /// Prototype of StakeingBundle which guards virtual liquidity and temporal tokens.
@@ -74,7 +74,8 @@ impl IntoBoxCandidate for StakingBundleProto {
     }
 }
 
-pub const BUNDLE_KEY_AMOUNT: u64 = TokenAmount::MAX_RAW - 1;
+pub const BUNDLE_KEY_AMOUNT: u64 = 1;
+pub const BUNDLE_KEY_AMOUNT_USER: u64 = MAX_VALUE - BUNDLE_KEY_AMOUNT;
 
 /// Guards virtual liquidity and temporal tokens.
 /// Staking Bundle is a persistent, self-reproducible, on-chain entity.

@@ -122,12 +122,9 @@ impl RunOrder for Compound {
                         .map(|bx| (bx, ContextExtension::empty()))
                         .chain(bundles.iter().map(|AsBox(bx, _)| bx.clone()).map(|bx| {
                             let redeemer_prop = ErgoTree::sigma_parse_bytes(
-                                &*bx.additional_registers
-                                    .get(NonMandatoryRegisterId::R4)
+                                &*bx.get_register(NonMandatoryRegisterId::R4.into())
                                     .unwrap()
-                                    .as_option_constant()
-                                    .cloned()
-                                    .unwrap()
+                                    .v
                                     .try_extract_into::<Vec<u8>>()
                                     .unwrap(),
                             )
@@ -280,15 +277,15 @@ impl RunOrder for AsBox<Deposit> {
                 .unwrap();
                 let outputs = TxIoVec::from_vec(vec![
                     next_pool.clone().into_candidate(ctx.height),
-                    bundle_proto.clone().into_candidate(ctx.height),
                     user_out.into_candidate(ctx.height),
+                    bundle_proto.clone().into_candidate(ctx.height),
                     executor_out.into_candidate(ctx.height),
                 ])
                 .unwrap();
                 let tx = TransactionCandidate::new(inputs, None, outputs);
                 let outputs = tx.clone().into_tx_without_proofs().outputs;
                 let next_pool_as_box = AsBox(outputs.get(0).unwrap().clone(), next_pool);
-                let bundle_box = outputs.get(1).unwrap().clone();
+                let bundle_box = outputs.get(2).unwrap().clone();
                 let bundle = bundle_proto.finalize(BundleStateId::from(bundle_box.box_id()));
                 let bundle_as_box = AsBox(bundle_box, bundle);
                 Ok((tx, Predicted(next_pool_as_box), Predicted(bundle_as_box)))
@@ -465,10 +462,9 @@ impl TryFromBox for Redeem {
                 let order_id = OrderId::from(bx.box_id());
                 let pool_id = PoolId::from(TokenId::from(
                     Digest32::try_from(
-                        bx.additional_registers
-                            .get(NonMandatoryRegisterId::R4)?
-                            .as_option_constant()
-                            .map(|c| c.clone().try_extract_into::<Vec<u8>>())?
+                        bx.get_register(NonMandatoryRegisterId::R4.into())?
+                            .v
+                            .try_extract_into::<Vec<u8>>()
                             .ok()?,
                     )
                     .ok()?,

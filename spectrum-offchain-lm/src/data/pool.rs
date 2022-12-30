@@ -13,7 +13,7 @@ use spectrum_offchain::domain::TypedAssetAmount;
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 
 use crate::data::assets::{Lq, PoolNft, Reward, Tmp, VirtLq};
-use crate::data::bundle::{StakingBundle, StakingBundleProto};
+use crate::data::bundle::{StakingBundle, StakingBundleProto, BUNDLE_KEY_AMOUNT_USER};
 use crate::data::context::ExecutionContext;
 use crate::data::executor::ExecutorOutput;
 use crate::data::funding::{DistributionFunding, DistributionFundingProto};
@@ -102,9 +102,9 @@ impl Pool {
         next_pool.reserves_lq = next_pool.reserves_lq + deposit.lq;
         next_pool.reserves_vlq = next_pool.reserves_vlq - release_vlq;
         next_pool.reserves_tmp = next_pool.reserves_tmp - release_tmp;
-        let bundle_key = TypedAssetAmount::new(ctx.mintable_token_id, MAX_VALUE);
+        let bundle_key_for_user = TypedAssetAmount::new(ctx.mintable_token_id, BUNDLE_KEY_AMOUNT_USER);
         let bundle = StakingBundleProto {
-            bundle_key_id: bundle_key.to_asset(),
+            bundle_key_id: bundle_key_for_user.to_asset(),
             pool_id: next_pool.pool_id,
             vlq: release_vlq,
             tmp: release_tmp,
@@ -112,7 +112,7 @@ impl Pool {
             erg_value: NanoErg::from(BoxValue::SAFE_USER_MIN),
         };
         let user_output = DepositOutput {
-            bundle_key,
+            bundle_key: bundle_key_for_user,
             redeemer_prop: deposit.redeemer_prop,
             erg_value: NanoErg::from(BoxValue::SAFE_USER_MIN),
         };
