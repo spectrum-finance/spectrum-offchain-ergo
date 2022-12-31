@@ -1,10 +1,9 @@
-pub mod rocksdb;
-pub mod process;
-
 use async_trait::async_trait;
 
 use crate::data::pool::ProgramConfig;
 use crate::data::PoolId;
+
+pub mod rocksdb;
 
 /// Registry of all LM programs known in the network.
 #[async_trait]

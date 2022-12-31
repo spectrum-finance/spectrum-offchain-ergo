@@ -11,8 +11,8 @@ flowchart TD
     end
 
     CPS-->PR>Pool Tracker]
-    CPS-->PH>Program Tracker]
-    CPS-->ST>Schedule Tracker]
+    LS-->PT>Program Tracker]
+    LS-->ST>Schedule Tracker]
 
     LS
         -->OS{{Order Stream}}
@@ -30,7 +30,7 @@ flowchart TD
         LS
         CPS
         PR
-        PH
+        PT
         ST
         OS
         BL

@@ -1,15 +1,31 @@
 use ergo_lib::chain::ergo_state_context::ErgoStateContext;
 use ergo_lib::chain::transaction::unsigned::UnsignedTransaction;
 use ergo_lib::chain::transaction::{Transaction, UnsignedInput};
-use ergo_lib::ergotree_interpreter::sigma_protocol::private_input::PrivateInput;
+use ergo_lib::ergotree_interpreter::sigma_protocol::private_input::{DlogProverInput, PrivateInput};
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::Prover;
-
 use ergo_lib::ergotree_ir::chain::address::Address;
 use ergo_lib::wallet::signing::{sign_transaction, TransactionContext, TxSigningError};
+use serde::Deserialize;
+use sigma_test_util::force_any_val;
+
 use spectrum_offchain::transaction::{TransactionCandidate, UnsignedTransactionOps};
 
 pub trait SigmaProver {
     fn sign(&self, tx: TransactionCandidate) -> Result<Transaction, TxSigningError>;
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(try_from = "String")]
+pub struct WalletSecret(DlogProverInput);
+
+impl TryFrom<String> for WalletSecret {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        DlogProverInput::from_base16_str(value)
+            .map(Self)
+            .ok_or(format!("Private inputs must be provided in Base16"))
+    }
 }
 
 pub struct Wallet {
@@ -17,6 +33,18 @@ pub struct Wallet {
     /// Necessary to use `sign_transaction` function from `sigma-rust`. If we're only signing P2PK
     /// inputs, then this field can be any arbitrary value.
     ergo_state_context: ErgoStateContext,
+}
+
+impl Wallet {
+    pub fn trivial(secrets: Vec<WalletSecret>) -> Self {
+        Self {
+            secrets: secrets
+                .into_iter()
+                .map(|WalletSecret(pi)| PrivateInput::DlogProverInput(pi))
+                .collect(),
+            ergo_state_context: force_any_val(),
+        }
+    }
 }
 
 impl Prover for Wallet {
@@ -95,6 +123,7 @@ mod tests {
         wallet::secret_key::SecretKey,
     };
     use sigma_test_util::force_any_val;
+
     use spectrum_offchain::transaction::TransactionCandidate;
 
     use super::{SigmaProver, Wallet};

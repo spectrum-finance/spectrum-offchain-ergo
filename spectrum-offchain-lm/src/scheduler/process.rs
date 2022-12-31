@@ -1,29 +1,21 @@
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use futures::stream::select_all;
 use futures::{Stream, StreamExt};
 use stream_throttle::{ThrottlePool, ThrottleRate, ThrottledStream};
 use tokio::sync::Mutex;
 
 use spectrum_offchain::backlog::Backlog;
-use spectrum_offchain::combinators::EitherOrBoth::{Both, Right};
-use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::data::order::PendingOrder;
-use spectrum_offchain::data::unique_entity::{Confirmed, StateUpdate, Upgrade};
 use spectrum_offchain::network::ErgoNetwork;
 
 use crate::bundle::BundleRepo;
-use crate::data::AsBox;
 use crate::data::order::{Compound, Order};
-use crate::data::pool::Pool;
-use crate::scheduler::data::{PoolSchedule, Tick};
+use crate::scheduler::data::Tick;
 use crate::scheduler::ScheduleRepo;
 
-pub fn run_distribution_scheduler<'a, S, TBacklog, TSchedules, TBundles, TNetwork>(
-    confirmed_pools: S,
+pub fn distribution_stream<'a, TBacklog, TSchedules, TBundles, TNetwork>(
     backlog: Arc<Mutex<TBacklog>>,
     schedules: Arc<Mutex<TSchedules>>,
     bundles: Arc<Mutex<TBundles>>,
@@ -31,35 +23,6 @@ pub fn run_distribution_scheduler<'a, S, TBacklog, TSchedules, TBundles, TNetwor
     batch_size: usize,
     poll_interval: Duration,
 ) -> impl Stream<Item = ()> + 'a
-where
-    S: Stream<Item = Confirmed<StateUpdate<AsBox<Pool>>>> + 'a,
-    TSchedules: ScheduleRepo + 'a,
-    TBacklog: Backlog<Order> + 'a,
-    TSchedules: ScheduleRepo + 'a,
-    TBundles: BundleRepo + 'a,
-    TNetwork: ErgoNetwork + Clone + 'a,
-{
-    select_all(vec![
-        distribution_stream(
-            backlog,
-            Arc::clone(&schedules),
-            bundles,
-            network,
-            batch_size,
-            poll_interval,
-        ),
-        track_pools(confirmed_pools, schedules),
-    ])
-}
-
-fn distribution_stream<'a, TBacklog, TSchedules, TBundles, TNetwork>(
-    backlog: Arc<Mutex<TBacklog>>,
-    schedules: Arc<Mutex<TSchedules>>,
-    bundles: Arc<Mutex<TBundles>>,
-    network: TNetwork,
-    batch_size: usize,
-    poll_interval: Duration,
-) -> Pin<Box<dyn Stream<Item = ()> + 'a>>
 where
     TBacklog: Backlog<Order> + 'a,
     TSchedules: ScheduleRepo + 'a,
@@ -113,27 +76,6 @@ where
                         // todo: DEV-601: Check later instead of just removing.
                         schedules.remove(tick).await;
                     }
-                }
-            }
-        }
-    }))
-}
-
-fn track_pools<'a, S, TSchedules>(
-    upstream: S,
-    schedules: Arc<Mutex<TSchedules>>,
-) -> Pin<Box<dyn Stream<Item = ()> + 'a>>
-where
-    S: Stream<Item = Confirmed<StateUpdate<AsBox<Pool>>>> + 'a,
-    TSchedules: ScheduleRepo + 'a,
-{
-    Box::pin(upstream.then(move |Confirmed(upd)| {
-        let schedules = Arc::clone(&schedules);
-        async move {
-            if let StateUpdate::Transition(Right(pool) | Both(_, pool)) = upd {
-                let mut schedules = schedules.lock().await;
-                if !schedules.exists(pool.get_self_ref()).await {
-                    schedules.put_schedule(PoolSchedule::from(pool.1)).await
                 }
             }
         }

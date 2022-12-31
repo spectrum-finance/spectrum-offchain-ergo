@@ -16,6 +16,7 @@ use ergo_chain_sync::ChainSync;
 use spectrum_offchain::backlog::persistence::BacklogStoreRocksDB;
 use spectrum_offchain::backlog::process::backlog_stream;
 use spectrum_offchain::backlog::{BacklogConfig, BacklogService};
+use spectrum_offchain::box_resolver::persistence::EntityRepoTracing;
 use spectrum_offchain::box_resolver::process::entity_tracking_stream;
 use spectrum_offchain::box_resolver::rocksdb::EntityRepoRocksDB;
 use spectrum_offchain::data::order::OrderUpdate;
@@ -37,15 +38,16 @@ use crate::data::pool::Pool;
 use crate::data::AsBox;
 use crate::event_sink::handlers::bundle::ConfirmedBundleUpdateHadler;
 use crate::event_sink::handlers::funding::ConfirmedFundingHadler;
+use crate::event_sink::handlers::program::ConfirmedProgramUpdateHandler;
+use crate::event_sink::handlers::schedule::ConfirmedScheduleUpdateHandler;
 use crate::executor::OrderExecutor;
 use crate::funding::process::funding_update_stream;
 use crate::funding::FundingRepoRocksDB;
-use crate::program::process::track_programs;
 use crate::program::rocksdb::ProgramRepoRocksDB;
-use crate::prover::NoopProver;
-use crate::scheduler::process::run_distribution_scheduler;
+use crate::prover::{Wallet, WalletSecret};
+use crate::scheduler::process::distribution_stream;
 use crate::scheduler::ScheduleRepoRocksDB;
-use crate::streaming::{boxed, AsSink};
+use crate::streaming::boxed;
 
 pub mod bundle;
 pub mod data;
@@ -89,9 +91,11 @@ async fn main() {
         backlog_store,
         config.backlog_config.clone(),
     )));
-    let pools = Arc::new(Mutex::new(EntityRepoRocksDB::new(RocksConfig {
-        db_path: config.entity_repo_db_path.into(),
-    })));
+    let pools = Arc::new(Mutex::new(EntityRepoTracing::wrap(EntityRepoRocksDB::new(
+        RocksConfig {
+            db_path: config.entity_repo_db_path.into(),
+        },
+    ))));
     let programs = Arc::new(Mutex::new(ProgramRepoRocksDB::new(RocksConfig {
         db_path: config.program_repo_db_path.into(),
     })));
@@ -101,7 +105,7 @@ async fn main() {
     let funding = Arc::new(Mutex::new(FundingRepoRocksDB::new(RocksConfig {
         db_path: config.funding_repo_db_path.into(),
     })));
-    let prover = NoopProver;
+    let prover = Wallet::trivial(config.operator_funding_secrets);
     let executor = OrderExecutor::new(
         node.clone(),
         Arc::clone(&backlog),
@@ -116,9 +120,9 @@ async fn main() {
     let default_handler = NoopDefaultHandler;
 
     // pools
-    let (pool_snd, pool_recv) = async_channel::unbounded::<Confirmed<StateUpdate<AsBox<Pool>>>>();
-    let pool_han = ConfirmedUpdateHandler::<_, AsBox<Pool>, _>::new(AsSink(pool_snd), Arc::clone(&pools));
-    let pool_update_stream = boxed(entity_tracking_stream(pool_recv.clone(), pools));
+    let (pool_snd, pool_recv) = mpsc::unbounded::<Confirmed<StateUpdate<AsBox<Pool>>>>();
+    let pool_han = ConfirmedUpdateHandler::<_, AsBox<Pool>, _>::new(pool_snd, Arc::clone(&pools));
+    let pool_update_stream = boxed(entity_tracking_stream(pool_recv, pools));
 
     // orders
     let (order_snd, order_recv) = mpsc::unbounded::<OrderUpdate<Order>>();
@@ -147,24 +151,13 @@ async fn main() {
     };
     let funding_update_stream = boxed(funding_update_stream(funding_recv, Arc::clone(&funding)));
 
-    // program
-    let program_update_stream = boxed(track_programs(pool_recv.clone(), Arc::clone(&programs)));
-
-    let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent>>> = vec![
-        Box::new(pool_han),
-        Box::new(order_han),
-        Box::new(bundle_han),
-        Box::new(funding_han),
-    ];
-
-    let event_source = event_source_ledger(chain_sync);
-    let process_events_stream = boxed(process_events(event_source, handlers, default_handler));
-
     let schedules = Arc::new(Mutex::new(ScheduleRepoRocksDB::new(RocksConfig {
         db_path: config.schedule_repo_db_path.into(),
     })));
-    let scheduer_stream = boxed(run_distribution_scheduler(
-        pool_recv,
+    let schedule_han = ConfirmedScheduleUpdateHandler {
+        schedules: Arc::clone(&schedules),
+    };
+    let scheduer_stream = boxed(distribution_stream(
         backlog,
         schedules,
         bundles,
@@ -173,6 +166,22 @@ async fn main() {
         std::time::Duration::from_secs(60),
     ));
 
+    let program_han = ConfirmedProgramUpdateHandler {
+        programs: Arc::clone(&programs),
+    };
+
+    let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent>>> = vec![
+        Box::new(pool_han),
+        Box::new(order_han),
+        Box::new(bundle_han),
+        Box::new(funding_han),
+        Box::new(schedule_han),
+        Box::new(program_han),
+    ];
+
+    let event_source = event_source_ledger(chain_sync);
+    let process_events_stream = boxed(process_events(event_source, handlers, default_handler));
+
     let mut app = select_all(vec![
         process_events_stream,
         executor_stream,
@@ -180,7 +189,6 @@ async fn main() {
         backlog_stream,
         bundle_update_stream,
         funding_update_stream,
-        program_update_stream,
         scheduer_stream,
     ]);
 
@@ -202,8 +210,9 @@ struct AppConfig<'a> {
     bundle_repo_db_path: &'a str,
     funding_repo_db_path: &'a str,
     schedule_repo_db_path: &'a str,
-    operator_funding_addr: ExecutorWallet,
     operator_reward_addr: ExecutorWallet,
+    operator_funding_addr: ExecutorWallet,
+    operator_funding_secrets: Vec<WalletSecret>,
 }
 
 #[derive(Parser)]
