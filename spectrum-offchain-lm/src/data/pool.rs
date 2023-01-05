@@ -1,7 +1,6 @@
 use std::fmt::{Display, Formatter};
 
 use derive_more::Display;
-use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
 use ergo_lib::ergotree_ir::chain::ergo_box::{
     BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters,
 };
@@ -22,7 +21,7 @@ use crate::data::funding::{DistributionFunding, DistributionFundingProto};
 use crate::data::order::{Deposit, Redeem};
 use crate::data::redeemer::{DepositOutput, RedeemOutput, RewardOutput};
 use crate::data::{PoolId, PoolStateId};
-use crate::ergo::{NanoErg, MAX_VALUE};
+use crate::ergo::{NanoErg, MAX_VALUE, MIN_SAFE_BOX_VALUE};
 use crate::validators::pool_validator;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Serialize, Deserialize)]
@@ -142,14 +141,14 @@ impl Pool {
             vlq: release_vlq,
             tmp: release_tmp,
             redeemer_prop: deposit.redeemer_prop.clone(),
-            erg_value: NanoErg::from(BoxValue::SAFE_USER_MIN),
+            erg_value: MIN_SAFE_BOX_VALUE,
         };
         let user_output = DepositOutput {
             bundle_key: bundle_key_for_user,
             redeemer_prop: deposit.redeemer_prop,
-            erg_value: NanoErg::from(BoxValue::SAFE_USER_MIN),
+            erg_value: MIN_SAFE_BOX_VALUE,
         };
-        let min_value = bundle.erg_value + user_output.erg_value + NanoErg::from(BoxValue::SAFE_USER_MIN);
+        let min_value = bundle.erg_value + user_output.erg_value + MIN_SAFE_BOX_VALUE;
         if deposit.erg_value < min_value {
             return Err(PoolOperationError::Permanent(PermanentError::LowValue {
                 expected: min_value.into(),
@@ -186,10 +185,10 @@ impl Pool {
         let user_output = RedeemOutput {
             lq: release_lq,
             redeemer_prop: redeem.redeemer_prop,
-            erg_value: NanoErg::from(BoxValue::SAFE_USER_MIN),
+            erg_value: MIN_SAFE_BOX_VALUE,
         };
         let erg_available = redeem.erg_value + bundle.erg_value;
-        let min_value = user_output.erg_value + NanoErg::from(BoxValue::SAFE_USER_MIN);
+        let min_value = user_output.erg_value + MIN_SAFE_BOX_VALUE;
         if erg_available < min_value {
             return Err(PoolOperationError::Permanent(PermanentError::LowValue {
                 expected: min_value.into(),
@@ -242,7 +241,7 @@ impl Pool {
             let reward_output = RewardOutput {
                 reward,
                 redeemer_prop: bundle.redeemer_prop.clone(),
-                erg_value: NanoErg::from(BoxValue::SAFE_USER_MIN),
+                erg_value: MIN_SAFE_BOX_VALUE,
             };
             let charged_tmp_amt = bundle.tmp.amount - epochs_remain as u64 * bundle.vlq.amount;
             let charged_tmp = TypedAssetAmount::new(bundle.tmp.token_id, charged_tmp_amt);
@@ -255,7 +254,7 @@ impl Pool {
         next_pool.epoch_ix = Some(epoch_ix);
         let funds_total: NanoErg = funding.iter().map(|f| f.erg_value).sum();
         let funds_remain = funds_total - accumulated_cost;
-        let next_funding_box = if funds_remain >= NanoErg::from(BoxValue::SAFE_USER_MIN) {
+        let next_funding_box = if funds_remain >= MIN_SAFE_BOX_VALUE {
             Some(DistributionFundingProto {
                 prop: funding.head.prop,
                 erg_value: funds_remain,

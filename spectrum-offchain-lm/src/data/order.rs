@@ -574,8 +574,6 @@ impl Weighted for Order {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Display;
-
     use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
     use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
     use ergo_lib::ergotree_ir::mir::constant::Constant;
@@ -618,8 +616,79 @@ mod tests {
     }
 
     #[test]
+    fn run_deposit() {
+        let deposit_json = r#"{
+            "boxId": "c1ba70f3de85175f0b35562a906feb0b9ea8783ec9256c7ef966560dd132487a",
+            "value": 720000,
+            "ergoTree": "19c8021104000e20c81ef1ac135bae12778705d13e2827fbaa6984e60a8ad8547c1d5b01c787b03304020e240008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0404040008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec040005fcffffffffffffffff010400040604000408040a040205020404d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1eded938cb27202730700017203ed93c27204720593860272067308b2db63087204730900edededed93e4c67207040e720593e4c67207050e72039386028cb27202730a00017208b2db63087207730b009386028cb27202730c00019c72087e730d05b2db63087207730e009386027206730fb2db63087207731000",
+            "assets": [
+                {
+                    "tokenId": "98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45",
+                    "amount": 618
+                }
+            ],
+            "creationHeight": 911578,
+            "additionalRegisters": {},
+            "transactionId": "85ac2719c24a5bae64ad1adbbbd1f8bb2334a8ca5b5dca147c9cc948aacf0364",
+            "index": 0
+        }"#;
+        let pool_box: ErgoBox = serde_json::from_str(POOL_JSON).unwrap();
+        let pool = <AsBox<Pool>>::try_from_box(pool_box).unwrap();
+        let deposit_box: ErgoBox = serde_json::from_str(deposit_json).unwrap();
+        let deposit = <AsBox<Deposit>>::try_from_box(deposit_box).unwrap();
+
+        let ec = ExecutionContext {
+            height: 908699,
+            mintable_token_id: pool.0.box_id().into(),
+            executor_prop: trivial_prop(),
+        };
+
+        let res = deposit.clone().try_run(pool, (), ec);
+
+        assert!(res.is_ok());
+    }
+
+    #[test]
     fn run_deposit_low_value() {
-        let pool_json = r#"{
+        let deposit_json = r#"{
+            "boxId": "1de5b570adf36f47473b9c682ee3885f3ddfa4387dba90d5dadcbc81516cde95",
+            "value": 180000,
+            "ergoTree": "19c8021104000e20c81ef1ac135bae12778705d13e2827fbaa6984e60a8ad8547c1d5b01c787b03304020e240008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0404040008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec040005fcffffffffffffffff0104000406040004080412040205020404d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1eded938cb27202730700017203ed93c27204720593860272067308b2db63087204730900edededed93e4c67207040e720593e4c67207050e72039386028cb27202730a00017208b2db63087207730b009386028cb27202730c00019c72087e730d05b2db63087207730e009386027206730fb2db63087207731000",
+            "assets": [
+                {
+                    "tokenId": "98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45",
+                    "amount": 490
+                }
+            ],
+            "creationHeight": 907418,
+            "additionalRegisters": {},
+            "transactionId": "5f2e32dcc40d668964d06283856cdcea50ef85a4c1241a4f0e7ee77f5f7967e1",
+            "index": 0
+        }"#;
+        let pool_box: ErgoBox = serde_json::from_str(POOL_JSON).unwrap();
+        let pool = <AsBox<Pool>>::try_from_box(pool_box).unwrap();
+        let deposit_box: ErgoBox = serde_json::from_str(deposit_json).unwrap();
+        let deposit = <AsBox<Deposit>>::try_from_box(deposit_box).unwrap();
+
+        let ec = ExecutionContext {
+            height: 908699,
+            mintable_token_id: pool.0.box_id().into(),
+            executor_prop: trivial_prop(),
+        };
+
+        let res = deposit.clone().try_run(pool, (), ec);
+
+        let msg = format!(
+            "{}",
+            LowValue {
+                expected: 540000,
+                provided: 180000
+            }
+        );
+        assert_eq!(res, Err(Fatal(msg, deposit)));
+    }
+
+    const POOL_JSON: &str = r#"{
             "boxId": "8b61199da78831529ca8611d97c6652028a58d934f35d9a890d1bc6e2290fde5",
             "value": 1250000,
             "ergoTree": "19e9041f04000402040204040404040604060408040804040402040004000402040204000400040a0500040204020500050004020402040605000500040205000500d81bd601b2a5730000d602db63087201d603db6308a7d604e4c6a70410d605e4c6a70505d606e4c6a70605d607b27202730100d608b27203730200d609b27202730300d60ab27203730400d60bb27202730500d60cb27203730600d60db27202730700d60eb27203730800d60f8c720a02d610998c720902720fd6118c720802d612b27204730900d6139a99a37212730ad614b27204730b00d6159d72137214d61695919e72137214730c9a7215730d7215d617b27204730e00d6187e721705d6199d72057218d61a998c720b028c720c02d61b998c720d028c720e02d1ededededed93b27202730f00b27203731000ededed93e4c672010410720493e4c672010505720593e4c6720106057206928cc77201018cc7a70193c27201c2a7ededed938c7207018c720801938c7209018c720a01938c720b018c720c01938c720d018c720e0193b172027311959172107312eded929a997205721172069c7e9995907216721772169a721773137314057219937210f0721a939c7210997218a273157e721605f0721b958f72107316ededec929a997205721172069c7e9995907216721772169a72177317731805721992a39a9a72129c72177214b2720473190093721af0721092721b959172167217731a9c721a997218a2731b7e721605d801d61ce4c672010704edededed90721c997216731c909972119c7e997217721c0572199a7219720693f0998c72070272117d9d9c7e7219067e721b067e720f0605937210731d93721a731e",
@@ -654,41 +723,4 @@ mod tests {
             "transactionId": "a5f19382c8c6f6b94895926b8e79ce3a32d42a6fb3650e2382343e3d1e2c9d4b",
             "index": 0
         }"#;
-        let deposit_json = r#"{
-            "boxId": "1de5b570adf36f47473b9c682ee3885f3ddfa4387dba90d5dadcbc81516cde95",
-            "value": 180000,
-            "ergoTree": "19c8021104000e20c81ef1ac135bae12778705d13e2827fbaa6984e60a8ad8547c1d5b01c787b03304020e240008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0404040008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec040005fcffffffffffffffff0104000406040004080412040205020404d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1eded938cb27202730700017203ed93c27204720593860272067308b2db63087204730900edededed93e4c67207040e720593e4c67207050e72039386028cb27202730a00017208b2db63087207730b009386028cb27202730c00019c72087e730d05b2db63087207730e009386027206730fb2db63087207731000",
-            "assets": [
-                {
-                    "tokenId": "98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45",
-                    "amount": 490
-                }
-            ],
-            "creationHeight": 907418,
-            "additionalRegisters": {},
-            "transactionId": "5f2e32dcc40d668964d06283856cdcea50ef85a4c1241a4f0e7ee77f5f7967e1",
-            "index": 0
-        }"#;
-        let pool_box: ErgoBox = serde_json::from_str(pool_json).unwrap();
-        let pool = <AsBox<Pool>>::try_from_box(pool_box).unwrap();
-        let deposit_box: ErgoBox = serde_json::from_str(deposit_json).unwrap();
-        let deposit = <AsBox<Deposit>>::try_from_box(deposit_box).unwrap();
-
-        let ec = ExecutionContext {
-            height: 908699,
-            mintable_token_id: pool.0.box_id().into(),
-            executor_prop: trivial_prop(),
-        };
-
-        let res = deposit.clone().try_run(pool, (), ec);
-
-        let msg = format!(
-            "{}",
-            LowValue {
-                expected: 3000000,
-                provided: 180000
-            }
-        );
-        assert_eq!(res, Err(Fatal(msg, deposit)));
-    }
 }

@@ -65,16 +65,13 @@ impl SigmaProver for Wallet {
             output_candidates,
         } = tx;
 
-        let mut unsigned_inputs = Vec::with_capacity(inputs.len());
-        for (eb, extension) in &inputs {
-            let addr = Address::recreate_from_ergo_tree(&eb.ergo_tree).unwrap();
-            if let Address::P2Pk(_) = addr {
-                unsigned_inputs.push(UnsignedInput {
-                    box_id: eb.box_id(),
-                    extension: extension.clone(),
-                });
-            }
-        }
+        let unsigned_inputs = inputs
+            .iter()
+            .map(|(bx, ext)| UnsignedInput {
+                box_id: bx.box_id(),
+                extension: ext.clone(),
+            })
+            .collect();
 
         let unsigned_tx = UnsignedTransaction::new_from_vec(
             unsigned_inputs,

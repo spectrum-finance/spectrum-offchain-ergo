@@ -36,6 +36,8 @@ pub fn empty_prover_result() -> ProverResult {
 )]
 pub struct NanoErg(u64);
 
+pub const MIN_SAFE_BOX_VALUE: NanoErg = NanoErg(180000);
+
 impl From<BoxValue> for NanoErg {
     fn from(v: BoxValue) -> Self {
         Self(*v.as_u64())
