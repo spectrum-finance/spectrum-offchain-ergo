@@ -69,6 +69,12 @@ impl From<PoolId> for PoolIdBytes {
 #[serde(into = "PoolStateIdBytes")]
 pub struct PoolStateId(BoxId);
 
+impl Display for PoolStateId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&Digest32::from(self.0), f)
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Into, Serialize, Deserialize)]
 pub struct PoolStateIdBytes([u8; 32]);
 

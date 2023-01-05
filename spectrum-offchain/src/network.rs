@@ -6,6 +6,7 @@ use isahc::Request;
 use serde::Deserialize;
 
 use ergo_chain_sync::client::node::ErgoNodeHttpClient;
+use ergo_chain_sync::client::types::with_path;
 
 #[derive(Debug, Display)]
 pub struct ClientError(String);
@@ -28,7 +29,7 @@ const GENESIS_HEIGHT: u32 = 0;
 #[async_trait]
 impl ErgoNetwork for ErgoNodeHttpClient {
     async fn submit_tx(&self, tx: Transaction) -> Result<(), ClientError> {
-        let req = Request::post(format!("{}/transactions", self.base_url))
+        let req = Request::post(with_path(&self.base_url, "/transactions"))
             .header("Content-Type", "application/json")
             .body(serde_json::to_vec(&tx).unwrap())
             .unwrap();
@@ -41,11 +42,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
     }
 
     async fn get_height(&self) -> u32 {
-        let resp = self
-            .client
-            .get_async(format!("{}/info", self.base_url))
-            .await
-            .ok();
+        let resp = self.client.get_async(with_path(&self.base_url, "/info")).await.ok();
         if let Some(mut resp) = resp {
             if resp.status().is_success() {
                 return resp

@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter};
+
 use derive_more::Display;
 use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
 use ergo_lib::ergotree_ir::chain::ergo_box::{
@@ -49,12 +51,26 @@ pub enum PoolOperationError {
     Temporal(TemporalError),
 }
 
-#[derive(Debug, Display)]
+#[derive(Debug)]
 pub enum PermanentError {
     LiqudityMismatch,
     ProgramExhausted,
     OrderPoisoned,
-    LowExFee,
+    LowValue { expected: u64, provided: u64 },
+}
+
+impl Display for PermanentError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PermanentError::LiqudityMismatch => f.write_str("LiqudityMismatch"),
+            PermanentError::ProgramExhausted => f.write_str("ProgramExhausted"),
+            PermanentError::OrderPoisoned => f.write_str("OrderPoisoned"),
+            PermanentError::LowValue { expected, provided } => f.write_str(&*format!(
+                "LowValue(expected: {}, provided: {})",
+                expected, provided
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Display)]
@@ -76,9 +92,26 @@ pub struct Pool {
     pub erg_value: NanoErg,
 }
 
+impl Display for Pool {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&*format!(
+            "Pool[id={}, state_id={}, start={}, end={}, step={}]",
+            self.pool_id,
+            self.state_id,
+            self.conf.program_start,
+            self.program_end(),
+            self.conf.epoch_len
+        ))
+    }
+}
+
 impl Pool {
     pub fn pool_nft(&self) -> TypedAssetAmount<PoolNft> {
         TypedAssetAmount::new(self.pool_id.into(), MAX_VALUE)
+    }
+
+    pub fn program_end(&self) -> u32 {
+        self.conf.program_start + self.conf.epoch_len * self.conf.epoch_num
     }
 
     /// Apply deposit operation to the pool.
@@ -116,10 +149,12 @@ impl Pool {
             redeemer_prop: deposit.redeemer_prop,
             erg_value: NanoErg::from(BoxValue::SAFE_USER_MIN),
         };
-        if deposit.erg_value
-            < bundle.erg_value + user_output.erg_value + NanoErg::from(BoxValue::SAFE_USER_MIN)
-        {
-            return Err(PoolOperationError::Permanent(PermanentError::LowExFee));
+        let min_value = bundle.erg_value + user_output.erg_value + NanoErg::from(BoxValue::SAFE_USER_MIN);
+        if deposit.erg_value < min_value {
+            return Err(PoolOperationError::Permanent(PermanentError::LowValue {
+                expected: min_value.into(),
+                provided: deposit.erg_value.into(),
+            }));
         }
         let executor_output = ExecutorOutput {
             executor_prop: ctx.executor_prop,
@@ -154,8 +189,12 @@ impl Pool {
             erg_value: NanoErg::from(BoxValue::SAFE_USER_MIN),
         };
         let erg_available = redeem.erg_value + bundle.erg_value;
-        if erg_available < user_output.erg_value + NanoErg::from(BoxValue::SAFE_USER_MIN) {
-            return Err(PoolOperationError::Permanent(PermanentError::LowExFee));
+        let min_value = user_output.erg_value + NanoErg::from(BoxValue::SAFE_USER_MIN);
+        if erg_available < min_value {
+            return Err(PoolOperationError::Permanent(PermanentError::LowValue {
+                expected: min_value.into(),
+                provided: erg_available.into(),
+            }));
         }
         let executor_output = ExecutorOutput {
             executor_prop: ctx.executor_prop,

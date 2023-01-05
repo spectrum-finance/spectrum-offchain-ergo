@@ -140,6 +140,7 @@ where
                     .collect::<Vec<_>>()
                     .await;
                 let ctx = self.make_context(pool.box_id()).await;
+                info!("Running against {} with {}", pool.1, ctx);
                 let run_result = match (ord.clone(), bundles.first().cloned()) {
                     (Order::Deposit(deposit), _) => deposit
                         .try_run(pool.clone(), (), ctx)

@@ -249,7 +249,7 @@ where
 /// Entity contexts:
 
 /// State `T` is predicted, but not confirmed to be included into blockchain or mempool yet.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Predicted<T>(pub T);
 
 impl<T> Predicted<T> {

@@ -3,11 +3,11 @@ use std::{
     str::FromStr,
 };
 
-use derive_more::Display;
+use derive_more::{Display, Into};
 use isahc::http::{uri::InvalidUri, Uri};
 use serde::Deserialize;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Into, Deserialize)]
 #[serde(try_from = "String")]
 pub struct Url(Uri);
 

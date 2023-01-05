@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,6 +19,7 @@ use crate::network::ErgoNetwork;
 use crate::transaction::{TransactionCandidate, UnsignedTransactionOps};
 
 /// Indicated the kind of failure on at attempt to execute an order offline.
+#[derive(Debug, PartialEq, Eq)]
 pub enum RunOrderError<TOrd> {
     /// Discard order in the case of fatal failure.
     Fatal(String, TOrd),
