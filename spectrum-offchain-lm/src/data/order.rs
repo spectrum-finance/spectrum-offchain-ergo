@@ -581,6 +581,7 @@ mod tests {
 
     use spectrum_offchain::event_sink::handlers::types::TryFromBox;
     use spectrum_offchain::executor::RunOrderError::Fatal;
+    use spectrum_offchain::transaction::UnsignedTransactionOps;
 
     use crate::data::context::ExecutionContext;
     use crate::data::order::{Deposit, Order};
@@ -588,6 +589,7 @@ mod tests {
     use crate::data::pool::Pool;
     use crate::data::AsBox;
     use crate::executor::RunOrder;
+    use crate::prover::{SigmaProver, Wallet, WalletSecret};
 
     fn trivial_prop() -> ErgoTree {
         ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap()
@@ -618,18 +620,18 @@ mod tests {
     #[test]
     fn run_deposit() {
         let deposit_json = r#"{
-            "boxId": "c1ba70f3de85175f0b35562a906feb0b9ea8783ec9256c7ef966560dd132487a",
-            "value": 720000,
-            "ergoTree": "19c8021104000e20c81ef1ac135bae12778705d13e2827fbaa6984e60a8ad8547c1d5b01c787b03304020e240008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0404040008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec040005fcffffffffffffffff010400040604000408040a040205020404d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1eded938cb27202730700017203ed93c27204720593860272067308b2db63087204730900edededed93e4c67207040e720593e4c67207050e72039386028cb27202730a00017208b2db63087207730b009386028cb27202730c00019c72087e730d05b2db63087207730e009386027206730fb2db63087207731000",
+            "boxId": "67c4fd536bb83a3902b3a539c44041ec219c1d451f77ad4327ceffa6903d6ad7",
+            "value": 860000,
+            "ergoTree": "19c8021104000e20c81ef1ac135bae12778705d13e2827fbaa6984e60a8ad8547c1d5b01c787b03304020e240008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0404040008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec040005fcffffffffffffffff0104000406040004080408040205020404d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1eded938cb27202730700017203ed93c27204720593860272067308b2db63087204730900edededed93e4c67207040e720593e4c67207050e72039386028cb27202730a00017208b2db63087207730b009386028cb27202730c00019c72087e730d05b2db63087207730e009386027206730fb2db63087207731000",
             "assets": [
                 {
                     "tokenId": "98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45",
-                    "amount": 618
+                    "amount": 569
                 }
             ],
-            "creationHeight": 911578,
+            "creationHeight": 912371,
             "additionalRegisters": {},
-            "transactionId": "85ac2719c24a5bae64ad1adbbbd1f8bb2334a8ca5b5dca147c9cc948aacf0364",
+            "transactionId": "a61ce43d05e0fc86a94ab768ce523c4182ebec7a2f29018cdd5536f680285b27",
             "index": 0
         }"#;
         let pool_box: ErgoBox = serde_json::from_str(POOL_JSON).unwrap();
@@ -638,7 +640,7 @@ mod tests {
         let deposit = <AsBox<Deposit>>::try_from_box(deposit_box).unwrap();
 
         let ec = ExecutionContext {
-            height: 908699,
+            height: 906756,
             mintable_token_id: pool.0.box_id().into(),
             executor_prop: trivial_prop(),
         };
@@ -646,6 +648,16 @@ mod tests {
         let res = deposit.clone().try_run(pool, (), ec);
 
         assert!(res.is_ok());
+
+        let prover = Wallet::trivial(Vec::new());
+
+        //println!("{}", serde_json::to_string(&res.unwrap().0.into_tx_without_proofs()).unwrap());
+
+        let signed_tx = prover.sign(res.unwrap().0);
+
+        println!("{:?}", signed_tx);
+
+        assert!(signed_tx.is_ok());
     }
 
     #[test]

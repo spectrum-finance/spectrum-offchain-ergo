@@ -21,7 +21,7 @@ use crate::data::funding::{DistributionFunding, DistributionFundingProto};
 use crate::data::order::{Deposit, Redeem};
 use crate::data::redeemer::{DepositOutput, RedeemOutput, RewardOutput};
 use crate::data::{PoolId, PoolStateId};
-use crate::ergo::{NanoErg, MAX_VALUE, MIN_SAFE_BOX_VALUE};
+use crate::ergo::{NanoErg, MIN_SAFE_BOX_VALUE, UNIT_VALUE};
 use crate::validators::pool_validator;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Serialize, Deserialize)]
@@ -106,7 +106,7 @@ impl Display for Pool {
 
 impl Pool {
     pub fn pool_nft(&self) -> TypedAssetAmount<PoolNft> {
-        TypedAssetAmount::new(self.pool_id.into(), MAX_VALUE)
+        TypedAssetAmount::new(self.pool_id.into(), UNIT_VALUE)
     }
 
     pub fn program_end(&self) -> u32 {
@@ -127,7 +127,7 @@ impl Pool {
         if !self.epoch_completed() {
             return Err(PoolOperationError::Temporal(TemporalError::LiquidityMoveBlocked));
         }
-        let release_vlq = deposit.lq.coerce::<VirtLq>();
+        let release_vlq = TypedAssetAmount::new(self.reserves_vlq.token_id, deposit.lq.amount);
         let release_tmp_amt = self.num_epochs_remain(ctx.height) as u64 * release_vlq.amount;
         let release_tmp = TypedAssetAmount::new(self.reserves_tmp.token_id, release_tmp_amt);
         let mut next_pool = self;

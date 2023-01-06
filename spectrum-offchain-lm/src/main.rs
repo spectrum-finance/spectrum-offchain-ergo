@@ -9,6 +9,7 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 
 use ergo_chain_sync::cache::chain_cache::InMemoryCache;
+use ergo_chain_sync::cache::rocksdb::ChainCacheRocksDB;
 use ergo_chain_sync::client::node::ErgoNodeHttpClient;
 use ergo_chain_sync::client::types::Url;
 use ergo_chain_sync::rocksdb::RocksConfig;
@@ -44,7 +45,7 @@ use crate::executor::OrderExecutor;
 use crate::funding::process::funding_update_stream;
 use crate::funding::FundingRepoRocksDB;
 use crate::program::rocksdb::ProgramRepoRocksDB;
-use crate::prover::{Wallet, WalletSecret};
+use crate::prover::{NoopProver, Wallet, WalletSecret};
 use crate::scheduler::process::distribution_stream;
 use crate::scheduler::ScheduleRepoRocksDB;
 use crate::streaming::boxed;
@@ -81,7 +82,9 @@ async fn main() {
         .unwrap();
 
     let node = ErgoNodeHttpClient::new(client, config.node_addr);
-    let cache = InMemoryCache::new();
+    let cache = ChainCacheRocksDB::new(RocksConfig {
+        db_path: config.chain_cache_db_path.into(),
+    });
     let chain_sync = ChainSync::init(config.chain_sync_starting_height, node.clone(), cache).await;
 
     let backlog_store = BacklogStoreRocksDB::new(RocksConfig {
@@ -105,7 +108,7 @@ async fn main() {
     let funding = Arc::new(Mutex::new(FundingRepoRocksDB::new(RocksConfig {
         db_path: config.funding_repo_db_path.into(),
     })));
-    let prover = Wallet::trivial(config.operator_funding_secrets);
+    let prover = NoopProver; //Wallet::trivial(config.operator_funding_secrets);
     let executor = OrderExecutor::new(
         node.clone(),
         Arc::clone(&backlog),
@@ -210,6 +213,7 @@ struct AppConfig<'a> {
     bundle_repo_db_path: &'a str,
     funding_repo_db_path: &'a str,
     schedule_repo_db_path: &'a str,
+    chain_cache_db_path: &'a str,
     operator_reward_addr: ExecutorWallet,
     operator_funding_addr: ExecutorWallet,
     operator_funding_secrets: Vec<WalletSecret>,

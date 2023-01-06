@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// Max amount of tokens allowed in Ergo.
 pub const MAX_VALUE: u64 = 0x7fffffffffffffff;
+pub const UNIT_VALUE: u64 = 1;
 
 pub fn empty_prover_result() -> ProverResult {
     ProverResult {
@@ -36,7 +37,7 @@ pub fn empty_prover_result() -> ProverResult {
 )]
 pub struct NanoErg(u64);
 
-pub const MIN_SAFE_BOX_VALUE: NanoErg = NanoErg(180000);
+pub const MIN_SAFE_BOX_VALUE: NanoErg = NanoErg(250000);
 
 impl From<BoxValue> for NanoErg {
     fn from(v: BoxValue) -> Self {
