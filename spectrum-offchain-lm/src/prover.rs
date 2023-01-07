@@ -1,9 +1,9 @@
+use derive_more::Into;
 use ergo_lib::chain::ergo_state_context::ErgoStateContext;
 use ergo_lib::chain::transaction::unsigned::UnsignedTransaction;
 use ergo_lib::chain::transaction::{Transaction, UnsignedInput};
 use ergo_lib::ergotree_interpreter::sigma_protocol::private_input::{DlogProverInput, PrivateInput};
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::Prover;
-use ergo_lib::ergotree_ir::chain::address::Address;
 use ergo_lib::wallet::signing::{sign_transaction, TransactionContext, TxSigningError};
 use serde::Deserialize;
 use sigma_test_util::force_any_val;
@@ -14,7 +14,7 @@ pub trait SigmaProver {
     fn sign(&self, tx: TransactionCandidate) -> Result<Transaction, TxSigningError>;
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Into)]
 #[serde(try_from = "String")]
 pub struct WalletSecret(DlogProverInput);
 

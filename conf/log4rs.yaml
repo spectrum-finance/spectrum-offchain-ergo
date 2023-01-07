@@ -22,6 +22,16 @@ loggers:
     appenders:
       - stdout
     additive: false
+  backlog:
+    level: trace
+    appenders:
+      - stdout
+    additive: false
+  scheduler:
+    level: trace
+    appenders:
+      - stdout
+    additive: false
   offchain_lm:
     level: trace
     appenders:

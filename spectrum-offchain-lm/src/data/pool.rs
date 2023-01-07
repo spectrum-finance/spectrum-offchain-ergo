@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 
+use clap::builder::Str;
 use derive_more::Display;
 use ergo_lib::ergotree_ir::chain::ergo_box::{
     BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters,
@@ -18,10 +19,11 @@ use crate::data::bundle::{StakingBundle, StakingBundleProto, BUNDLE_KEY_AMOUNT_U
 use crate::data::context::ExecutionContext;
 use crate::data::executor::ExecutorOutput;
 use crate::data::funding::{DistributionFunding, DistributionFundingProto};
+use crate::data::miner::MinerOutput;
 use crate::data::order::{Deposit, Redeem};
 use crate::data::redeemer::{DepositOutput, RedeemOutput, RewardOutput};
 use crate::data::{PoolId, PoolStateId};
-use crate::ergo::{NanoErg, MIN_SAFE_BOX_VALUE, UNIT_VALUE};
+use crate::ergo::{NanoErg, DEFAULT_MINER_FEE, MIN_SAFE_BOX_VALUE, UNIT_VALUE};
 use crate::validators::pool_validator;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Serialize, Deserialize)]
@@ -120,7 +122,16 @@ impl Pool {
         self,
         deposit: Deposit,
         ctx: ExecutionContext,
-    ) -> Result<(Pool, StakingBundleProto, DepositOutput, ExecutorOutput), PoolOperationError> {
+    ) -> Result<
+        (
+            Pool,
+            StakingBundleProto,
+            DepositOutput,
+            ExecutorOutput,
+            MinerOutput,
+        ),
+        PoolOperationError,
+    > {
         if self.num_epochs_remain(ctx.height) < 1 {
             return Err(PoolOperationError::Permanent(PermanentError::ProgramExhausted));
         }
@@ -155,11 +166,29 @@ impl Pool {
                 provided: deposit.erg_value.into(),
             }));
         }
-        let executor_output = ExecutorOutput {
-            executor_prop: ctx.executor_prop,
-            erg_value: deposit.erg_value - bundle.erg_value - user_output.erg_value,
+        let miner_output = MinerOutput {
+            erg_value: DEFAULT_MINER_FEE,
         };
-        Ok((next_pool, bundle, user_output, executor_output))
+        let remainder_erg = deposit
+            .erg_value
+            .safe_sub(bundle.erg_value)
+            .safe_sub(user_output.erg_value)
+            .safe_sub(miner_output.erg_value);
+        if remainder_erg >= MIN_SAFE_BOX_VALUE {
+            let executor_output = ExecutorOutput {
+                executor_prop: ctx.executor_prop,
+                erg_value: deposit.erg_value
+                    - bundle.erg_value
+                    - user_output.erg_value
+                    - miner_output.erg_value,
+            };
+            Ok((next_pool, bundle, user_output, executor_output, miner_output))
+        } else {
+            Err(PoolOperationError::Permanent(PermanentError::LowValue {
+                expected: MIN_SAFE_BOX_VALUE.into(),
+                provided: remainder_erg.into(),
+            }))
+        }
     }
 
     /// Apply redeem operation to the pool.
@@ -461,7 +490,7 @@ mod tests {
             mintable_token_id: TokenId::from(random_digest()),
             executor_prop: trivial_prop(),
         };
-        let (pool2, bundle, _output, rew) = pool.clone().apply_deposit(deposit.clone(), ctx).unwrap();
+        let (pool2, bundle, _output, rew, _) = pool.clone().apply_deposit(deposit.clone(), ctx).unwrap();
         assert_eq!(bundle.vlq, deposit.lq.coerce());
         assert_eq!(bundle.tmp.amount, pool.conf.epoch_num as u64 * deposit_lq.amount);
         assert_eq!(pool2.reserves_lq, deposit.lq);
@@ -488,7 +517,8 @@ mod tests {
             mintable_token_id: TokenId::from(random_digest()),
             executor_prop: trivial_prop(),
         };
-        let (pool2, bundle, output, rew) = pool.clone().apply_deposit(deposit.clone(), ctx.clone()).unwrap();
+        let (pool2, bundle, output, rew, _) =
+            pool.clone().apply_deposit(deposit.clone(), ctx.clone()).unwrap();
         let redeem = Redeem {
             order_id: OrderId::from(BoxId::from(random_digest())),
             pool_id: pool.pool_id,
@@ -543,7 +573,7 @@ mod tests {
             mintable_token_id: TokenId::from(random_digest()),
             executor_prop: trivial_prop(),
         };
-        let (pool_2, bundle_a, _output_a, rew) = pool
+        let (pool_2, bundle_a, _output_a, rew, _) = pool
             .clone()
             .apply_deposit(deposit_a.clone(), ctx_1.clone())
             .unwrap();

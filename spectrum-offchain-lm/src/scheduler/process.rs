@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use futures::{Stream, StreamExt};
+use log::info;
 use stream_throttle::{ThrottlePool, ThrottleRate, ThrottledStream};
 use tokio::sync::Mutex;
 
@@ -46,10 +47,17 @@ where
                 },
             ) = schedules.peek().await
             {
+                info!(target: "scheduler", "Checking schedule of pool [{}]", pool_id);
                 let height_now = network.get_height().await;
                 if height >= height_now {
+                    info!(target: "scheduler", "Processing epoch [{}] of pool [{}]", epoch_ix, pool_id);
                     let stakers = bundles.lock().await.select(pool_id, epoch_ix).await;
                     if stakers.is_empty() {
+                        info!(
+                            target: "scheduler",
+                            "No more stakers left in epoch [{}] of pool [{}]",
+                            epoch_ix, pool_id
+                        );
                         schedules.remove(tick).await;
                     } else {
                         let orders =

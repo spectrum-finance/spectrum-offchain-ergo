@@ -8,7 +8,6 @@ use isahc::{prelude::*, HttpClient};
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
-use ergo_chain_sync::cache::chain_cache::InMemoryCache;
 use ergo_chain_sync::cache::rocksdb::ChainCacheRocksDB;
 use ergo_chain_sync::client::node::ErgoNodeHttpClient;
 use ergo_chain_sync::client::types::Url;
@@ -16,7 +15,7 @@ use ergo_chain_sync::rocksdb::RocksConfig;
 use ergo_chain_sync::ChainSync;
 use spectrum_offchain::backlog::persistence::BacklogStoreRocksDB;
 use spectrum_offchain::backlog::process::backlog_stream;
-use spectrum_offchain::backlog::{BacklogConfig, BacklogService};
+use spectrum_offchain::backlog::{BacklogConfig, BacklogService, BacklogTracing};
 use spectrum_offchain::box_resolver::persistence::EntityRepoTracing;
 use spectrum_offchain::box_resolver::process::entity_tracking_stream;
 use spectrum_offchain::box_resolver::rocksdb::EntityRepoRocksDB;
@@ -90,10 +89,10 @@ async fn main() {
     let backlog_store = BacklogStoreRocksDB::new(RocksConfig {
         db_path: config.backlog_store_db_path.into(),
     });
-    let backlog = Arc::new(Mutex::new(BacklogService::new::<Order>(
+    let backlog = Arc::new(Mutex::new(BacklogTracing::wrap(BacklogService::new::<Order>(
         backlog_store,
         config.backlog_config.clone(),
-    )));
+    ))));
     let pools = Arc::new(Mutex::new(EntityRepoTracing::wrap(EntityRepoRocksDB::new(
         RocksConfig {
             db_path: config.entity_repo_db_path.into(),

@@ -1,3 +1,4 @@
+use std::ops::Sub;
 use derive_more::{Add, Display, Div, From, Into, Mul, Sub, Sum};
 use ergo_lib::chain::transaction::prover_result::ProverResult;
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::{ContextExtension, ProofBytes};
@@ -37,7 +38,14 @@ pub fn empty_prover_result() -> ProverResult {
 )]
 pub struct NanoErg(u64);
 
-pub const MIN_SAFE_BOX_VALUE: NanoErg = NanoErg(250000);
+impl NanoErg {
+    pub fn safe_sub(self, n: NanoErg) -> Self {
+        Self(self.0.saturating_sub(n.0))
+    }
+}
+
+pub const MIN_SAFE_BOX_VALUE: NanoErg = NanoErg(250_000);
+pub const DEFAULT_MINER_FEE: NanoErg = NanoErg(1_000_000);
 
 impl From<BoxValue> for NanoErg {
     fn from(v: BoxValue) -> Self {

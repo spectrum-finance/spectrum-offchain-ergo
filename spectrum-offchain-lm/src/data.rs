@@ -25,6 +25,7 @@ pub mod funding;
 pub mod order;
 pub mod pool;
 pub mod redeemer;
+pub mod miner;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Serialize, Deserialize)]
 pub struct FundingId(BoxId);

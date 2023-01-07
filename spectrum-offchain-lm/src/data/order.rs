@@ -3,8 +3,8 @@ use std::hash::{Hash, Hasher};
 use ergo_lib::chain::transaction::TxIoVec;
 use ergo_lib::ergo_chain_types::{blake2b256_hash, Digest32};
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
-use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
 use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
+use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
 use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
@@ -16,19 +16,19 @@ use serde::{Deserialize, Serialize};
 use type_equalities::IsEqual;
 
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
-use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::{Has, OnChainOrder};
+use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::domain::TypedAssetAmount;
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::transaction::{TransactionCandidate, UnsignedTransactionOps};
 
+use crate::data::{AsBox, BundleId, BundleStateId, FundingId, OrderId, PoolId};
 use crate::data::assets::{BundleKey, Lq};
 use crate::data::bundle::StakingBundle;
 use crate::data::context::ExecutionContext;
 use crate::data::funding::DistributionFunding;
 use crate::data::pool::{Pool, PoolOperationError};
-use crate::data::{AsBox, BundleId, BundleStateId, FundingId, OrderId, PoolId};
 use crate::ergo::NanoErg;
 use crate::executor::{ConsumeExtra, ProduceExtra, RunOrder};
 use crate::validators::{deposit_validator_temp, redeem_validator_temp};
@@ -267,7 +267,7 @@ impl RunOrder for AsBox<Deposit> {
     > {
         let AsBox(self_in, self_order) = self.clone();
         match pool.apply_deposit(self_order, ctx.clone()) {
-            Ok((next_pool, bundle_proto, user_out, executor_out)) => {
+            Ok((next_pool, bundle_proto, user_out, executor_out, miner_out)) => {
                 let inputs = TxIoVec::from_vec(
                     vec![pool_in, self_in]
                         .into_iter()
@@ -280,6 +280,7 @@ impl RunOrder for AsBox<Deposit> {
                     user_out.into_candidate(ctx.height),
                     bundle_proto.clone().into_candidate(ctx.height),
                     executor_out.into_candidate(ctx.height),
+                    miner_out.into_candidate(ctx.height),
                 ])
                 .unwrap();
                 let tx = TransactionCandidate::new(inputs, None, outputs);
@@ -581,13 +582,12 @@ mod tests {
 
     use spectrum_offchain::event_sink::handlers::types::TryFromBox;
     use spectrum_offchain::executor::RunOrderError::Fatal;
-    use spectrum_offchain::transaction::UnsignedTransactionOps;
 
+    use crate::data::AsBox;
     use crate::data::context::ExecutionContext;
     use crate::data::order::{Deposit, Order};
     use crate::data::pool::PermanentError::LowValue;
     use crate::data::pool::Pool;
-    use crate::data::AsBox;
     use crate::executor::RunOrder;
     use crate::prover::{SigmaProver, Wallet, WalletSecret};
 
@@ -654,8 +654,6 @@ mod tests {
         //println!("{}", serde_json::to_string(&res.unwrap().0.into_tx_without_proofs()).unwrap());
 
         let signed_tx = prover.sign(res.unwrap().0);
-
-        println!("{:?}", signed_tx);
 
         assert!(signed_tx.is_ok());
     }

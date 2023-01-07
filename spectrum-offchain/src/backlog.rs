@@ -1,9 +1,11 @@
 use std::collections::VecDeque;
+use std::fmt::Debug;
 use std::hash::Hash;
 
 use async_trait::async_trait;
 use bounded_integer::BoundedU8;
 use chrono::{Duration, Utc};
+use log::trace;
 use priority_queue::PriorityQueue;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -27,20 +29,114 @@ where
     TOrd: OnChainOrder,
 {
     /// Add new pending order to backlog.
-    async fn put(&mut self, ord: PendingOrder<TOrd>);
+    async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
+    where
+        TOrd: 'a;
     /// Suspend order that temporarily failed.
     /// Potentially retry later.
-    async fn suspend(&mut self, ord: TOrd) -> bool;
+    async fn suspend<'a>(&mut self, ord: TOrd) -> bool
+    where
+        TOrd: 'a;
     /// Register successfull order to check if it settled later.
-    async fn check_later(&mut self, ord: ProgressingOrder<TOrd>) -> bool;
+    async fn check_later<'a>(&mut self, ord: ProgressingOrder<TOrd>) -> bool
+    where
+        TOrd: 'a;
     /// Pop best order.
     async fn try_pop(&mut self) -> Option<TOrd>;
     /// Check if order with the given id exists already in backlog.
-    async fn exists(&self, ord_id: TOrd::TOrderId) -> bool;
+    async fn exists<'a>(&self, ord_id: TOrd::TOrderId) -> bool
+    where
+        TOrd::TOrderId: 'a;
     /// Remove order from backlog.
-    async fn remove(&mut self, ord_id: TOrd::TOrderId);
+    async fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
+    where
+        TOrd::TOrderId: 'a;
     /// Return order back to backlog.
-    async fn recharge(&mut self, ord: TOrd);
+    async fn recharge<'a>(&mut self, ord: TOrd)
+    where
+        TOrd: 'a;
+}
+
+pub struct BacklogTracing<B> {
+    inner: B,
+}
+
+impl<B> BacklogTracing<B> {
+    pub fn wrap(backlog: B) -> Self {
+        Self { inner: backlog }
+    }
+}
+
+#[async_trait(?Send)]
+impl<TOrd, B> Backlog<TOrd> for BacklogTracing<B>
+where
+    TOrd: OnChainOrder + Debug + Clone,
+    TOrd::TOrderId: Debug + Clone,
+    B: Backlog<TOrd>,
+{
+    async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
+    where
+        TOrd: 'a,
+    {
+        trace!(target: "backlog", "put({:?})", ord);
+        self.inner.put(ord.clone()).await;
+        trace!(target: "backlog", "put({:?}) -> ()", ord);
+    }
+
+    async fn suspend<'a>(&mut self, ord: TOrd) -> bool
+    where
+        TOrd: 'a,
+    {
+        trace!(target: "backlog", "suspend({:?})", ord);
+        let res = self.inner.suspend(ord.clone()).await;
+        trace!(target: "backlog", "suspend({:?}) -> {:?}", ord, res);
+        res
+    }
+
+    async fn check_later<'a>(&mut self, ord: ProgressingOrder<TOrd>) -> bool
+    where
+        TOrd: 'a,
+    {
+        trace!(target: "backlog", "check_later({:?})", ord);
+        let res = self.inner.check_later(ord.clone()).await;
+        trace!(target: "backlog", "check_later({:?}) -> {:?}", ord, res);
+        res
+    }
+
+    async fn try_pop(&mut self) -> Option<TOrd> {
+        trace!(target: "backlog", "try_pop()");
+        let res = self.inner.try_pop().await;
+        trace!(target: "backlog", "try_pop() -> {:?}", res);
+        res
+    }
+
+    async fn exists<'a>(&self, ord_id: TOrd::TOrderId) -> bool
+    where
+        TOrd::TOrderId: 'a,
+    {
+        trace!(target: "backlog", "exists({:?})", ord_id);
+        let res = self.inner.exists(ord_id.clone()).await;
+        trace!(target: "backlog", "exists({:?}) -> {:?}", ord_id, res);
+        res
+    }
+
+    async fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
+    where
+        TOrd::TOrderId: 'a,
+    {
+        trace!(target: "backlog", "remove({:?})", ord_id);
+        self.inner.remove(ord_id.clone()).await;
+        trace!(target: "backlog", "remove({:?}) -> ()", ord_id);
+    }
+
+    async fn recharge<'a>(&mut self, ord: TOrd)
+    where
+        TOrd: 'a,
+    {
+        trace!(target: "backlog", "recharge({:?})", ord);
+        self.inner.recharge(ord.clone()).await;
+        trace!(target: "backlog", "recharge({:?}) -> ()", ord);
+    }
 }
 
 #[serde_with::serde_as]
@@ -185,7 +281,10 @@ where
     TStore: BacklogStore<TOrd>,
     TOrd: OnChainOrder + Weighted + Hash + Eq + Clone,
 {
-    async fn put(&mut self, ord: PendingOrder<TOrd>) {
+    async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
+    where
+        TOrd: 'a,
+    {
         self.store
             .put(BacklogOrder {
                 order: ord.order.clone(),
@@ -196,7 +295,10 @@ where
         self.pending_pq.push(ord.into(), wt);
     }
 
-    async fn suspend(&mut self, ord: TOrd) -> bool {
+    async fn suspend<'a>(&mut self, ord: TOrd) -> bool
+    where
+        TOrd: 'a,
+    {
         if self.store.exists(ord.get_self_ref()).await {
             let wt = ord.weight();
             if let Some(backlog_ord) = self.store.get(ord.get_self_ref()).await {
@@ -213,7 +315,10 @@ where
         false
     }
 
-    async fn check_later(&mut self, ord: ProgressingOrder<TOrd>) -> bool {
+    async fn check_later<'a>(&mut self, ord: ProgressingOrder<TOrd>) -> bool
+    where
+        TOrd: 'a,
+    {
         if self.store.exists(ord.order.get_self_ref()).await {
             self.revisit_queue.push_back(ord.into());
             return true;
@@ -231,15 +336,24 @@ where
         }
     }
 
-    async fn exists(&self, ord_id: TOrd::TOrderId) -> bool {
+    async fn exists<'a>(&self, ord_id: TOrd::TOrderId) -> bool
+    where
+        TOrd::TOrderId: 'a,
+    {
         self.store.exists(ord_id).await
     }
 
-    async fn remove(&mut self, ord_id: TOrd::TOrderId) {
+    async fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
+    where
+        TOrd::TOrderId: 'a,
+    {
         self.store.drop(ord_id).await;
     }
 
-    async fn recharge(&mut self, ord: TOrd) {
+    async fn recharge<'a>(&mut self, ord: TOrd)
+    where
+        TOrd: 'a,
+    {
         let wt = ord.weight();
         if let Some(backlog_ord) = self.store.get(ord.get_self_ref()).await {
             self.pending_pq.push(

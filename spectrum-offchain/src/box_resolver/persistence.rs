@@ -370,15 +370,19 @@ pub(crate) mod tests {
                 prev_state_id: box_ids.get(i - 1).cloned(),
             };
             client.put_predicted(entity.clone()).await;
-            client.put_unconfirmed(Unconfirmed(ee)).await;
+            client.put_unconfirmed(Unconfirmed(ee.clone())).await;
+            client.put_confirmed(Confirmed(ee)).await;
 
             // Invalidate
             <C as EntityRepo<ErgoEntity>>::invalidate(&mut client, box_ids[i]).await;
             let predicted: Option<Predicted<ErgoEntity>> = client.get_last_predicted(token_ids[i]).await;
             let unconfirmed: Option<Unconfirmed<ErgoEntity>> =
                 client.get_last_unconfirmed(token_ids[i]).await;
+            let confirmed: Option<Confirmed<ErgoEntity>> =
+                client.get_last_confirmed(token_ids[i]).await;
             assert!(predicted.is_none());
             assert!(unconfirmed.is_none());
+            assert!(confirmed.is_none());
         }
     }
 
