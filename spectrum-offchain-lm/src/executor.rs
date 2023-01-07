@@ -180,10 +180,11 @@ where
                 };
                 match run_result {
                     Ok((tx, next_pool, next_bundles, residual_funding)) => {
-                        trace!(target: "offchain_lm", "Order [{:?}] successfully evaluated", ord.get_self_ref());
-                        trace!(target: "offchain_lm", "Transaction candidate for order [{:?}] is [{:?}]", ord.get_self_ref(), tx);
+                        trace!(target: "offchain_lm", "Order [{}] successfully evaluated", ord.get_self_ref());
+                        trace!(target: "offchain_lm", "Transaction candidate for order [{}] is [{:?}]", ord.get_self_ref(), tx);
                         match self.prover.sign(tx) {
                             Ok(tx) => {
+                                trace!(target: "offchain_lm", "Transaction ID for order [{}] is [{}]", ord.get_self_ref(), tx.id());
                                 if let Err(client_err) = self.network.submit_tx(tx).await {
                                     // Note, here `submit_tx(tx)` can fail not only bc pool state is consumed,
                                     // but also bc bundle is consumed, what is less possible though. That's why

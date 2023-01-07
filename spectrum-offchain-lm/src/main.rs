@@ -107,7 +107,7 @@ async fn main() {
     let funding = Arc::new(Mutex::new(FundingRepoRocksDB::new(RocksConfig {
         db_path: config.funding_repo_db_path.into(),
     })));
-    let prover = NoopProver; //Wallet::trivial(config.operator_funding_secrets);
+    let prover = Wallet::trivial(config.operator_funding_secrets);
     let executor = OrderExecutor::new(
         node.clone(),
         Arc::clone(&backlog),

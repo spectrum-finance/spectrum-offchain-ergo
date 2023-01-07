@@ -22,16 +22,22 @@ pub mod bundle;
 pub mod context;
 pub mod executor;
 pub mod funding;
+pub mod miner;
 pub mod order;
 pub mod pool;
 pub mod redeemer;
-pub mod miner;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Serialize, Deserialize)]
 pub struct FundingId(BoxId);
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Serialize, Deserialize)]
 pub struct OrderId(Digest32);
+
+impl Display for OrderId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&Digest32::from(self.0), f)
+    }
+}
 
 impl From<BoxId> for OrderId {
     fn from(bx_id: BoxId) -> Self {
