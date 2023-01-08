@@ -34,9 +34,9 @@ where
                 for o in &tx.outputs {
                     if let Some(pool) = Pool::try_from_box(o.clone()) {
                         let repo = self.programs.lock().await;
-                        if !repo.exists(pool.get_self_ref()).await {
+                        if !repo.exists(pool.pool_id).await {
                             is_success = true;
-                            repo.put(pool.get_self_ref(), pool.conf).await;
+                            repo.put(pool.pool_id, pool.conf).await;
                         }
                     }
                 }

@@ -1,6 +1,5 @@
 use std::fmt::{Display, Formatter};
 
-use clap::builder::Str;
 use derive_more::Display;
 use ergo_lib::ergotree_ir::chain::ergo_box::{
     BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters,
@@ -22,7 +21,7 @@ use crate::data::funding::{DistributionFunding, DistributionFundingProto};
 use crate::data::miner::MinerOutput;
 use crate::data::order::{Deposit, Redeem};
 use crate::data::redeemer::{DepositOutput, RedeemOutput, RewardOutput};
-use crate::data::{PoolId, PoolStateId};
+use crate::data::{AsBox, PoolId, PoolStateId};
 use crate::ergo::{NanoErg, DEFAULT_MINER_FEE, MIN_SAFE_BOX_VALUE, UNIT_VALUE};
 use crate::validators::pool_validator;
 
@@ -82,7 +81,6 @@ pub enum TemporalError {
 #[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Pool {
     pub pool_id: PoolId,
-    pub state_id: PoolStateId,
     pub budget_rem: TypedAssetAmount<Reward>,
     pub reserves_lq: TypedAssetAmount<Lq>,
     pub reserves_vlq: TypedAssetAmount<VirtLq>,
@@ -96,12 +94,24 @@ pub struct Pool {
 impl Display for Pool {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&*format!(
-            "Pool[id={}, state_id={}, start={}, end={}, step={}]",
+            "Pool[id={}, start={}, end={}, step={}]",
             self.pool_id,
-            self.state_id,
             self.conf.program_start,
             self.program_end(),
             self.conf.epoch_len
+        ))
+    }
+}
+
+impl Display for AsBox<Pool> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&*format!(
+            "Pool[id={}, state_id={}, start={}, end={}, step={}]",
+            self.1.pool_id,
+            PoolStateId::from(self.0.box_id()),
+            self.1.conf.program_start,
+            self.1.program_end(),
+            self.1.conf.epoch_len
         ))
     }
 }
@@ -138,8 +148,12 @@ impl Pool {
         if !self.epoch_completed() {
             return Err(PoolOperationError::Temporal(TemporalError::LiquidityMoveBlocked));
         }
+        let epochs_remain = self.num_epochs_remain(ctx.height);
+        if epochs_remain != deposit.expected_num_epochs {
+            return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned));
+        }
         let release_vlq = TypedAssetAmount::new(self.reserves_vlq.token_id, deposit.lq.amount);
-        let release_tmp_amt = self.num_epochs_remain(ctx.height) as u64 * release_vlq.amount;
+        let release_tmp_amt = epochs_remain as u64 * release_vlq.amount;
         let release_tmp = TypedAssetAmount::new(self.reserves_tmp.token_id, release_tmp_amt);
         let mut next_pool = self;
         next_pool.reserves_lq = next_pool.reserves_lq + deposit.lq;
@@ -322,16 +336,16 @@ impl Pool {
     }
 }
 
-impl OnChainEntity for Pool {
+impl OnChainEntity for AsBox<Pool> {
     type TEntityId = PoolId;
     type TStateId = PoolStateId;
 
     fn get_self_ref(&self) -> Self::TEntityId {
-        self.pool_id
+        self.1.pool_id
     }
 
     fn get_self_state_ref(&self) -> Self::TStateId {
-        self.state_id
+        self.0.box_id().into()
     }
 }
 
@@ -363,7 +377,6 @@ impl TryFromBox for Pool {
                 };
                 return Some(Pool {
                     pool_id: PoolId::from(pool_nft),
-                    state_id: PoolStateId::from(bx.box_id()),
                     budget_rem: TypedAssetAmount::new(budget_rem.token_id, *budget_rem.amount.as_u64()),
                     reserves_lq: TypedAssetAmount::new(lq.token_id, *lq.amount.as_u64()),
                     reserves_vlq: TypedAssetAmount::new(vlq.token_id, *vlq.amount.as_u64()),
@@ -434,13 +447,12 @@ mod tests {
     use crate::data::funding::DistributionFunding;
     use crate::data::order::{Deposit, Redeem};
     use crate::data::pool::{Pool, ProgramConfig};
-    use crate::data::{BundleStateId, FundingId, OrderId, PoolId, PoolStateId};
+    use crate::data::{BundleStateId, FundingId, OrderId, PoolId};
     use crate::ergo::{NanoErg, MAX_VALUE};
 
     fn make_pool(epoch_len: u32, epoch_num: u32, program_start: u32, program_budget: u64) -> Pool {
         Pool {
             pool_id: PoolId::from(TokenId::from(random_digest())),
-            state_id: PoolStateId::from(BoxId::from(random_digest())),
             budget_rem: TypedAssetAmount::new(TokenId::from(random_digest()), program_budget),
             reserves_lq: TypedAssetAmount::new(TokenId::from(random_digest()), 0),
             reserves_vlq: TypedAssetAmount::new(TokenId::from(random_digest()), MAX_VALUE),
@@ -577,7 +589,7 @@ mod tests {
             .clone()
             .apply_deposit(deposit_a.clone(), ctx_1.clone())
             .unwrap();
-        let (pool_3, bundle_b, _output_b, rew) =
+        let (pool_3, bundle_b, _output_b, rew, _) =
             pool_2.clone().apply_deposit(deposit_b.clone(), ctx_1).unwrap();
         let funding = nonempty![DistributionFunding {
             id: FundingId::from(BoxId::from(random_digest())),

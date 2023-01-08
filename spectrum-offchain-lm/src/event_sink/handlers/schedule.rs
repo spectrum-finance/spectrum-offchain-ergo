@@ -35,7 +35,7 @@ where
                 for o in &tx.outputs {
                     if let Some(pool) = Pool::try_from_box(o.clone()) {
                         let mut repo = self.schedules.lock().await;
-                        if !repo.exists(pool.get_self_ref()).await {
+                        if !repo.exists(pool.pool_id).await {
                             is_success = true;
                             repo.put_schedule(PoolSchedule::from(pool)).await;
                         }

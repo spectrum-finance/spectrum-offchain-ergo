@@ -44,7 +44,7 @@ use crate::executor::OrderExecutor;
 use crate::funding::process::funding_update_stream;
 use crate::funding::FundingRepoRocksDB;
 use crate::program::rocksdb::ProgramRepoRocksDB;
-use crate::prover::{NoopProver, Wallet, WalletSecret};
+use crate::prover::{Wallet, WalletSecret};
 use crate::scheduler::process::distribution_stream;
 use crate::scheduler::ScheduleRepoRocksDB;
 use crate::streaming::boxed;

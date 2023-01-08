@@ -322,7 +322,7 @@ impl TryFromBox for Deposit {
                 .ok()?;
                 let expected_num_epochs = bx
                     .ergo_tree
-                    .get_constant(13)
+                    .get_constant(14)
                     .ok()??
                     .v
                     .try_extract_into::<i32>()

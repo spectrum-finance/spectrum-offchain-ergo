@@ -1,10 +1,16 @@
+use std::rc::Rc;
+
 use derive_more::Into;
 use ergo_lib::chain::ergo_state_context::ErgoStateContext;
+use ergo_lib::chain::transaction::prover_result::ProverResult;
 use ergo_lib::chain::transaction::unsigned::UnsignedTransaction;
-use ergo_lib::chain::transaction::{Transaction, UnsignedInput};
+use ergo_lib::chain::transaction::{Input, Transaction, UnsignedInput};
+use ergo_lib::ergotree_interpreter::eval::env::Env;
 use ergo_lib::ergotree_interpreter::sigma_protocol::private_input::{DlogProverInput, PrivateInput};
-use ergo_lib::ergotree_interpreter::sigma_protocol::prover::Prover;
-use ergo_lib::wallet::signing::{sign_transaction, TransactionContext, TxSigningError};
+use ergo_lib::ergotree_interpreter::sigma_protocol::prover::hint::HintsBag;
+use ergo_lib::ergotree_interpreter::sigma_protocol::prover::{ProofBytes, Prover};
+use ergo_lib::ergotree_ir::chain::address::Address;
+use ergo_lib::wallet::signing::{make_context, sign_transaction, TransactionContext, TxSigningError};
 use serde::Deserialize;
 use sigma_test_util::force_any_val;
 
@@ -87,7 +93,40 @@ impl SigmaProver for Wallet {
             inputs.into_iter().map(|(b, _)| b).collect(),
             data_inputs.map(|d| d.to_vec()).unwrap_or_else(Vec::new),
         )?;
-        sign_transaction(self, tx_context, &self.ergo_state_context, None)
+        let tx = tx_context.spending_tx.clone();
+        let message_to_sign = tx.bytes_to_sign()?;
+        let signed_inputs = tx.inputs.enumerated().try_mapped(|(idx, input)| {
+            let input_box = tx_context
+                .get_input_box(&input.box_id)
+                .ok_or(TxSigningError::InputBoxNotFound(idx))?;
+            let addr = Address::recreate_from_ergo_tree(&input_box.ergo_tree).unwrap();
+            if let Address::P2Pk(_) = addr {
+                let ctx = Rc::new(make_context(&self.ergo_state_context, &tx_context, idx)?);
+                let hints_bag = HintsBag::empty();
+                self.prove(
+                    &input_box.ergo_tree,
+                    &Env::empty(),
+                    ctx,
+                    message_to_sign.as_slice(),
+                    &hints_bag,
+                )
+                .map(|proof| Input::new(input.box_id, proof.into()))
+                .map_err(|e| TxSigningError::ProverError(e, idx))
+            } else {
+                Ok(Input::new(
+                    input_box.box_id(),
+                    ProverResult {
+                        proof: ProofBytes::Empty,
+                        extension: input.extension.clone(),
+                    },
+                ))
+            }
+        })?;
+        Ok(Transaction::new(
+            signed_inputs,
+            tx.data_inputs,
+            tx.output_candidates,
+        )?)
     }
 }
 
