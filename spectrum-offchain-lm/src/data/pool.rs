@@ -55,7 +55,7 @@ pub enum PoolOperationError {
 pub enum PermanentError {
     LiqudityMismatch,
     ProgramExhausted,
-    OrderPoisoned,
+    OrderPoisoned(String),
     LowValue { expected: u64, provided: u64 },
 }
 
@@ -64,7 +64,7 @@ impl Display for PermanentError {
         match self {
             PermanentError::LiqudityMismatch => f.write_str("LiqudityMismatch"),
             PermanentError::ProgramExhausted => f.write_str("ProgramExhausted"),
-            PermanentError::OrderPoisoned => f.write_str("OrderPoisoned"),
+            PermanentError::OrderPoisoned(detail) => f.write_str(&*format!("OrderPoisoned: {}", detail)),
             PermanentError::LowValue { expected, provided } => f.write_str(&*format!(
                 "LowValue(expected: {}, provided: {})",
                 expected, provided
@@ -150,7 +150,12 @@ impl Pool {
         }
         let epochs_remain = self.num_epochs_remain(ctx.height);
         if epochs_remain != deposit.expected_num_epochs {
-            return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned));
+            return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned(
+                format!(
+                    "Expected epochs [{}], remain epochs [{}]",
+                    deposit.expected_num_epochs, epochs_remain
+                ),
+            )));
         }
         let release_vlq = TypedAssetAmount::new(self.reserves_vlq.token_id, deposit.lq.amount);
         let release_tmp_amt = epochs_remain as u64 * release_vlq.amount;
@@ -275,7 +280,7 @@ impl Pool {
         for mut bundle in &mut next_bundles {
             let epochs_burned = (bundle.tmp.amount / bundle.vlq.amount).saturating_sub(epochs_remain as u64);
             if epochs_burned < 1 {
-                return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned));
+                return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned(format!("Already compounded"))));
             }
             let reward_amt =
                 (next_pool.epoch_alloc() as u128 * bundle.vlq.amount as u128 * epochs_burned as u128
