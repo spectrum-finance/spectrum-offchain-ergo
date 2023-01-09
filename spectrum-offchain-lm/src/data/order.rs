@@ -3,8 +3,8 @@ use std::hash::{Hash, Hasher};
 use ergo_lib::chain::transaction::TxIoVec;
 use ergo_lib::ergo_chain_types::{blake2b256_hash, Digest32};
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
-use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
+use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
@@ -16,19 +16,19 @@ use serde::{Deserialize, Serialize};
 use type_equalities::IsEqual;
 
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
-use spectrum_offchain::data::{Has, OnChainOrder};
 use spectrum_offchain::data::unique_entity::Predicted;
+use spectrum_offchain::data::{Has, OnChainOrder};
 use spectrum_offchain::domain::TypedAssetAmount;
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::transaction::{TransactionCandidate, UnsignedTransactionOps};
 
-use crate::data::{AsBox, BundleId, BundleStateId, FundingId, OrderId, PoolId};
 use crate::data::assets::{BundleKey, Lq};
 use crate::data::bundle::StakingBundle;
 use crate::data::context::ExecutionContext;
 use crate::data::funding::DistributionFunding;
 use crate::data::pool::{Pool, PoolOperationError};
+use crate::data::{AsBox, BundleId, BundleStateId, FundingId, OrderId, PoolId};
 use crate::ergo::NanoErg;
 use crate::executor::{ConsumeExtra, ProduceExtra, RunOrder};
 use crate::validators::{deposit_validator_temp, redeem_validator_temp};
@@ -300,7 +300,8 @@ impl RunOrder for AsBox<Deposit> {
 impl TryFromBox for Deposit {
     fn try_from_box(bx: ErgoBox) -> Option<Deposit> {
         if let Some(ref tokens) = bx.tokens {
-            if bx.ergo_tree.template_bytes().ok()? == deposit_validator_temp() && tokens.len() == 1 {
+            let byes_ok = bx.ergo_tree.template_bytes().ok()? == deposit_validator_temp();
+            if byes_ok && tokens.len() == 1 {
                 let order_id = OrderId::from(bx.box_id());
                 let pool_id = Digest32::try_from(
                     bx.ergo_tree
@@ -322,10 +323,10 @@ impl TryFromBox for Deposit {
                 .ok()?;
                 let expected_num_epochs = bx
                     .ergo_tree
-                    .get_constant(14)
+                    .get_constant(13) // todo: sync with latest state of contract
                     .ok()??
                     .v
-                    .try_extract_into::<i32>()
+                    .try_extract_into::<i64>() // todo: sync with latest state of contract
                     .ok()?;
                 let lq = TypedAssetAmount::<Lq>::from_token(tokens.get(0)?.clone());
                 return Some(Deposit {
@@ -575,21 +576,30 @@ impl Weighted for Order {
 
 #[cfg(test)]
 mod tests {
-    use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
+    use ergo_lib::chain::ergo_box::box_builder::ErgoBoxCandidateBuilder;
+    use ergo_lib::chain::transaction::TxId;
+    use ergo_lib::ergo_chain_types::Digest32;
+    use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
+    use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId};
+    use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount, TokenId};
     use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
     use ergo_lib::ergotree_ir::mir::constant::Constant;
     use ergo_lib::ergotree_ir::mir::expr::Expr;
 
+    use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
+    use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::ProveDlog;
+    use sigma_test_util::force_any_val;
     use spectrum_offchain::event_sink::handlers::types::TryFromBox;
     use spectrum_offchain::executor::RunOrderError::Fatal;
 
-    use crate::data::AsBox;
     use crate::data::context::ExecutionContext;
     use crate::data::order::{Deposit, Order};
     use crate::data::pool::PermanentError::LowValue;
     use crate::data::pool::Pool;
+    use crate::data::AsBox;
     use crate::executor::RunOrder;
     use crate::prover::{SigmaProver, Wallet, WalletSecret};
+    use crate::validators::redeem_validator_temp;
 
     fn trivial_prop() -> ErgoTree {
         ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap()
@@ -597,47 +607,52 @@ mod tests {
 
     #[test]
     fn parse_order() {
-        let sample_json = r#"{
-            "boxId": "df9f57d34ddcfe4f7609d86ca7be10124f37044e1bd5679522141bb59347625d",
-            "value": 180000,
-            "ergoTree": "19c8021104000e206e61f1352cebd8e2cd05883b2c53939f6f41cc6b7e17f90ccf8c61e72caacd6404020e240008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0404040008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec040005fcffffffffffffffff010400040604000408040a040205020404d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1eded938cb27202730700017203ed93c27204720593860272067308b2db63087204730900edededed93e4c67207040e720593e4c67207050e72039386028cb27202730a00017208b2db63087207730b009386028cb27202730c00019c72087e730d05b2db63087207730e009386027206730fb2db63087207731000",
-            "assets": [
-                {
-                    "tokenId": "98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45",
-                    "amount": 545
-                }
-            ],
-            "creationHeight": 906102,
-            "additionalRegisters": {},
-            "transactionId": "c6a071533d89dee3e1b6ced5e24a4adc5e0751bb815c04e8a44b9aa78067fd83",
-            "index": 0
-        }"#;
-        let bx: ErgoBox = serde_json::from_str(sample_json).unwrap();
-        let res = Order::try_from_box(bx);
+        let ergo_tree_bytes = base16::decode(b"19a70206040208cd03d36d7e86b0fe7d8aec204f0ae6c2be6563fc7a443d69501d73dfe9c2adddb15a0e69aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0e69bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb05fe887a0400d801d601b2a5730000eb027301d1ed93c27201730293860273037304b2db63087201730500").unwrap();
+        let ergo_tree = ErgoTree::sigma_parse_bytes(&ergo_tree_bytes)
+            .unwrap()
+            .with_constant(2, redeem_validator_temp().into())
+            .unwrap()
+            .with_constant(3, force_any_val::<TokenId>().into())
+            .unwrap()
+            .with_constant(4, 100_i64.into())
+            .unwrap();
+        let mut builder =
+            ErgoBoxCandidateBuilder::new(BoxValue::try_from(180000_u64).unwrap(), ergo_tree, 906102);
+        builder.add_token(force_any_val::<Token>());
+        builder.set_register_value(
+            NonMandatoryRegisterId::R4,
+            Constant::from(force_any_val::<TokenId>()),
+        );
+        let candidate = builder.build().unwrap();
+        let bx = ErgoBox::from_box_candidate(&candidate, force_any_val::<TxId>(), 0).unwrap();
+        let box_json = serde_json::to_string(&bx).unwrap();
+
+        let res = Order::try_from_box(serde_json::from_str(&box_json).unwrap());
         assert!(res.is_some())
     }
 
     #[test]
     fn run_deposit() {
-        let deposit_json = r#"{
-            "boxId": "67c4fd536bb83a3902b3a539c44041ec219c1d451f77ad4327ceffa6903d6ad7",
-            "value": 860000,
-            "ergoTree": "19c8021104000e20c81ef1ac135bae12778705d13e2827fbaa6984e60a8ad8547c1d5b01c787b03304020e240008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0404040008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec040005fcffffffffffffffff0104000406040004080408040205020404d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1eded938cb27202730700017203ed93c27204720593860272067308b2db63087204730900edededed93e4c67207040e720593e4c67207050e72039386028cb27202730a00017208b2db63087207730b009386028cb27202730c00019c72087e730d05b2db63087207730e009386027206730fb2db63087207731000",
-            "assets": [
-                {
-                    "tokenId": "98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45",
-                    "amount": 569
-                }
-            ],
-            "creationHeight": 912371,
-            "additionalRegisters": {},
-            "transactionId": "a61ce43d05e0fc86a94ab768ce523c4182ebec7a2f29018cdd5536f680285b27",
-            "index": 0
-        }"#;
         let pool_box: ErgoBox = serde_json::from_str(POOL_JSON).unwrap();
         let pool = <AsBox<Pool>>::try_from_box(pool_box).unwrap();
-        let deposit_box: ErgoBox = serde_json::from_str(deposit_json).unwrap();
-        let deposit = <AsBox<Deposit>>::try_from_box(deposit_box).unwrap();
+
+        let token_id = TokenId::from(
+            Digest32::try_from(
+                base16::decode(b"98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45").unwrap(),
+            )
+            .unwrap(),
+        );
+        let lq_token = Token {
+            token_id,
+            amount: TokenAmount::try_from(569_u64).unwrap(),
+        };
+        let deposit_box: ErgoBox =
+            create_deposit_box(BoxValue::try_from(8600000_u64).unwrap(), 912371, lq_token, 9);
+
+        // Convert to JSON then back
+        let deposit_box_json = serde_json::to_string(&deposit_box).unwrap();
+        let deposit =
+            <AsBox<Deposit>>::try_from_box(serde_json::from_str(&deposit_box_json).unwrap()).unwrap();
 
         let ec = ExecutionContext {
             height: 906756,
@@ -677,7 +692,18 @@ mod tests {
         }"#;
         let pool_box: ErgoBox = serde_json::from_str(POOL_JSON).unwrap();
         let pool = <AsBox<Pool>>::try_from_box(pool_box).unwrap();
-        let deposit_box: ErgoBox = serde_json::from_str(deposit_json).unwrap();
+        let token_id = TokenId::from(
+            Digest32::try_from(
+                base16::decode(b"98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45").unwrap(),
+            )
+            .unwrap(),
+        );
+        let lq_token = Token {
+            token_id,
+            amount: TokenAmount::try_from(490_u64).unwrap(),
+        };
+        let deposit_box: ErgoBox =
+            create_deposit_box(BoxValue::try_from(180000_u64).unwrap(), 907418, lq_token, 8);
         let deposit = <AsBox<Deposit>>::try_from_box(deposit_box).unwrap();
 
         let ec = ExecutionContext {
@@ -691,11 +717,35 @@ mod tests {
         let msg = format!(
             "{}",
             LowValue {
-                expected: 540000,
+                expected: 750000,
                 provided: 180000
             }
         );
         assert_eq!(res, Err(Fatal(msg, deposit)));
+    }
+
+    fn create_deposit_box(
+        value: BoxValue,
+        creation_height: u32,
+        lq_token: Token,
+        num_epochs_remaining: i64,
+    ) -> ErgoBox {
+        // Ergotree taken from: https://github.com/spectrum-finance/ergo-dex/blob/e8f0d40ff5e84300300b261e560d68e3bf6c53e3/contracts/lqmining/simple/Deposit.sc
+        let ergo_tree_bytes = base16::decode(b"198c031104000e20000000000000000000000000000000000000000000000000000000000000000004020e69aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0404040008cd03d36d7e86b0fe7d8aec204f0ae6c2be6563fc7a443d69501d73dfe9c2adddb15a040005fcffffffffffffffff01040004060400040805f00d040205020404d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1eded938cb27202730700017203ed93c27204720593860272067308b2db63087204730900edededed93e4c67207040e720593e4c67207050e72039386028cb27202730a00017208b2db63087207730b009386028cb27202730c00019c7208730db2db63087207730e009386027206730fb2db63087207731000").unwrap();
+        let ergo_tree = ErgoTree::sigma_parse_bytes(&ergo_tree_bytes)
+            .unwrap()
+            .with_constant(1, force_any_val::<TokenId>().into())
+            .unwrap()
+            .with_constant(3, redeem_validator_temp().into())
+            .unwrap()
+            .with_constant(13, num_epochs_remaining.into())
+            .unwrap();
+
+        let mut builder = ErgoBoxCandidateBuilder::new(value, ergo_tree, creation_height);
+        builder.add_token(lq_token);
+
+        let candidate = builder.build().unwrap();
+        ErgoBox::from_box_candidate(&candidate, force_any_val::<TxId>(), 0).unwrap()
     }
 
     const POOL_JSON: &str = r#"{
