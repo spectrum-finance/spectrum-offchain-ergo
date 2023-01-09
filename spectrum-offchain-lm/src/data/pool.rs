@@ -503,7 +503,7 @@ mod tests {
             executor_prop: trivial_prop(),
         };
         let (pool2, bundle, _output, rew, _) = pool.clone().apply_deposit(deposit.clone(), ctx).unwrap();
-        assert_eq!(bundle.vlq, deposit.lq.coerce());
+        assert_eq!(bundle.vlq.amount, deposit.lq.amount);
         assert_eq!(bundle.tmp.amount, pool.conf.epoch_num as u64 * deposit_lq.amount);
         assert_eq!(pool2.reserves_lq, deposit.lq);
         assert_eq!(pool2.reserves_lq - pool.reserves_lq, deposit.lq);
@@ -522,7 +522,7 @@ mod tests {
             redeemer_prop: trivial_prop(),
             lq: deposit,
             erg_value: NanoErg::from(100000000000u64),
-            expected_num_epochs: 10,
+            expected_num_epochs: 9,
         };
         let ctx = ExecutionContext {
             height: 10,
