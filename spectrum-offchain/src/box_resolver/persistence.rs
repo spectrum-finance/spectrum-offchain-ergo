@@ -40,7 +40,7 @@ pub trait EntityRepo<TEntity: OnChainEntity> {
     where
         Traced<Predicted<TEntity>>: 'a;
     /// Invalidate particular state of the entity.
-    async fn invalidate<'a>(&mut self, sid: TEntity::TStateId)
+    async fn invalidate<'a>(&mut self, sid: TEntity::TStateId, eid: TEntity::TEntityId)
     where
         <TEntity as OnChainEntity>::TStateId: 'a,
         <TEntity as OnChainEntity>::TEntityId: 'a;
@@ -157,13 +157,13 @@ where
         trace!(target: "box_resolver", "put_unconfirmed({}) -> ()", show_entity);
     }
 
-    async fn invalidate<'a>(&mut self, sid: TEntity::TStateId)
+    async fn invalidate<'a>(&mut self, sid: TEntity::TStateId, eid: TEntity::TEntityId)
     where
         <TEntity as OnChainEntity>::TStateId: 'a,
         <TEntity as OnChainEntity>::TEntityId: 'a,
     {
         trace!(target: "box_resolver", "invalidate({:?})", sid);
-        self.inner.invalidate(sid).await;
+        self.inner.invalidate(sid, eid).await;
         trace!(target: "box_resolver", "invalidate({:?}) -> ()", sid);
     }
 
@@ -374,12 +374,11 @@ pub(crate) mod tests {
             client.put_confirmed(Confirmed(ee)).await;
 
             // Invalidate
-            <C as EntityRepo<ErgoEntity>>::invalidate(&mut client, box_ids[i]).await;
+            <C as EntityRepo<ErgoEntity>>::invalidate(&mut client, box_ids[i], token_ids[i]).await;
             let predicted: Option<Predicted<ErgoEntity>> = client.get_last_predicted(token_ids[i]).await;
             let unconfirmed: Option<Unconfirmed<ErgoEntity>> =
                 client.get_last_unconfirmed(token_ids[i]).await;
-            let confirmed: Option<Confirmed<ErgoEntity>> =
-                client.get_last_confirmed(token_ids[i]).await;
+            let confirmed: Option<Confirmed<ErgoEntity>> = client.get_last_confirmed(token_ids[i]).await;
             assert!(predicted.is_none());
             assert!(unconfirmed.is_none());
             assert!(confirmed.is_none());

@@ -30,7 +30,7 @@ where
                 }
                 StateUpdate::Transition(EitherOrBoth::Left(st)) => repo.eliminate(st).await,
                 StateUpdate::TransitionRollback(EitherOrBoth::Left(st)) => {
-                    repo.invalidate(st.get_self_state_ref()).await
+                    repo.invalidate(st.get_self_state_ref(), st.get_self_ref()).await
                 }
             }
         }
