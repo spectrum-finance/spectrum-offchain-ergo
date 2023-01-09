@@ -70,7 +70,17 @@ where
             db.get(index_key)
                 .unwrap()
                 .and_then(|bytes| bincode::deserialize::<'_, TEntity::TStateId>(&bytes).ok())
-                .and_then(|sid| db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap())
+                .and_then(|sid| {
+                    if db
+                        .get(prefixed_key(PREDICTION_LINK_PREFIX, &sid))
+                        .unwrap()
+                        .is_some()
+                    {
+                        db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap()
+                    } else {
+                        None
+                    }
+                })
                 .and_then(|bytes| bincode::deserialize(&bytes).ok())
                 .map(Predicted)
         })
@@ -91,7 +101,17 @@ where
             db.get(index_key)
                 .unwrap()
                 .and_then(|bytes| bincode::deserialize::<'_, TEntity::TStateId>(&bytes).ok())
-                .and_then(|sid| db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap())
+                .and_then(|sid| {
+                    if db
+                        .get(prefixed_key(LAST_CONFIRMED_PREFIX, &id))
+                        .unwrap()
+                        .is_some()
+                    {
+                        db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap()
+                    } else {
+                        None
+                    }
+                })
                 .and_then(|bytes| bincode::deserialize(&bytes).ok())
                 .map(Confirmed)
         })
@@ -112,7 +132,17 @@ where
             db.get(index_key)
                 .unwrap()
                 .and_then(|bytes| bincode::deserialize::<'_, TEntity::TStateId>(&bytes).ok())
-                .and_then(|sid| db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap())
+                .and_then(|sid| {
+                    if db
+                        .get(prefixed_key(LAST_UNCONFIRMED_PREFIX, &id))
+                        .unwrap()
+                        .is_some()
+                    {
+                        db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap()
+                    } else {
+                        None
+                    }
+                })
                 .and_then(|bytes| bincode::deserialize(&bytes).ok())
                 .map(Unconfirmed)
         })
@@ -187,16 +217,23 @@ where
         .unwrap()
     }
 
-    async fn invalidate<'a>(&mut self, sid: <TEntity as OnChainEntity>::TStateId)
-    where
+    async fn invalidate<'a>(
+        &mut self,
+        sid: <TEntity as OnChainEntity>::TStateId,
+        eid: <TEntity as OnChainEntity>::TEntityId,
+    ) where
         <TEntity as OnChainEntity>::TEntityId: 'a,
         <TEntity as OnChainEntity>::TStateId: 'a,
     {
         let db = self.db.clone();
         let link_key = prefixed_key(PREDICTION_LINK_PREFIX, &sid);
+        let last_confirmed_index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &eid);
+        let last_unconfirmed_index_key = prefixed_key(LAST_UNCONFIRMED_PREFIX, &eid);
         spawn_blocking(move || {
             let tx = db.transaction();
             tx.delete(link_key).unwrap();
+            tx.delete(last_confirmed_index_key).unwrap();
+            tx.delete(last_unconfirmed_index_key).unwrap();
             tx.commit().unwrap();
         })
         .await

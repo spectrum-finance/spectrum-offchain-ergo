@@ -195,7 +195,7 @@ where
                                     self.pool_repo
                                         .lock()
                                         .await
-                                        .invalidate(pool.get_self_state_ref())
+                                        .invalidate(pool.get_self_state_ref(), pool.get_self_ref())
                                         .await;
                                     self.backlog.lock().await.recharge(ord).await;
                                 // Return order to backlog
