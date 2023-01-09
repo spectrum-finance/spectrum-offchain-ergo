@@ -300,8 +300,7 @@ impl RunOrder for AsBox<Deposit> {
 impl TryFromBox for Deposit {
     fn try_from_box(bx: ErgoBox) -> Option<Deposit> {
         if let Some(ref tokens) = bx.tokens {
-            let byes_ok = bx.ergo_tree.template_bytes().ok()? == deposit_validator_temp();
-            if byes_ok && tokens.len() == 1 {
+            if bx.ergo_tree.template_bytes().ok()? == deposit_validator_temp() && tokens.len() == 1 {
                 let order_id = OrderId::from(bx.box_id());
                 let pool_id = Digest32::try_from(
                     bx.ergo_tree
