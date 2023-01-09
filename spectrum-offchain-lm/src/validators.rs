@@ -21,7 +21,8 @@ pub fn pool_validator() -> ErgoTree {
 }
 
 pub fn deposit_validator_temp() -> Vec<u8> {
-    // todo: sync with latest contract value
+    // Todo: sync with latest contract value
+    // Current value taken from: https://github.com/spectrum-finance/ergo-dex/blob/e8f0d40ff5e84300300b261e560d68e3bf6c53e3/contracts/lqmining/simple/Deposit.sc#L19
     let raw = "d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a57304\
     00d6088cb2db6308a773050002eb027306d1eded938cb27202730700017203ed93c27204720593860272067308b2db6\
     3087204730900edededed93e4c67207040e720593e4c67207050e72039386028cb27202730a00017208b2db63087207\

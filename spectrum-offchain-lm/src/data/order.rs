@@ -580,14 +580,13 @@ mod tests {
     use ergo_lib::chain::transaction::TxId;
     use ergo_lib::ergo_chain_types::Digest32;
     use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
-    use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId};
+    use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
     use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount, TokenId};
     use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
     use ergo_lib::ergotree_ir::mir::constant::Constant;
     use ergo_lib::ergotree_ir::mir::expr::Expr;
 
     use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
-    use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::ProveDlog;
     use sigma_test_util::force_any_val;
     use spectrum_offchain::event_sink::handlers::types::TryFromBox;
     use spectrum_offchain::executor::RunOrderError::Fatal;
@@ -598,7 +597,7 @@ mod tests {
     use crate::data::pool::Pool;
     use crate::data::AsBox;
     use crate::executor::RunOrder;
-    use crate::prover::{SigmaProver, Wallet, WalletSecret};
+    use crate::prover::{SigmaProver, Wallet};
     use crate::validators::redeem_validator_temp;
 
     fn trivial_prop() -> ErgoTree {
@@ -607,6 +606,8 @@ mod tests {
 
     #[test]
     fn parse_order() {
+        // Todo: sync with latest contract value
+        // Current value taken from: https://github.com/spectrum-finance/ergo-dex/blob/e8f0d40ff5e84300300b261e560d68e3bf6c53e3/contracts/lqmining/simple/Redeem.sc#L18
         let ergo_tree_bytes = base16::decode(b"19a70206040208cd03d36d7e86b0fe7d8aec204f0ae6c2be6563fc7a443d69501d73dfe9c2adddb15a0e69aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0e69bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb05fe887a0400d801d601b2a5730000eb027301d1ed93c27201730293860273037304b2db63087201730500").unwrap();
         let ergo_tree = ErgoTree::sigma_parse_bytes(&ergo_tree_bytes)
             .unwrap()
@@ -675,21 +676,6 @@ mod tests {
 
     #[test]
     fn run_deposit_low_value() {
-        let deposit_json = r#"{
-            "boxId": "1de5b570adf36f47473b9c682ee3885f3ddfa4387dba90d5dadcbc81516cde95",
-            "value": 180000,
-            "ergoTree": "19c8021104000e20c81ef1ac135bae12778705d13e2827fbaa6984e60a8ad8547c1d5b01c787b03304020e240008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0404040008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec040005fcffffffffffffffff0104000406040004080412040205020404d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1eded938cb27202730700017203ed93c27204720593860272067308b2db63087204730900edededed93e4c67207040e720593e4c67207050e72039386028cb27202730a00017208b2db63087207730b009386028cb27202730c00019c72087e730d05b2db63087207730e009386027206730fb2db63087207731000",
-            "assets": [
-                {
-                    "tokenId": "98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45",
-                    "amount": 490
-                }
-            ],
-            "creationHeight": 907418,
-            "additionalRegisters": {},
-            "transactionId": "5f2e32dcc40d668964d06283856cdcea50ef85a4c1241a4f0e7ee77f5f7967e1",
-            "index": 0
-        }"#;
         let pool_box: ErgoBox = serde_json::from_str(POOL_JSON).unwrap();
         let pool = <AsBox<Pool>>::try_from_box(pool_box).unwrap();
         let token_id = TokenId::from(
@@ -730,7 +716,7 @@ mod tests {
         lq_token: Token,
         num_epochs_remaining: i64,
     ) -> ErgoBox {
-        // Ergotree taken from: https://github.com/spectrum-finance/ergo-dex/blob/e8f0d40ff5e84300300b261e560d68e3bf6c53e3/contracts/lqmining/simple/Deposit.sc
+        // Ergotree taken from: https://github.com/spectrum-finance/ergo-dex/blob/e8f0d40ff5e84300300b261e560d68e3bf6c53e3/contracts/lqmining/simple/Deposit.sc#L17
         let ergo_tree_bytes = base16::decode(b"198c031104000e20000000000000000000000000000000000000000000000000000000000000000004020e69aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0404040008cd03d36d7e86b0fe7d8aec204f0ae6c2be6563fc7a443d69501d73dfe9c2adddb15a040005fcffffffffffffffff01040004060400040805f00d040205020404d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1eded938cb27202730700017203ed93c27204720593860272067308b2db63087204730900edededed93e4c67207040e720593e4c67207050e72039386028cb27202730a00017208b2db63087207730b009386028cb27202730c00019c7208730db2db63087207730e009386027206730fb2db63087207731000").unwrap();
         let ergo_tree = ErgoTree::sigma_parse_bytes(&ergo_tree_bytes)
             .unwrap()
