@@ -226,13 +226,11 @@ where
         <TEntity as OnChainEntity>::TStateId: 'a,
     {
         let db = self.db.clone();
-        let state_key = prefixed_key(STATE_PREFIX, &sid);
         let link_key = prefixed_key(PREDICTION_LINK_PREFIX, &sid);
         let last_confirmed_index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &eid);
         let last_unconfirmed_index_key = prefixed_key(LAST_UNCONFIRMED_PREFIX, &eid);
         spawn_blocking(move || {
             let tx = db.transaction();
-            tx.delete(state_key).unwrap();
             tx.delete(link_key).unwrap();
             tx.delete(last_confirmed_index_key).unwrap();
             tx.delete(last_unconfirmed_index_key).unwrap();
