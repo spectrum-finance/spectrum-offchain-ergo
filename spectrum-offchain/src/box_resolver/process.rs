@@ -1,85 +1,38 @@
-use std::pin::Pin;
 use std::sync::Arc;
 
-use futures::channel::mpsc::UnboundedReceiver;
-use futures::stream::select_all;
 use futures::{Stream, StreamExt};
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 
 use crate::box_resolver::persistence::EntityRepo;
-use crate::data::unique_entity::{Confirmed, Unconfirmed, Upgrade, UpgradeRollback};
-use crate::data::{Has, OnChainEntity};
+use crate::combinators::EitherOrBoth;
+use crate::data::unique_entity::{Confirmed, StateUpdate};
+use crate::data::OnChainEntity;
 
-pub fn box_tracker_stream<'a, TRepo, TEntity>(
-    persistence: TRepo,
-    conf_upgrades: UnboundedReceiver<Upgrade<Confirmed<TEntity>>>,
-    unconf_upgrades: UnboundedReceiver<Upgrade<Unconfirmed<TEntity>>>,
-    rollbacks: UnboundedReceiver<UpgradeRollback<TEntity>>,
+pub fn entity_tracking_stream<'a, S, TRepo, TEntity>(
+    upstream: S,
+    entities: Arc<Mutex<TRepo>>,
 ) -> impl Stream<Item = ()> + 'a
 where
-    TRepo: EntityRepo<TEntity> + 'a,
-    TEntity: OnChainEntity + Has<TEntity::TEntityId> + Has<TEntity::TStateId> + 'a,
-{
-    let persistence = Arc::new(Mutex::new(persistence));
-    select_all(vec![
-        track_conf_upgrades(persistence.clone(), conf_upgrades),
-        track_unconf_upgrades(persistence.clone(), unconf_upgrades),
-        handle_rollbacks(persistence, rollbacks),
-    ])
-}
-
-#[allow(clippy::await_holding_lock)]
-fn track_conf_upgrades<'a, TRepo, TEntity>(
-    persistence: Arc<Mutex<TRepo>>,
-    conf_upgrades: UnboundedReceiver<Upgrade<Confirmed<TEntity>>>,
-) -> Pin<Box<dyn Stream<Item = ()> + 'a>>
-where
-    TRepo: EntityRepo<TEntity> + 'a,
+    S: Stream<Item = Confirmed<StateUpdate<TEntity>>> + 'a,
     TEntity: OnChainEntity + 'a,
-{
-    Box::pin(conf_upgrades.then(move |Upgrade(et)| {
-        let pers = Arc::clone(&persistence);
-        async move {
-            let mut pers_guard = pers.lock();
-            pers_guard.put_confirmed(et).await;
-        }
-    }))
-}
-
-#[allow(clippy::await_holding_lock)]
-fn track_unconf_upgrades<'a, TRepo, TEntity>(
-    persistence: Arc<Mutex<TRepo>>,
-    unconf_upgrades: UnboundedReceiver<Upgrade<Unconfirmed<TEntity>>>,
-) -> Pin<Box<dyn Stream<Item = ()> + 'a>>
-where
     TRepo: EntityRepo<TEntity> + 'a,
-    TEntity: OnChainEntity + 'a,
 {
-    Box::pin(unconf_upgrades.then(move |Upgrade(et)| {
-        let pers = Arc::clone(&persistence);
+    upstream.then(move |Confirmed(upd)| {
+        let entities = Arc::clone(&entities);
         async move {
-            let mut pers_guard = pers.lock();
-            pers_guard.put_unconfirmed(et).await;
+            let mut repo = entities.lock().await;
+            match upd {
+                StateUpdate::Transition(EitherOrBoth::Right(new_state))
+                | StateUpdate::Transition(EitherOrBoth::Both(_, new_state))
+                | StateUpdate::TransitionRollback(EitherOrBoth::Right(new_state))
+                | StateUpdate::TransitionRollback(EitherOrBoth::Both(_, new_state)) => {
+                    repo.put_confirmed(Confirmed(new_state)).await
+                }
+                StateUpdate::Transition(EitherOrBoth::Left(st)) => repo.eliminate(st).await,
+                StateUpdate::TransitionRollback(EitherOrBoth::Left(st)) => {
+                    repo.invalidate(st.get_self_state_ref(), st.get_self_ref()).await
+                }
+            }
         }
-    }))
-}
-
-#[allow(clippy::await_holding_lock)]
-fn handle_rollbacks<'a, TRepo, TEntity>(
-    persistence: Arc<Mutex<TRepo>>,
-    rollbacks: UnboundedReceiver<UpgradeRollback<TEntity>>,
-) -> Pin<Box<dyn Stream<Item = ()> + 'a>>
-where
-    TRepo: EntityRepo<TEntity> + 'a,
-    TEntity: OnChainEntity + Has<TEntity::TEntityId> + Has<TEntity::TStateId> + 'a,
-{
-    Box::pin(rollbacks.then(move |UpgradeRollback(et)| {
-        let pers = Arc::clone(&persistence);
-        async move {
-            let mut pers_guard = pers.lock();
-            pers_guard
-                .invalidate(et.get::<TEntity::TEntityId>(), et.get::<TEntity::TStateId>())
-                .await;
-        }
-    }))
+    })
 }

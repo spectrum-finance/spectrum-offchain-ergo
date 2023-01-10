@@ -10,19 +10,29 @@ use rocksdb::WriteBatchWithTransaction;
 use tokio::task::spawn_blocking;
 
 use crate::model::{Block, BlockRecord};
+use crate::rocksdb::RocksConfig;
 
 use super::chain_cache::ChainCache;
 
 static BEST_BLOCK: &str = "best_block";
 
-pub struct RocksDBClient {
+pub struct ChainCacheRocksDB {
     pub db: Arc<rocksdb::OptimisticTransactionDB>,
+}
+
+
+impl ChainCacheRocksDB {
+    pub fn new(conf: RocksConfig) -> Self {
+        Self {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(conf.db_path).unwrap()),
+        }
+    }
 }
 
 /// The Rocksdb bindings are not async, so we must wrap any uses of the library in
 /// `tokio::task::spawn_blocking`.
 #[async_trait(?Send)]
-impl ChainCache for RocksDBClient {
+impl ChainCache for ChainCacheRocksDB {
     async fn append_block(&mut self, block: Block) {
         let db = self.db.clone();
 

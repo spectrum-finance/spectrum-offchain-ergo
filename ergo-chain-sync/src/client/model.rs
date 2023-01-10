@@ -6,9 +6,8 @@ pub struct BlockTransactions {
     pub transactions: Vec<Transaction>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone)]
 pub struct FullBlock {
     pub header: Header,
-    #[serde(rename = "blockTransactions")]
     pub block_transactions: BlockTransactions,
 }

@@ -1,13 +1,16 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::cmp::max;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use futures::stream::FusedStream;
 use futures::Stream;
+use futures_timer::Delay;
 use log::trace;
+use pin_project::pin_project;
 
 use crate::cache::chain_cache::ChainCache;
 use crate::client::node::ErgoNetwork;
@@ -16,6 +19,7 @@ use crate::model::Block;
 pub mod cache;
 pub mod client;
 pub mod model;
+pub mod rocksdb;
 
 #[derive(Debug, Clone)]
 pub enum ChainUpgrade {
@@ -65,11 +69,14 @@ where
     }
 }
 
+#[pin_project]
 pub struct ChainSync<TClient, TCache> {
     starting_height: u32,
     client: TClient,
-    cache: TCache,
+    cache: Rc<RefCell<TCache>>,
     state: Rc<RefCell<SyncState>>,
+    #[pin]
+    delay: Cell<Option<Delay>>,
 }
 
 impl<TClient, TCache> ChainSync<TClient, TCache>
@@ -80,6 +87,7 @@ where
     pub async fn init(starting_height: u32, client: TClient, mut cache: TCache) -> Self {
         let best_block = cache.get_best_block().await;
         let start_at = if let Some(best_block) = best_block {
+            trace!(target: "chain_sync", "Best block is [{}]", best_block.id);
             max(best_block.height, starting_height)
         } else {
             starting_height
@@ -87,36 +95,39 @@ where
         Self {
             starting_height,
             client,
-            cache,
+            cache: Rc::new(RefCell::new(cache)),
             state: Rc::new(RefCell::new(SyncState {
                 next_height: start_at,
             })),
+            delay: Cell::new(None),
         }
     }
 
     /// Try acquiring next upgrade from the network.
     /// `None` is returned when no upgrade is available at the moment.
-    async fn try_upgrade(&mut self) -> Option<ChainUpgrade> {
+    async fn try_upgrade(&self) -> Option<ChainUpgrade> {
         let next_height = { self.state.borrow().next_height };
-        trace!("Processing height [{}]", next_height);
+        trace!(target: "chain_sync", "Processing height [{}]", next_height);
         if let Some(api_blk) = self.client.get_block_at(next_height).await {
             trace!(
+                target: "chain_sync",
                 "Processing block [{:?}] at height [{}]",
                 api_blk.header.id,
                 next_height
             );
             let parent_id = api_blk.header.parent_id;
-            let linked = self.cache.exists(parent_id).await;
+            let mut cache = self.cache.borrow_mut();
+            let linked = cache.exists(parent_id).await;
             if linked || api_blk.header.height == self.starting_height {
-                trace!("Chain is linked, upgrading ..");
+                trace!(target: "chain_sync", "Chain is linked, upgrading ..");
                 let blk = Block::from(api_blk);
-                self.cache.append_block(blk.clone()).await;
+                cache.append_block(blk.clone()).await;
                 self.state.borrow_mut().upgrade();
                 return Some(ChainUpgrade::RollForward(blk));
             } else {
                 // Local chain does not link anymore
-                trace!("Chain does not link, downgrading ..");
-                if let Some(discarded_blk) = self.cache.take_best_block().await {
+                trace!(target: "chain_sync", "Chain does not link, downgrading ..");
+                if let Some(discarded_blk) = cache.take_best_block().await {
                     self.state.borrow_mut().downgrade();
                     return Some(ChainUpgrade::RollBackward(discarded_blk));
                 }
@@ -126,6 +137,8 @@ where
     }
 }
 
+const THROTTLE_SECS: u64 = 1;
+
 impl<TClient, TCache> Stream for ChainSync<TClient, TCache>
 where
     TClient: ErgoNetwork + Unpin,
@@ -133,12 +146,26 @@ where
 {
     type Item = ChainUpgrade;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        if let Some(mut delay) = self.delay.take() {
+            match Future::poll(Pin::new(&mut delay), cx) {
+                Poll::Ready(_) => {}
+                Poll::Pending => {
+                    self.delay.set(Some(delay));
+                    return Poll::Pending;
+                }
+            }
+        }
+
         let mut upgr_fut = Box::pin(self.try_upgrade());
         loop {
             match upgr_fut.as_mut().poll(cx) {
                 Poll::Ready(Some(upgr)) => return Poll::Ready(Some(upgr)),
-                Poll::Ready(None) => return Poll::Pending,
+                Poll::Ready(None) => {
+                    self.delay
+                        .set(Some(Delay::new(Duration::from_secs(THROTTLE_SECS))));
+                    return Poll::Pending;
+                }
                 Poll::Pending => continue,
             }
         }
