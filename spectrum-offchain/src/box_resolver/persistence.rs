@@ -185,10 +185,7 @@ where
     where
         <TEntity as OnChainEntity>::TStateId: 'a,
     {
-        trace!(target: "box_resolver", "may_exist({:?})", sid);
-        let res = self.inner.may_exist(sid).await;
-        trace!(target: "box_resolver", "may_exist({:?}) -> {}", sid, res);
-        res
+        self.inner.may_exist(sid).await
     }
 
     async fn get_state<'a>(&self, sid: TEntity::TStateId) -> Option<TEntity>

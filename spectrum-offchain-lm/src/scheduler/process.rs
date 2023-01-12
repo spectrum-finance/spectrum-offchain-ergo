@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use std::time::Duration;
 
 use chrono::Utc;
@@ -23,6 +23,7 @@ pub fn distribution_stream<'a, TBacklog, TSchedules, TBundles, TNetwork>(
     network: TNetwork,
     batch_size: usize,
     poll_interval: Duration,
+    tip_reached: &'static Once,
 ) -> impl Stream<Item = ()> + 'a
 where
     TBacklog: Backlog<Order> + 'a,
@@ -38,51 +39,53 @@ where
         let backlog = Arc::clone(&backlog);
         let network = network.clone();
         async move {
-            let mut schedules = schedules.lock().await;
-            if let Some(
-                tick @ Tick {
-                    pool_id,
-                    epoch_ix,
-                    height,
-                },
-            ) = schedules.peek().await
-            {
-                info!(target: "scheduler", "Checking schedule of pool [{}]", pool_id);
-                let height_now = network.get_height().await;
-                if height >= height_now {
-                    info!(target: "scheduler", "Processing epoch [{}] of pool [{}]", epoch_ix, pool_id);
-                    let stakers = bundles.lock().await.select(pool_id, epoch_ix).await;
-                    if stakers.is_empty() {
-                        info!(
-                            target: "scheduler",
-                            "No more stakers left in epoch [{}] of pool [{}]",
-                            epoch_ix, pool_id
-                        );
-                        schedules.remove(tick).await;
-                    } else {
-                        let orders =
-                            stakers
-                                .chunks(batch_size)
-                                .into_iter()
-                                .enumerate()
-                                .map(|(queue_ix, xs)| Compound {
-                                    pool_id,
-                                    epoch_ix,
-                                    queue_ix,
-                                    stakers: Vec::from(xs),
-                                });
-                        let ts_now = Utc::now().timestamp();
-                        let mut backlog = backlog.lock().await;
-                        for order in orders {
-                            backlog
-                                .put(PendingOrder {
-                                    order: Order::Compound(order),
-                                    timestamp: ts_now,
-                                })
-                                .await
-                        }
+            if tip_reached.is_completed() {
+                let mut schedules = schedules.lock().await;
+                if let Some(
+                    tick @ Tick {
+                        pool_id,
+                        epoch_ix,
+                        height,
+                    },
+                ) = schedules.peek().await
+                {
+                    info!(target: "scheduler", "Checking schedule of pool [{}]", pool_id);
+                    let height_now = network.get_height().await;
+                    if height <= height_now {
+                        info!(target: "scheduler", "Processing epoch [{}] of pool [{}]", epoch_ix, pool_id);
+                        let stakers = bundles.lock().await.select(pool_id, epoch_ix).await;
+                        if stakers.is_empty() {
+                            info!(
+                                target: "scheduler",
+                                "No more stakers left in epoch [{}] of pool [{}]",
+                                epoch_ix, pool_id
+                            );
+                            schedules.remove(tick).await;
+                        } else {
+                            let orders =
+                                stakers
+                                    .chunks(batch_size)
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(queue_ix, xs)| Compound {
+                                        pool_id,
+                                        epoch_ix,
+                                        queue_ix,
+                                        stakers: Vec::from(xs),
+                                    });
+                            let ts_now = Utc::now().timestamp();
+                            let mut backlog = backlog.lock().await;
+                            for order in orders {
+                                backlog
+                                    .put(PendingOrder {
+                                        order: Order::Compound(order),
+                                        timestamp: ts_now,
+                                    })
+                                    .await
+                            }
 
-                        schedules.check_later(tick).await;
+                            schedules.check_later(tick).await;
+                        }
                     }
                 }
             }

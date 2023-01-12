@@ -82,7 +82,7 @@ where
     ) -> Self {
         let chain_tip_height = client.get_best_height().await;
         let start_at = chain_tip_height as usize - KEEP_LAST_BLOCKS;
-        let chain_sync = chain_sync_maker.init(start_at as u32).await;
+        let chain_sync = chain_sync_maker.init(start_at as u32, None).await;
         Self {
             conf,
             client,

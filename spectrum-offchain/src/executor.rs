@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -123,15 +123,22 @@ where
 const THROTTLE_SECS: u64 = 1;
 
 /// Construct Executor stream that drives sequential order execution.
-pub fn executor_stream<'a, TExecutor: Executor + 'a>(executor: TExecutor) -> impl Stream<Item = ()> + 'a {
+pub fn executor_stream<'a, TExecutor: Executor + 'a>(
+    executor: TExecutor,
+    tip_reached_signal: &'static Once,
+) -> impl Stream<Item = ()> + 'a {
     let executor = Arc::new(Mutex::new(executor));
     stream::unfold((), move |_| {
         let executor = executor.clone();
         async move {
-            trace!(target: "offchain_lm", "Trying to execute next order ..");
-            let mut executor_quard = executor.lock().await;
-            if let Err(_) = executor_quard.try_execute_next().await {
-                trace!(target: "offchain_lm", "Execution attempt failed, throttling ..");
+            if tip_reached_signal.is_completed() {
+                trace!(target: "offchain_lm", "Trying to execute next order ..");
+                let mut executor_quard = executor.lock().await;
+                if let Err(_) = executor_quard.try_execute_next().await {
+                    trace!(target: "offchain_lm", "Execution attempt failed, throttling ..");
+                    Delay::new(Duration::from_secs(THROTTLE_SECS)).await;
+                }
+            } else {
                 Delay::new(Duration::from_secs(THROTTLE_SECS)).await;
             }
             Some(((), ()))

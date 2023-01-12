@@ -3,6 +3,7 @@ use std::cmp::max;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::Once;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -44,7 +45,7 @@ impl SyncState {
 
 #[async_trait::async_trait(?Send)]
 pub trait InitChainSync<TChainSync> {
-    async fn init(self, starting_height: u32) -> TChainSync;
+    async fn init(self, starting_height: u32, tip_reached_signal: Option<&'static Once>) -> TChainSync;
 }
 
 pub struct ChainSyncNonInit<TClient, TCache> {
@@ -64,8 +65,12 @@ where
     TClient: ErgoNetwork,
     TCache: ChainCache,
 {
-    async fn init(self, starting_height: u32) -> ChainSync<TClient, TCache> {
-        ChainSync::init(starting_height, self.client, self.cache).await
+    async fn init(
+        self,
+        starting_height: u32,
+        tip_reached_signal: Option<&'static Once>,
+    ) -> ChainSync<TClient, TCache> {
+        ChainSync::init(starting_height, self.client, self.cache, tip_reached_signal).await
     }
 }
 
@@ -77,6 +82,7 @@ pub struct ChainSync<TClient, TCache> {
     state: Rc<RefCell<SyncState>>,
     #[pin]
     delay: Cell<Option<Delay>>,
+    tip_reached_signal: Option<&'static Once>,
 }
 
 impl<TClient, TCache> ChainSync<TClient, TCache>
@@ -84,7 +90,12 @@ where
     TClient: ErgoNetwork,
     TCache: ChainCache,
 {
-    pub async fn init(starting_height: u32, client: TClient, mut cache: TCache) -> Self {
+    pub async fn init(
+        starting_height: u32,
+        client: TClient,
+        mut cache: TCache,
+        tip_reached_signal: Option<&'static Once>,
+    ) -> Self {
         let best_block = cache.get_best_block().await;
         let start_at = if let Some(best_block) = best_block {
             trace!(target: "chain_sync", "Best block is [{}]", best_block.id);
@@ -100,6 +111,7 @@ where
                 next_height: start_at,
             })),
             delay: Cell::new(None),
+            tip_reached_signal,
         }
     }
 
@@ -164,6 +176,11 @@ where
                 Poll::Ready(None) => {
                     self.delay
                         .set(Some(Delay::new(Duration::from_secs(THROTTLE_SECS))));
+                    if let Some(sig) = self.tip_reached_signal {
+                        sig.call_once(|| {
+                            trace!(target: "chain_sync", "Tip reached, waiting for new blocks ..");
+                        });
+                    }
                     return Poll::Pending;
                 }
                 Poll::Pending => continue,

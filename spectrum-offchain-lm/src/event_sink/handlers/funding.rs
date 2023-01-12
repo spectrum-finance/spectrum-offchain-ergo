@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::{Sink, SinkExt};
+use log::trace;
 use tokio::sync::Mutex;
 
 use spectrum_offchain::data::unique_entity::Confirmed;
@@ -45,6 +46,7 @@ where
                 for bx in &tx.outputs {
                     if let Some(funding) = DistributionFunding::try_from_box(bx.clone(), self.wallet.clone())
                     {
+                        trace!("New funding box: {:?}", funding.id);
                         is_success = true;
                         let _ = self
                             .topic

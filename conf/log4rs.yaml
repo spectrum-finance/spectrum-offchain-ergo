@@ -27,7 +27,17 @@ loggers:
     appenders:
       - stdout
     additive: false
+  funding:
+    level: trace
+    appenders:
+      - stdout
+    additive: false
   scheduler:
+    level: trace
+    appenders:
+      - stdout
+    additive: false
+  schedules:
     level: trace
     appenders:
       - stdout

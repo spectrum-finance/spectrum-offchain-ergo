@@ -1,10 +1,12 @@
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 
 use clap::{arg, Parser};
+use ergo_lib::ergotree_ir::chain::address::{AddressEncoder, NetworkPrefix};
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::StreamExt;
 use isahc::{prelude::*, HttpClient};
+use log::info;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
@@ -42,11 +44,11 @@ use crate::event_sink::handlers::program::ConfirmedProgramUpdateHandler;
 use crate::event_sink::handlers::schedule::ConfirmedScheduleUpdateHandler;
 use crate::executor::OrderExecutor;
 use crate::funding::process::funding_update_stream;
-use crate::funding::FundingRepoRocksDB;
+use crate::funding::{FundingRepoRocksDB, FundingRepoTracing};
 use crate::program::rocksdb::ProgramRepoRocksDB;
-use crate::prover::{Wallet, WalletSecret};
+use crate::prover::{SeedPhrase, Wallet};
 use crate::scheduler::process::distribution_stream;
-use crate::scheduler::ScheduleRepoRocksDB;
+use crate::scheduler::{ScheduleRepoRocksDB, ScheduleRepoTracing};
 use crate::streaming::boxed;
 
 pub mod bundle;
@@ -84,7 +86,14 @@ async fn main() {
     let cache = ChainCacheRocksDB::new(RocksConfig {
         db_path: config.chain_cache_db_path.into(),
     });
-    let chain_sync = ChainSync::init(config.chain_sync_starting_height, node.clone(), cache).await;
+    static SIGNAL_TIP_REACHED: Once = Once::new();
+    let chain_sync = ChainSync::init(
+        config.chain_sync_starting_height,
+        node.clone(),
+        cache,
+        Some(&SIGNAL_TIP_REACHED),
+    )
+    .await;
 
     let backlog_store = BacklogStoreRocksDB::new(RocksConfig {
         db_path: config.backlog_store_db_path.into(),
@@ -104,10 +113,18 @@ async fn main() {
     let bundles = Arc::new(Mutex::new(BundleRepoRocksDB::new(RocksConfig {
         db_path: config.bundle_repo_db_path.into(),
     })));
-    let funding = Arc::new(Mutex::new(FundingRepoRocksDB::new(RocksConfig {
-        db_path: config.funding_repo_db_path.into(),
-    })));
-    let prover = Wallet::trivial(config.operator_funding_secrets);
+    let funding = Arc::new(Mutex::new(FundingRepoTracing::wrap(FundingRepoRocksDB::new(
+        RocksConfig {
+            db_path: config.funding_repo_db_path.into(),
+        },
+    ))));
+    let (prover, funding_addr) = Wallet::try_from_seed(config.operator_funding_secret).expect("Invalid seed");
+
+    info!(
+        "Funding address is {}",
+        AddressEncoder::encode_address_as_string(NetworkPrefix::Mainnet, &funding_addr)
+    );
+
     let executor = OrderExecutor::new(
         node.clone(),
         Arc::clone(&backlog),
@@ -117,7 +134,7 @@ async fn main() {
         prover,
         config.operator_reward_addr.ergo_tree(),
     );
-    let executor_stream = boxed(executor_stream(executor));
+    let executor_stream = boxed(executor_stream(executor, &SIGNAL_TIP_REACHED));
 
     let default_handler = NoopDefaultHandler;
 
@@ -149,13 +166,15 @@ async fn main() {
     let funding_han = ConfirmedFundingHadler {
         topic: funding_snd,
         repo: Arc::clone(&funding),
-        wallet: config.operator_funding_addr,
+        wallet: funding_addr.into(),
     };
     let funding_update_stream = boxed(funding_update_stream(funding_recv, Arc::clone(&funding)));
 
-    let schedules = Arc::new(Mutex::new(ScheduleRepoRocksDB::new(RocksConfig {
-        db_path: config.schedule_repo_db_path.into(),
-    })));
+    let schedules = Arc::new(Mutex::new(ScheduleRepoTracing::wrap(ScheduleRepoRocksDB::new(
+        RocksConfig {
+            db_path: config.schedule_repo_db_path.into(),
+        },
+    ))));
     let schedule_han = ConfirmedScheduleUpdateHandler {
         schedules: Arc::clone(&schedules),
     };
@@ -166,6 +185,7 @@ async fn main() {
         node,
         20,
         std::time::Duration::from_secs(60),
+        &SIGNAL_TIP_REACHED,
     ));
 
     let program_han = ConfirmedProgramUpdateHandler {
@@ -214,8 +234,7 @@ struct AppConfig<'a> {
     schedule_repo_db_path: &'a str,
     chain_cache_db_path: &'a str,
     operator_reward_addr: ExecutorWallet,
-    operator_funding_addr: ExecutorWallet,
-    operator_funding_secrets: Vec<WalletSecret>,
+    operator_funding_secret: SeedPhrase,
 }
 
 #[derive(Parser)]

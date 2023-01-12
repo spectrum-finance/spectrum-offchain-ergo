@@ -114,10 +114,7 @@ where
     where
         TOrd::TOrderId: 'a,
     {
-        trace!(target: "backlog", "exists({:?})", ord_id);
-        let res = self.inner.exists(ord_id.clone()).await;
-        trace!(target: "backlog", "exists({:?}) -> {:?}", ord_id, res);
-        res
+        self.inner.exists(ord_id.clone()).await
     }
 
     async fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)

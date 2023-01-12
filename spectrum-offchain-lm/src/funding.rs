@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use log::trace;
 use nonempty::NonEmpty;
 use rocksdb::{Direction, IteratorMode};
 use serde::Serialize;
 use tokio::task::spawn_blocking;
 
+use ergo_chain_sync::rocksdb::RocksConfig;
 use spectrum_offchain::binary::prefixed_key;
 use spectrum_offchain::data::unique_entity::{Confirmed, Predicted};
-use ergo_chain_sync::rocksdb::RocksConfig;
 
 use crate::data::funding::DistributionFunding;
 use crate::data::{AsBox, FundingId};
@@ -16,7 +17,7 @@ use crate::ergo::{NanoErg, MAX_VALUE};
 
 pub mod process;
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait FundingRepo {
     /// Collect funding boxes that cover the specified `target`.
     async fn collect(&mut self, target: NanoErg) -> Result<NonEmpty<AsBox<DistributionFunding>>, ()>;
@@ -25,6 +26,53 @@ pub trait FundingRepo {
     /// False positive version of `exists()`.
     async fn may_exist(&self, fid: FundingId) -> bool;
     async fn remove(&mut self, fid: FundingId);
+}
+
+pub struct FundingRepoTracing<R> {
+    inner: R,
+}
+
+impl<R> FundingRepoTracing<R> {
+    pub fn wrap(repo: R) -> Self {
+        Self { inner: repo }
+    }
+}
+
+#[async_trait(?Send)]
+impl<R> FundingRepo for FundingRepoTracing<R>
+where
+    R: FundingRepo,
+{
+    async fn collect(&mut self, target: NanoErg) -> Result<NonEmpty<AsBox<DistributionFunding>>, ()> {
+        trace!(target: "funding", "collect(target: {:?})", target);
+        let res = self.inner.collect(target).await;
+        trace!(target: "funding", "collect(target: {:?}) -> {:?}", target, res);
+        res
+    }
+
+    async fn put_confirmed(&mut self, df: Confirmed<AsBox<DistributionFunding>>) {
+        let id = df.0 .1.id;
+        trace!(target: "funding", "put_confirmed(df: {:?})", id);
+        self.inner.put_confirmed(df).await;
+        trace!(target: "funding", "put_confirmed(df: {:?}) -> ()", id);
+    }
+
+    async fn put_predicted(&mut self, df: Predicted<AsBox<DistributionFunding>>) {
+        let id = df.0 .1.id;
+        trace!(target: "funding", "put_predicted(df: {:?})", id);
+        self.inner.put_predicted(df).await;
+        trace!(target: "funding", "put_predicted(df: {:?}) -> ()", id);
+    }
+
+    async fn may_exist(&self, fid: FundingId) -> bool {
+        self.inner.may_exist(fid).await
+    }
+
+    async fn remove(&mut self, fid: FundingId) {
+        trace!(target: "funding", "remove(fid: {:?})", fid);
+        self.inner.remove(fid).await;
+        trace!(target: "funding", "remove(fid: {:?}) -> ()", fid);
+    }
 }
 
 const FUNDING_KEY_PREFIX: &str = "funding";
@@ -94,7 +142,7 @@ const CONFIRMED_PRIORITY: usize = 0;
 const PREDICTED_PRIORITY: usize = 5;
 const SELECTED_PRIORITY: usize = 10;
 
-#[async_trait]
+#[async_trait(?Send)]
 impl FundingRepo for FundingRepoRocksDB {
     async fn collect(&mut self, target: NanoErg) -> Result<NonEmpty<AsBox<DistributionFunding>>, ()> {
         let db = Arc::clone(&self.db);

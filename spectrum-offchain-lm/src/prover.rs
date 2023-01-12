@@ -10,6 +10,9 @@ use ergo_lib::ergotree_interpreter::sigma_protocol::private_input::{DlogProverIn
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::hint::HintsBag;
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::{ProofBytes, Prover};
 use ergo_lib::ergotree_ir::chain::address::Address;
+use ergo_lib::wallet::ext_secret_key::ExtSecretKey;
+use ergo_lib::wallet::mnemonic::Mnemonic;
+use ergo_lib::wallet::secret_key::SecretKey;
 use ergo_lib::wallet::signing::{make_context, sign_transaction, TransactionContext, TxSigningError};
 use serde::Deserialize;
 use sigma_test_util::force_any_val;
@@ -19,6 +22,9 @@ use spectrum_offchain::transaction::{TransactionCandidate, UnsignedTransactionOp
 pub trait SigmaProver {
     fn sign(&self, tx: TransactionCandidate) -> Result<Transaction, TxSigningError>;
 }
+
+#[derive(Deserialize, Into)]
+pub struct SeedPhrase(String);
 
 #[derive(Clone, Deserialize, Into)]
 #[serde(try_from = "String")]
@@ -42,6 +48,19 @@ pub struct Wallet {
 }
 
 impl Wallet {
+    pub fn try_from_seed(seed: SeedPhrase) -> Option<(Self, Address)> {
+        ExtSecretKey::derive_master(Mnemonic::to_seed(&*<String>::from(seed), ""))
+            .map(|sk| {
+                let SecretKey::DlogSecretKey(dpi) = sk.secret_key();
+                let addr = Address::P2Pk(sk.public_image());
+                let wallet = Self {
+                    secrets: vec![PrivateInput::DlogProverInput(dpi)],
+                    ergo_state_context: force_any_val(),
+                };
+                (wallet, addr)
+            })
+            .ok()
+    }
     pub fn trivial(secrets: Vec<WalletSecret>) -> Self {
         Self {
             secrets: secrets
