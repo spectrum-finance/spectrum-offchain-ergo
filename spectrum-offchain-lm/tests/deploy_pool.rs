@@ -1,12 +1,23 @@
+use derive_more::From;
+use ergo_lib::chain::ergo_box::box_builder::{ErgoBoxCandidateBuilder, ErgoBoxCandidateBuilderError};
 use ergo_lib::chain::transaction::{Transaction, TxIoVec};
 use ergo_lib::ergotree_interpreter::sigma_protocol::private_input::DlogProverInput;
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
 use ergo_lib::ergotree_ir::chain::address::{Address, AddressEncoder, NetworkPrefix};
-use ergo_lib::ergotree_ir::chain::ergo_box::{BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisters};
+use ergo_lib::ergotree_ir::chain::ergo_box::box_value::{BoxValue, BoxValueError};
+use ergo_lib::ergotree_ir::chain::ergo_box::{
+    BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters,
+};
 use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount, TokenId};
+use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
+use ergo_lib::ergotree_ir::serialization::SigmaParsingError;
+use ergo_lib::wallet::box_selector::{BoxSelector, BoxSelectorError, SimpleBoxSelector};
 use ergo_lib::wallet::miner_fee::MINERS_FEE_ADDRESS;
+use ergo_lib::wallet::signing::{TransactionContext, TxSigningError};
+use ergo_lib::wallet::tx_builder::{TxBuilder, TxBuilderError};
 use isahc::{AsyncReadResponseExt, HttpClient};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use ergo_chain_sync::client::types::{with_path, Url};
 use spectrum_offchain::transaction::TransactionCandidate;
@@ -44,68 +55,323 @@ impl Explorer {
     }
 }
 
-async fn mint(amount: u64, wallet: WalletSecret, explorer: Explorer, height: u32) -> Transaction {
-    let erg_target = MIN_SAFE_BOX_VALUE + DEFAULT_MINER_FEE;
+#[derive(Debug, Error, From)]
+enum Error {
+    #[error("box selector error: {0}")]
+    BoxSelector(BoxSelectorError),
+    #[error("box value error: {0}")]
+    BoxValue(BoxValueError),
+    #[error("box builder error: {0}")]
+    ErgoBoxCandidateBuilder(ErgoBoxCandidateBuilderError),
+    #[error("SigmaParsing error: {0}")]
+    SigmaParse(SigmaParsingError),
+    #[error("tx builder error: {0}")]
+    TxBuilder(TxBuilderError),
+    #[error("tx signing error: {0}")]
+    TxSigning(TxSigningError),
+}
+async fn deploy_pool(
+    conf: ProgramConfig,
+    wallet: WalletSecret,
+    explorer: Explorer,
+    tx_fee: BoxValue,
+    erg_value_per_box: BoxValue,
+    change_address: Address,
+    height: u32,
+    initial_lq_token_deposit: Token,
+) -> Result<Vec<Transaction>, Error> {
     let addr = Address::P2Pk(DlogProverInput::from(wallet.clone()).public_image());
-    let utxos = explorer.get_utxos(&addr).await;
-    let mut inputs: Vec<ErgoBox> = Vec::new();
-    for bx in utxos {
-        let acc = inputs.iter().fold(0u64, |acc, i| acc + i.value.as_u64());
-        if acc < <u64>::from(erg_target) {
-            inputs.push(bx)
-        } else {
-            break;
-        }
-    }
-    let total_input_erg = inputs.iter().fold(0u64, |acc, i| acc + i.value.as_u64());
-    let mut input_tokens = Vec::new();
-    for i in &inputs {
-        for tk in i
-            .tokens
-            .as_ref()
-            .map(|tk| tk.iter().collect::<Vec<_>>())
-            .unwrap_or(Vec::new())
-        {
-            input_tokens.push(tk.clone())
-        }
-    }
-    let mintable_id: TokenId = inputs[0].box_id().into();
-    let mut output_tokens = input_tokens;
-    output_tokens.push(Token {
-        token_id: mintable_id,
-        amount: TokenAmount::try_from(MAX_VALUE).unwrap(),
-    });
-    let minting_out = ErgoBoxCandidate {
-        value: (total_input_erg - <u64>::from(DEFAULT_MINER_FEE))
-            .try_into()
-            .unwrap(),
-        ergo_tree: addr.script().unwrap(),
-        tokens: Some(BoxTokens::from_vec(output_tokens).unwrap()),
-        additional_registers: NonMandatoryRegisters::empty(),
-        creation_height: height,
+    let uxtos = explorer.get_utxos(&addr).await;
+    let reward_token_budget = Token {
+        token_id: conf.program_budget.token_id,
+        amount: conf.program_budget.amount.try_into().unwrap(),
     };
-    let miner_out = ErgoBoxCandidate {
-        value: DEFAULT_MINER_FEE.into(),
-        ergo_tree: MINERS_FEE_ADDRESS.script().unwrap(),
-        tokens: None,
-        additional_registers: NonMandatoryRegisters::empty(),
-        creation_height: height,
-    };
-    let tx = TransactionCandidate::new(
-        TxIoVec::from_vec(
-            inputs
-                .into_iter()
-                .map(|bx| (bx, ContextExtension::empty()))
-                .collect(),
-        )
-        .unwrap(),
-        None,
-        TxIoVec::from_vec(vec![minting_out, miner_out]).unwrap(),
-    );
-    let prover = Wallet::trivial(vec![wallet]);
-    prover.sign(tx).unwrap()
+    deploy_pool_chain_transaction(
+        conf,
+        wallet,
+        uxtos,
+        tx_fee,
+        erg_value_per_box,
+        change_address,
+        height,
+        reward_token_budget,
+        initial_lq_token_deposit,
+    )
 }
 
-async fn deploy_pool(conf: ProgramConfig, wallet: WalletSecret, explorer: Explorer) -> Vec<Transaction> {
-    vec![]
+fn deploy_pool_chain_transaction(
+    conf: ProgramConfig,
+    wallet: WalletSecret,
+    uxtos: Vec<ErgoBox>,
+    tx_fee: BoxValue,
+    erg_value_per_box: BoxValue,
+    change_address: Address,
+    height: u32,
+    reward_token_budget: Token,
+    initial_lq_token_deposit: Token,
+) -> Result<Vec<Transaction>, Error> {
+    let addr = Address::P2Pk(DlogProverInput::from(wallet.clone()).public_image());
+    let guard = addr.script()?;
+    // We need to create a chain of 6 transactions:
+    //   - TX 0: Move initial deposit of LQ and reward tokens into a single box.
+    //   - TX 1 to 3: Minting of pool NFT, vLQ tokens and TMP tokens.
+    //   - TX 4: Initialize the pool-input box with tokens and parameters necessary to make the
+    //     boxes in the next TX.
+    //   - TX 5: Create first LM pool, staking bundle and redeemer out boxes.
+    //
+    // Now assuming that each created box will hold a value of `erg_value_per_box` the total amount
+    // of ERG needed is:
+    //   6 * MINER_FEE + 8 * erg_value_per_box
+    //
+    // Why 8?
+    //  - 1 box each for TX 0 to TX 4.
+    //  - 3 boxes for TX 5
+
+    // Since we're building a chain of transactions, we need to filter the output boxes of each
+    // constituent transaction to be only those that are guarded by our wallet's key.
+    let filter_tx_outputs = move |outputs: Vec<ErgoBox>| -> Vec<ErgoBox> {
+        outputs
+            .clone()
+            .into_iter()
+            .filter(|b| b.ergo_tree == guard)
+            .collect()
+    };
+
+    // This closure computes `E_{num_transactions_left}`.
+    let calc_target_balance = |num_transactions_left| {
+        let b = erg_value_per_box.checked_mul_u32(num_transactions_left + 2)?;
+        let fees = tx_fee.checked_mul_u32(num_transactions_left)?;
+        b.checked_add(&fees)
+    };
+
+    // Effect a single transaction that mints a token with given details, as described in comments
+    // at the beginning. By default it uses `wallet_pk_ergo_tree` as the guard for the token box,
+    // but this can be overriden with `different_token_box_guard`.
+    let mint_token = |input_boxes: Vec<ErgoBox>,
+                      num_transactions_left: &mut u32,
+                      token_name,
+                      token_desc,
+                      token_amount|
+     -> Result<(Token, Transaction), Error> {
+        let target_balance = calc_target_balance(*num_transactions_left)?;
+        let box_selector = SimpleBoxSelector::new();
+        let box_selection = box_selector.select(input_boxes, target_balance, &[])?;
+        let token = Token {
+            token_id: box_selection.boxes.first().box_id().into(),
+            amount: token_amount,
+        };
+        let ergo_tree = addr.script().unwrap();
+        let mut builder = ErgoBoxCandidateBuilder::new(erg_value_per_box, ergo_tree.clone(), height);
+        builder.mint_token(token.clone(), token_name, token_desc, 0);
+        let mut output_candidates = vec![builder.build()?];
+
+        let remaining_funds = ErgoBoxCandidateBuilder::new(
+            calc_target_balance(*num_transactions_left - 1)?,
+            ergo_tree,
+            height,
+        )
+        .build()?;
+        output_candidates.push(remaining_funds.clone());
+
+        let inputs = TxIoVec::from_vec(
+            box_selection
+                .boxes
+                .clone()
+                .into_iter()
+                .map(|bx| (bx, ContextExtension::empty()))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+
+        let prover = Wallet::trivial(vec![wallet.clone()]);
+
+        let output_candidates = TxIoVec::from_vec(output_candidates.clone()).unwrap();
+        let tx_candidate = TransactionCandidate {
+            inputs,
+            data_inputs: None,
+            output_candidates,
+        };
+        let signed_tx = prover.sign(tx_candidate)?;
+
+        *num_transactions_left -= 1;
+        Ok((token, signed_tx))
+    };
+
+    // TX 0: transfer LQ and reward tokens to a single box
+    let mut num_transactions_left = 6;
+    let target_balance = calc_target_balance(num_transactions_left)?;
+
+    let box_selector = SimpleBoxSelector::new();
+    let box_selection = box_selector.select(
+        uxtos.clone(),
+        target_balance,
+        &[reward_token_budget.clone(), initial_lq_token_deposit.clone()],
+    )?;
+
+    let mut builder = ErgoBoxCandidateBuilder::new(erg_value_per_box, addr.script()?, height);
+    builder.add_token(reward_token_budget.clone());
+    builder.add_token(initial_lq_token_deposit.clone());
+    let lq_and_reward_box_candidate = builder.build()?;
+
+    let remaining_funds = ErgoBoxCandidateBuilder::new(
+        calc_target_balance(num_transactions_left - 1)?,
+        addr.script()?,
+        height,
+    )
+    .build()?;
+
+    let output_candidates = vec![lq_and_reward_box_candidate, remaining_funds];
+
+    let inputs = TxIoVec::from_vec(
+        box_selection
+            .boxes
+            .clone()
+            .into_iter()
+            .map(|bx| (bx, ContextExtension::empty()))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+
+    let prover = Wallet::trivial(vec![wallet.clone()]);
+
+    let output_candidates = TxIoVec::from_vec(output_candidates).unwrap();
+    let tx_candidate = TransactionCandidate {
+        inputs,
+        data_inputs: None,
+        output_candidates,
+    };
+    let tx_0 = prover.sign(tx_candidate)?;
+
+    // TX 1: Mint pool NFT
+    let inputs = filter_tx_outputs(tx_0.outputs.clone());
+    let (pool_nft, signed_mint_pool_nft_tx) = mint_token(
+        inputs,
+        &mut num_transactions_left,
+        "".into(),
+        "".into(),
+        1.try_into().unwrap(),
+    )?;
+
+    // TX 2: Mint vLQ tokens
+    let inputs = filter_tx_outputs(signed_mint_pool_nft_tx.outputs.clone());
+    let (vlq_tokens, signed_mint_vlq_tokens_tx) = mint_token(
+        inputs,
+        &mut num_transactions_left,
+        "".into(),
+        "".into(),
+        MAX_VALUE.try_into().unwrap(),
+    )?;
+
+    // TX 3: Mint TMP tokens
+    let inputs = filter_tx_outputs(signed_mint_vlq_tokens_tx.outputs.clone());
+    let (tmp_tokens, signed_mint_tmp_tokens_tx) = mint_token(
+        inputs,
+        &mut num_transactions_left,
+        "".into(),
+        "".into(),
+        MAX_VALUE.try_into().unwrap(),
+    )?;
+
+    // TX 4: Create pool-input box
+    let box_with_pool_nft =
+        find_box_with_token(&signed_mint_pool_nft_tx.outputs, &pool_nft.token_id).unwrap();
+    let box_with_rewards_tokens = find_box_with_token(&tx_0.outputs, &reward_token_budget.token_id).unwrap();
+    let box_with_vlq_tokens =
+        find_box_with_token(&signed_mint_vlq_tokens_tx.outputs, &vlq_tokens.token_id).unwrap();
+    let box_with_tmp_tokens =
+        find_box_with_token(&signed_mint_tmp_tokens_tx.outputs, &tmp_tokens.token_id).unwrap();
+
+    // TODO: confirm whether this box will indeed be at position 1.
+    let box_with_remaining_funds = signed_mint_tmp_tokens_tx.outputs[1].clone();
+
+    let target_balance = calc_target_balance(num_transactions_left)?;
+    let box_selector = SimpleBoxSelector::new();
+    let box_selection = box_selector.select(
+        vec![
+            box_with_pool_nft,
+            box_with_rewards_tokens,
+            box_with_vlq_tokens,
+            box_with_tmp_tokens,
+            box_with_remaining_funds,
+        ],
+        target_balance,
+        &[
+            pool_nft.clone(),
+            reward_token_budget.clone(),
+            initial_lq_token_deposit.clone(),
+            vlq_tokens.clone(),
+            tmp_tokens.clone(),
+        ],
+    )?;
+
+    let inputs = TxIoVec::from_vec(
+        box_selection
+            .boxes
+            .clone()
+            .into_iter()
+            .map(|bx| (bx, ContextExtension::empty()))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+
+    let mut pool_init_box_builder = ErgoBoxCandidateBuilder::new(erg_value_per_box, addr.script()?, height);
+    pool_init_box_builder.add_token(pool_nft);
+    pool_init_box_builder.add_token(reward_token_budget);
+    pool_init_box_builder.add_token(initial_lq_token_deposit);
+    pool_init_box_builder.add_token(vlq_tokens);
+    pool_init_box_builder.add_token(tmp_tokens);
+    pool_init_box_builder.set_register_value(NonMandatoryRegisterId::R4, <Vec<i32>>::from(conf).into());
+    pool_init_box_builder.set_register_value(
+        NonMandatoryRegisterId::R5,
+        (conf.program_budget.amount as i64).into(),
+    );
+    pool_init_box_builder.set_register_value(
+        NonMandatoryRegisterId::R6,
+        (conf.max_rounding_error as i64).into(),
+    );
+
+    let pool_init_box = pool_init_box_builder.build()?;
+    let remaining_funds = ErgoBoxCandidateBuilder::new(
+        calc_target_balance(num_transactions_left - 1)?,
+        addr.script()?,
+        height,
+    )
+    .build()?;
+
+    let output_candidates = vec![pool_init_box, remaining_funds];
+
+    let prover = Wallet::trivial(vec![wallet.clone()]);
+
+    let output_candidates = TxIoVec::from_vec(output_candidates).unwrap();
+    let tx_candidate = TransactionCandidate {
+        inputs,
+        data_inputs: None,
+        output_candidates,
+    };
+    let pool_input_tx = prover.sign(tx_candidate)?;
+
+    // TX 5: Create first LM pool, stake bundle and redeemer out boxes
+    let inputs = filter_tx_outputs(pool_input_tx.outputs.clone());
+    let target_balance = calc_target_balance(num_transactions_left)?;
+
+    Ok(vec![
+        tx_0,
+        signed_mint_pool_nft_tx,
+        signed_mint_vlq_tokens_tx,
+        signed_mint_tmp_tokens_tx,
+        pool_input_tx,
+    ])
+}
+
+fn find_box_with_token(boxes: &Vec<ErgoBox>, token_id: &TokenId) -> Option<ErgoBox> {
+    boxes
+        .iter()
+        .find(|&bx| {
+            if let Some(tokens) = &bx.tokens {
+                tokens.iter().any(|t| t.token_id == *token_id)
+            } else {
+                false
+            }
+        })
+        .cloned()
 }
