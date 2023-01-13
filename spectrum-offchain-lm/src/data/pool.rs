@@ -23,7 +23,7 @@ use crate::data::order::{Deposit, Redeem};
 use crate::data::redeemer::{DepositOutput, RedeemOutput, RewardOutput};
 use crate::data::{AsBox, PoolId, PoolStateId};
 use crate::ergo::{NanoErg, DEFAULT_MINER_FEE, MIN_SAFE_BOX_VALUE, UNIT_VALUE};
-use crate::validators::pool_validator;
+use crate::validators::POOL_VALIDATOR;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Serialize, Deserialize)]
 pub struct ProgramConfig {
@@ -361,7 +361,7 @@ impl TryFromBox for Pool {
         let r6 = bx.get_register(NonMandatoryRegisterId::R6.into());
         let r7 = bx.get_register(NonMandatoryRegisterId::R7.into());
         if let Some(tokens) = &bx.tokens {
-            if tokens.len() == 5 && pool_validator() == bx.ergo_tree {
+            if tokens.len() == 5 && *POOL_VALIDATOR == bx.ergo_tree {
                 let pool_nft = tokens.get(0).unwrap().token_id;
                 let budget_rem = tokens.get(1)?;
                 let lq = tokens.get(2)?;
@@ -425,7 +425,7 @@ impl IntoBoxCandidate for Pool {
         .unwrap();
         ErgoBoxCandidate {
             value: self.erg_value.into(),
-            ergo_tree: pool_validator(),
+            ergo_tree: POOL_VALIDATOR.clone(),
             tokens: Some(tokens),
             additional_registers: registers,
             creation_height: height,
@@ -527,7 +527,7 @@ mod tests {
             redeemer_prop: trivial_prop(),
             lq: deposit,
             erg_value: NanoErg::from(100000000000u64),
-            expected_num_epochs: 10,
+            expected_num_epochs: 9,
         };
         let ctx = ExecutionContext {
             height: 10,
@@ -627,38 +627,38 @@ mod tests {
     #[test]
     fn parse_pool() {
         let sample_json = r#"{
-            "boxId": "caecce96d5e74aeda606022b7c57f20cc9543496a1de78023361d58cc7d90bd7",
+            "boxId": "c93a73a6caf9cd627312ca786b9f2a1f047fad11b102cbb54d6457eb46c69f64",
             "value": 1250000,
-            "ergoTree": "19e9041f04000402040204040404040604060408040804040402040004000402040204000400040a0500040204020500050004020402040605000500040205000500d81bd601b2a5730000d602db63087201d603db6308a7d604e4c6a70410d605e4c6a70505d606e4c6a70605d607b27202730100d608b27203730200d609b27202730300d60ab27203730400d60bb27202730500d60cb27203730600d60db27202730700d60eb27203730800d60f8c720a02d610998c720902720fd6118c720802d612b27204730900d6139a99a37212730ad614b27204730b00d6159d72137214d61695919e72137214730c9a7215730d7215d617b27204730e00d6187e721705d6199d72057218d61a998c720b028c720c02d61b998c720d028c720e02d1ededededed93b27202730f00b27203731000ededed93e4c672010410720493e4c672010505720593e4c6720106057206928cc77201018cc7a70193c27201c2a7ededed938c7207018c720801938c7209018c720a01938c720b018c720c01938c720d018c720e0193b172027311959172107312eded929a997205721172069c7e9995907216721772169a721773137314057219937210f0721a939c7210997218a273157e721605f0721b958f72107316ededec929a997205721172069c7e9995907216721772169a72177317731805721992a39a9a72129c72177214b2720473190093721af0721092721b959172167217731a9c721a997218a2731b7e721605d801d61ce4c672010704edededed90721c997216731c909972119c7e997217721c0572199a7219720693f0998c72070272117d9d9c7e7219067e721b067e720f0605937210731d93721a731e",
+            "ergoTree": "19e9041f04000402040204040404040604060408040804040402040004000402040204000400040a0500040204020500050004020402040605000500040205000500d81bd601b2a5730000d602db63087201d603db6308a7d604e4c6a70410d605e4c6a70505d606e4c6a70605d607b27202730100d608b27203730200d609b27202730300d60ab27203730400d60bb27202730500d60cb27203730600d60db27202730700d60eb27203730800d60f8c720a02d610998c720902720fd6118c720802d612b27204730900d6139a99a37212730ad614b27204730b00d6159d72137214d61695919e72137214730c9a7215730d7215d617b27204730e00d6187e721705d6199d72057218d61a998c720b028c720c02d61b998c720d028c720e02d1ededededed93b27202730f00b27203731000ededed93e4c672010410720493e4c672010505720593e4c6720106057206928cc77201018cc7a70193c27201c2a7ededed938c7207018c720801938c7209018c720a01938c720b018c720c01938c720d018c720e0193b172027311959172107312eded929a997205721172069c7e9995907216721772169a721773137314057219937210f0721a939c7210997218a273157e721605f0721b958f72107316ededec929a997205721172069c7e9995907216721772169a72177317731805721992a39a9a72129c72177214b2720473190093721af0721092721b959172167217731a9c721a997218a2731b7e721605d801d61ce4c672010704edededed90721c997216731c909972119c7e997217721c0572199a72197206907ef0998c7207027211069d9c7e7219067e721b067e720f06937210731d93721a731e",
             "assets": [
                 {
-                    "tokenId": "6e61f1352cebd8e2cd05883b2c53939f6f41cc6b7e17f90ccf8c61e72caacd64",
+                    "tokenId": "570646a6c516320760db284d45fe587865fbccb9597f1777c128e0128bca967e",
                     "amount": 1
                 },
                 {
                     "tokenId": "0779ec04f2fae64e87418a1ad917639d4668f78484f45df962b0dec14a2591d2",
-                    "amount": 10000
+                    "amount": 50000
                 },
                 {
                     "tokenId": "98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45",
-                    "amount": 100
+                    "amount": 367
                 },
                 {
                     "tokenId": "3fdce3da8d364f13bca60998c20660c79c19923f44e141df01349d2e63651e86",
-                    "amount": 10000000
+                    "amount": 99999833
                 },
                 {
                     "tokenId": "c256908dd9fd477bde350be6a41c0884713a1b1d589357ae731763455ef28c10",
-                    "amount": 149998500
+                    "amount": 999996497
                 }
             ],
-            "creationHeight": 905190,
+            "creationHeight": 916565,
             "additionalRegisters": {
-                "R4": "1004c8011eccbf6e14",
-                "R5": "05c09a0c",
+                "R4": "1004f40314e0f06fd00f",
+                "R5": "05a08d06",
                 "R6": "05d00f"
             },
-            "transactionId": "e1e9dc31e81434545b0d857f788a0446282e38ce779255b5bea5e2a33162f021",
+            "transactionId": "54056ca40c5c386205bc2c3850d40422d225a119b037158a6e24b27a95962c15",
             "index": 0
         }"#;
         let bx: ErgoBox = serde_json::from_str(sample_json).unwrap();

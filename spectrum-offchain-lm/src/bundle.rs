@@ -127,8 +127,8 @@ mod tests {
     use crate::data::PoolId;
     use crate::{
         data::{AsBox, BundleStateId},
-        validators::bundle_validator,
     };
+    use crate::validators::BUNDLE_VALIDATOR;
 
     use super::{rocksdb::BundleRepoRocksDB, BundleRepo, StakingBundle};
 
@@ -282,7 +282,7 @@ mod tests {
         for _ in 0..num {
             let value = force_any_val::<BoxValue>();
             let height = force_any_val::<u32>();
-            let ergo_tree = bundle_validator();
+            let ergo_tree = BUNDLE_VALIDATOR.clone();
 
             let mut builder = ErgoBoxCandidateBuilder::new(value, ergo_tree, height);
 

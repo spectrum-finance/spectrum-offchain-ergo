@@ -31,7 +31,7 @@ use crate::data::funding::DistributionFunding;
 use crate::data::pool::{Pool, PoolOperationError};
 use crate::ergo::NanoErg;
 use crate::executor::{ConsumeExtra, ProduceExtra, RunOrder};
-use crate::validators::{deposit_validator_temp, redeem_validator_temp};
+use crate::validators::{DEPOSIT_TEMPLATE, REDEEM_TEMPLATE};
 
 #[derive(Debug, Eq, PartialEq, Clone, Hash, Serialize, Deserialize)]
 pub struct Compound {
@@ -300,7 +300,7 @@ impl RunOrder for AsBox<Deposit> {
 impl TryFromBox for Deposit {
     fn try_from_box(bx: ErgoBox) -> Option<Deposit> {
         if let Some(ref tokens) = bx.tokens {
-            if bx.ergo_tree.template_bytes().ok()? == deposit_validator_temp() && tokens.len() == 1 {
+            if bx.ergo_tree.template_bytes().ok()? == *DEPOSIT_TEMPLATE && tokens.len() == 1 {
                 let order_id = OrderId::from(bx.box_id());
                 let pool_id = Digest32::try_from(
                     bx.ergo_tree
@@ -459,7 +459,7 @@ impl RunOrder for AsBox<Redeem> {
 impl TryFromBox for Redeem {
     fn try_from_box(bx: ErgoBox) -> Option<Redeem> {
         if let Some(ref tokens) = bx.tokens {
-            if bx.ergo_tree.template_bytes().ok()? == redeem_validator_temp() && tokens.len() == 1 {
+            if bx.ergo_tree.template_bytes().ok()? == *REDEEM_TEMPLATE && tokens.len() == 1 {
                 let order_id = OrderId::from(bx.box_id());
                 let pool_id = PoolId::from(TokenId::from(
                     Digest32::try_from(

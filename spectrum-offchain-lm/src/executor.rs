@@ -181,7 +181,6 @@ where
                 match run_result {
                     Ok((tx, next_pool, next_bundles, residual_funding)) => {
                         trace!(target: "offchain_lm", "Order [{}] successfully evaluated", ord.get_self_ref());
-                        trace!(target: "offchain_lm", "Transaction candidate for order [{}] is [{:?}]", ord.get_self_ref(), tx);
                         match self.prover.sign(tx) {
                             Ok(tx) => {
                                 trace!(target: "offchain_lm", "Transaction ID for order [{}] is [{}]", ord.get_self_ref(), tx.id());

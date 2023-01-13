@@ -17,7 +17,7 @@ use crate::data::assets::{BundleKey, Tmp, VirtLq};
 use crate::data::pool::ProgramConfig;
 use crate::data::{BundleId, BundleStateId, PoolId};
 use crate::ergo::{MAX_VALUE, NanoErg};
-use crate::validators::bundle_validator;
+use crate::validators::BUNDLE_VALIDATOR;
 
 /// Prototype of StakeingBundle which guards virtual liquidity and temporal tokens.
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -66,7 +66,7 @@ impl IntoBoxCandidate for StakingBundleProto {
         .unwrap();
         ErgoBoxCandidate {
             value: BoxValue::from(self.erg_value),
-            ergo_tree: bundle_validator(),
+            ergo_tree: BUNDLE_VALIDATOR.clone(),
             tokens: Some(tokens),
             additional_registers: registers,
             creation_height: height,
@@ -185,7 +185,7 @@ impl IntoBoxCandidate for StakingBundle {
 impl TryFromBox for StakingBundle {
     fn try_from_box(bx: ErgoBox) -> Option<StakingBundle> {
         if let Some(ref tokens) = bx.tokens {
-            if tokens.len() == 3 && bx.ergo_tree == bundle_validator() {
+            if tokens.len() == 3 && bx.ergo_tree == *BUNDLE_VALIDATOR {
                 let redeemer_prop = ErgoTree::sigma_parse_bytes(
                     &bx.get_register(NonMandatoryRegisterId::R4.into())?
                         .v
