@@ -14,9 +14,9 @@ use spectrum_offchain::domain::{TypedAsset, TypedAssetAmount};
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 
 use crate::data::assets::{BundleKey, Tmp, VirtLq};
-use crate::data::pool::ProgramConfig;
+use crate::data::pool::{ProgramConfig, INIT_EPOCH_IX};
 use crate::data::{BundleId, BundleStateId, PoolId};
-use crate::ergo::{MAX_VALUE, NanoErg};
+use crate::ergo::{NanoErg, MAX_VALUE};
 use crate::validators::BUNDLE_VALIDATOR;
 
 /// Prototype of StakeingBundle which guards virtual liquidity and temporal tokens.
@@ -231,6 +231,12 @@ impl IndexedBundle<StakingBundle> {
         Self {
             init_epoch_ix: conf.epoch_num - (bundle.tmp.amount / bundle.vlq.amount) as u32 + 1,
             bundle,
+        }
+    }
+    pub fn init(bundle: StakingBundle) -> Self {
+        Self {
+            bundle,
+            init_epoch_ix: INIT_EPOCH_IX,
         }
     }
 }

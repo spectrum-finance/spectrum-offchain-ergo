@@ -47,3 +47,8 @@ loggers:
     appenders:
       - stdout
     additive: false
+  pool:
+    level: trace
+    appenders:
+      - stdout
+    additive: false

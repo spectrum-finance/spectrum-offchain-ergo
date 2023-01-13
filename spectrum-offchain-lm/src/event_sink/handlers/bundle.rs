@@ -7,15 +7,16 @@ use futures::{Sink, SinkExt};
 use tokio::sync::Mutex;
 
 use spectrum_offchain::combinators::EitherOrBoth;
-use spectrum_offchain::data::unique_entity::{Confirmed, StateUpdate};
 use spectrum_offchain::data::OnChainEntity;
+use spectrum_offchain::data::unique_entity::{Confirmed, StateUpdate};
 use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 use spectrum_offchain::event_sink::types::EventHandler;
 use spectrum_offchain::event_source::data::LedgerTxEvent;
 
 use crate::bundle::BundleRepo;
-use crate::data::bundle::{IndexedBundle, IndexedStakingBundle, StakingBundle};
 use crate::data::{AsBox, BundleId, BundleStateId};
+use crate::data::bundle::{IndexedBundle, IndexedStakingBundle, StakingBundle};
+use crate::data::pool::INIT_EPOCH_IX;
 use crate::program::ProgramRepo;
 
 pub struct ConfirmedBundleUpdateHadler<TSink, TBundles, TProgs> {
@@ -25,9 +26,9 @@ pub struct ConfirmedBundleUpdateHadler<TSink, TBundles, TProgs> {
 }
 
 impl<TSink, TBundles, TProgs> ConfirmedBundleUpdateHadler<TSink, TBundles, TProgs>
-where
-    TBundles: BundleRepo,
-    TProgs: ProgramRepo,
+    where
+        TBundles: BundleRepo,
+        TProgs: ProgramRepo,
 {
     async fn extract_transitions(
         &self,
@@ -50,11 +51,13 @@ where
             let programs = self.programs.lock().await;
             for bx in &tx.outputs {
                 if let Some(bundle) = StakingBundle::try_from_box(bx.clone()) {
-                    if let Some(prog) = programs.get(bundle.pool_id).await {
-                        let indexed_bundle = IndexedBundle::new(bundle, prog);
-                        created_bundles
-                            .insert(indexed_bundle.get_self_ref(), AsBox(bx.clone(), indexed_bundle));
-                    }
+                    let indexed_bundle = if let Some(prog) = programs.get(bundle.pool_id).await {
+                        IndexedBundle::new(bundle, prog)
+                    } else { // handle initialization bundle
+                        IndexedBundle::init(bundle)
+                    };
+                    created_bundles
+                        .insert(indexed_bundle.get_self_ref(), AsBox(bx.clone(), indexed_bundle));
                 }
             }
         }
@@ -72,13 +75,13 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait(? Send)]
 impl<TSink, TBundles, TProgs> EventHandler<LedgerTxEvent>
-    for ConfirmedBundleUpdateHadler<TSink, TBundles, TProgs>
-where
-    TSink: Sink<Confirmed<StateUpdate<AsBox<IndexedStakingBundle>>>> + Unpin,
-    TBundles: BundleRepo,
-    TProgs: ProgramRepo,
+for ConfirmedBundleUpdateHadler<TSink, TBundles, TProgs>
+    where
+        TSink: Sink<Confirmed<StateUpdate<AsBox<IndexedStakingBundle>>>> + Unpin,
+        TBundles: BundleRepo,
+        TProgs: ProgramRepo,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
         let res = match ev {

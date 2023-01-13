@@ -6,6 +6,7 @@ use ergo_lib::ergotree_ir::chain::ergo_box::{
 };
 use ergo_lib::ergotree_ir::chain::token::Token;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
+use log::trace;
 use nonempty::NonEmpty;
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +25,8 @@ use crate::data::redeemer::{DepositOutput, RedeemOutput, RewardOutput};
 use crate::data::{AsBox, PoolId, PoolStateId};
 use crate::ergo::{NanoErg, DEFAULT_MINER_FEE, MIN_SAFE_BOX_VALUE, UNIT_VALUE};
 use crate::validators::POOL_VALIDATOR;
+
+pub const INIT_EPOCH_IX: u32 = 1;
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Serialize, Deserialize)]
 pub struct ProgramConfig {
@@ -279,8 +282,11 @@ impl Pool {
         let mut accumulated_cost = NanoErg::from(0u64);
         for mut bundle in &mut next_bundles {
             let epochs_burned = (bundle.tmp.amount / bundle.vlq.amount).saturating_sub(epochs_remain as u64);
+            trace!(target: "pool", "Bundle: [{}], epochs_remain: [{}], epochs_burned: [{}]", bundle.state_id, epochs_remain, epochs_burned);
             if epochs_burned < 1 {
-                return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned(format!("Already compounded"))));
+                return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned(
+                    format!("Already compounded"),
+                )));
             }
             let reward_amt =
                 (next_pool.epoch_alloc() as u128 * bundle.vlq.amount as u128 * epochs_burned as u128

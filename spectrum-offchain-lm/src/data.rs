@@ -8,8 +8,8 @@ use ergo_lib::ergo_chain_types::Digest32;
 use ergo_lib::ergotree_ir::chain::ergo_box::{BoxId, ErgoBox};
 use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
-use serde::ser::SerializeTupleStruct;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use serde::ser::SerializeTupleStruct;
 use type_equalities::IsEqual;
 
 use spectrum_offchain::data::{Has, OnChainEntity, OnChainOrder};
@@ -126,13 +126,19 @@ impl From<BundleId> for BundleIdBytes {
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, From, Serialize, Deserialize)]
 pub struct BundleStateId(BoxId);
 
+impl Display for BundleStateId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&Digest32::from(self.0), f)
+    }
+}
+
 /// Something that is represented as an `ErgoBox` on-chain.
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct AsBox<T>(pub ErgoBox, pub T);
 
 impl<T> Hash for AsBox<T>
-where
-    T: Hash,
+    where
+        T: Hash,
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(&*self.0.sigma_serialize_bytes().unwrap());
@@ -141,12 +147,12 @@ where
 }
 
 impl<T> Serialize for AsBox<T>
-where
-    T: Serialize,
+    where
+        T: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
+        where
+            S: Serializer,
     {
         let mut serde_state = match serializer.serialize_tuple_struct("AsBox", 2usize) {
             Ok(val) => val,
@@ -171,23 +177,23 @@ where
 }
 
 impl<'de, T> Deserialize<'de> for AsBox<T>
-where
-    T: Deserialize<'de>,
+    where
+        T: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
     {
         struct Visitor<'de, T>
-        where
-            T: Deserialize<'de>,
+            where
+                T: Deserialize<'de>,
         {
             marker: PhantomData<AsBox<T>>,
             lifetime: PhantomData<&'de ()>,
         }
         impl<'de, T> de::Visitor<'de> for Visitor<'de, T>
-        where
-            T: Deserialize<'de>,
+            where
+                T: Deserialize<'de>,
         {
             type Value = AsBox<T>;
             fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
@@ -195,8 +201,8 @@ where
             }
             #[inline]
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: de::SeqAccess<'de>,
+                where
+                    A: de::SeqAccess<'de>,
             {
                 let field0 = match match seq.next_element::<Vec<u8>>() {
                     Ok(val) => val,
@@ -241,15 +247,15 @@ where
 }
 
 impl<T> ConsumeExtra for AsBox<T>
-where
-    T: ConsumeExtra,
+    where
+        T: ConsumeExtra,
 {
     type TExtraIn = T::TExtraIn;
 }
 
 impl<T> ProduceExtra for AsBox<T>
-where
-    T: ProduceExtra,
+    where
+        T: ProduceExtra,
 {
     type TExtraOut = T::TExtraOut;
 }
@@ -260,8 +266,8 @@ impl<T> AsBox<T> {
     }
 
     pub fn map<F, U>(self, f: F) -> AsBox<U>
-    where
-        F: FnOnce(T) -> U,
+        where
+            F: FnOnce(T) -> U,
     {
         let AsBox(bx, t) = self;
         AsBox(bx, f(t))
@@ -269,8 +275,8 @@ impl<T> AsBox<T> {
 }
 
 impl<T, K> Has<K> for AsBox<T>
-where
-    T: Has<K>,
+    where
+        T: Has<K>,
 {
     fn get<U: IsEqual<K>>(&self) -> K {
         self.1.get::<K>()
@@ -278,8 +284,8 @@ where
 }
 
 impl<T> TryFromBox for AsBox<T>
-where
-    T: TryFromBox,
+    where
+        T: TryFromBox,
 {
     fn try_from_box(bx: ErgoBox) -> Option<AsBox<T>> {
         T::try_from_box(bx.clone()).map(|x| AsBox(bx, x))
@@ -287,8 +293,8 @@ where
 }
 
 impl<T> OnChainEntity for AsBox<T>
-where
-    T: OnChainEntity,
+    where
+        T: OnChainEntity,
 {
     type TEntityId = T::TEntityId;
     type TStateId = T::TStateId;
@@ -303,8 +309,8 @@ where
 }
 
 impl<T> OnChainOrder for AsBox<T>
-where
-    T: OnChainOrder,
+    where
+        T: OnChainOrder,
 {
     type TOrderId = T::TOrderId;
     type TEntityId = T::TEntityId;
