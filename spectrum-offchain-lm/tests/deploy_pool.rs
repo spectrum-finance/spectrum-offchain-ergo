@@ -10,18 +10,24 @@ use ergo_lib::ergotree_ir::chain::ergo_box::{
 };
 use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount, TokenId};
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
-use ergo_lib::ergotree_ir::serialization::SigmaParsingError;
+use ergo_lib::ergotree_ir::serialization::{SigmaParsingError, SigmaSerializable};
 use ergo_lib::wallet::box_selector::{BoxSelector, BoxSelectorError, SimpleBoxSelector};
-use ergo_lib::wallet::miner_fee::MINERS_FEE_ADDRESS;
+use ergo_lib::wallet::miner_fee::{MINERS_FEE_ADDRESS, MINERS_FEE_BASE16_BYTES};
 use ergo_lib::wallet::signing::{TransactionContext, TxSigningError};
 use ergo_lib::wallet::tx_builder::{TxBuilder, TxBuilderError};
 use isahc::{AsyncReadResponseExt, HttpClient};
 use serde::{Deserialize, Serialize};
+use spectrum_offchain::domain::{TypedAsset, TypedAssetAmount};
+use spectrum_offchain::event_sink::handlers::types::IntoBoxCandidate;
+use spectrum_offchain_lm::data::bundle::{StakingBundleProto, BUNDLE_KEY_AMOUNT_USER};
+use spectrum_offchain_lm::data::redeemer::DepositOutput;
+use spectrum_offchain_lm::data::PoolId;
+use spectrum_offchain_lm::validators::{pool_validator, redeem_validator_temp};
 use thiserror::Error;
 
 use ergo_chain_sync::client::types::{with_path, Url};
 use spectrum_offchain::transaction::TransactionCandidate;
-use spectrum_offchain_lm::data::pool::ProgramConfig;
+use spectrum_offchain_lm::data::pool::{Pool, ProgramConfig};
 use spectrum_offchain_lm::ergo::{DEFAULT_MINER_FEE, MAX_VALUE, MIN_SAFE_BOX_VALUE};
 use spectrum_offchain_lm::prover::{SigmaProver, Wallet, WalletSecret};
 
@@ -79,13 +85,10 @@ async fn deploy_pool(
     change_address: Address,
     height: u32,
     initial_lq_token_deposit: Token,
+    max_miner_fee: u64,
 ) -> Result<Vec<Transaction>, Error> {
     let addr = Address::P2Pk(DlogProverInput::from(wallet.clone()).public_image());
     let uxtos = explorer.get_utxos(&addr).await;
-    let reward_token_budget = Token {
-        token_id: conf.program_budget.token_id,
-        amount: conf.program_budget.amount.try_into().unwrap(),
-    };
     deploy_pool_chain_transaction(
         conf,
         wallet,
@@ -94,8 +97,8 @@ async fn deploy_pool(
         erg_value_per_box,
         change_address,
         height,
-        reward_token_budget,
         initial_lq_token_deposit,
+        max_miner_fee,
     )
 }
 
@@ -107,9 +110,13 @@ fn deploy_pool_chain_transaction(
     erg_value_per_box: BoxValue,
     change_address: Address,
     height: u32,
-    reward_token_budget: Token,
     initial_lq_token_deposit: Token,
+    max_miner_fee: u64,
 ) -> Result<Vec<Transaction>, Error> {
+    let reward_token_budget = Token {
+        token_id: conf.program_budget.token_id,
+        amount: conf.program_budget.amount.try_into().unwrap(),
+    };
     let addr = Address::P2Pk(DlogProverInput::from(wallet.clone()).public_image());
     let guard = addr.script()?;
     // We need to create a chain of 6 transactions:
@@ -197,7 +204,7 @@ fn deploy_pool_chain_transaction(
         Ok((token, signed_tx))
     };
 
-    // TX 0: transfer LQ and reward tokens to a single box
+    // TX 0: transfer LQ and reward tokens to a single box -----------------------------------------
     let mut num_transactions_left = 6;
     let target_balance = calc_target_balance(num_transactions_left)?;
 
@@ -242,7 +249,7 @@ fn deploy_pool_chain_transaction(
     };
     let tx_0 = prover.sign(tx_candidate)?;
 
-    // TX 1: Mint pool NFT
+    // TX 1: Mint pool NFT ------------------------------------------------------------------------
     let inputs = filter_tx_outputs(tx_0.outputs.clone());
     let (pool_nft, signed_mint_pool_nft_tx) = mint_token(
         inputs,
@@ -252,7 +259,7 @@ fn deploy_pool_chain_transaction(
         1.try_into().unwrap(),
     )?;
 
-    // TX 2: Mint vLQ tokens
+    // TX 2: Mint vLQ tokens -----------------------------------------------------------------------
     let inputs = filter_tx_outputs(signed_mint_pool_nft_tx.outputs.clone());
     let (vlq_tokens, signed_mint_vlq_tokens_tx) = mint_token(
         inputs,
@@ -262,7 +269,7 @@ fn deploy_pool_chain_transaction(
         MAX_VALUE.try_into().unwrap(),
     )?;
 
-    // TX 3: Mint TMP tokens
+    // TX 3: Mint TMP tokens -----------------------------------------------------------------------
     let inputs = filter_tx_outputs(signed_mint_vlq_tokens_tx.outputs.clone());
     let (tmp_tokens, signed_mint_tmp_tokens_tx) = mint_token(
         inputs,
@@ -272,7 +279,7 @@ fn deploy_pool_chain_transaction(
         MAX_VALUE.try_into().unwrap(),
     )?;
 
-    // TX 4: Create pool-input box
+    // TX 4: Create pool-input box -----------------------------------------------------------------
     let box_with_pool_nft =
         find_box_with_token(&signed_mint_pool_nft_tx.outputs, &pool_nft.token_id).unwrap();
     let box_with_rewards_tokens = find_box_with_token(&tx_0.outputs, &reward_token_budget.token_id).unwrap();
@@ -281,7 +288,6 @@ fn deploy_pool_chain_transaction(
     let box_with_tmp_tokens =
         find_box_with_token(&signed_mint_tmp_tokens_tx.outputs, &tmp_tokens.token_id).unwrap();
 
-    // TODO: confirm whether this box will indeed be at position 1.
     let box_with_remaining_funds = signed_mint_tmp_tokens_tx.outputs[1].clone();
 
     let target_balance = calc_target_balance(num_transactions_left)?;
@@ -315,11 +321,11 @@ fn deploy_pool_chain_transaction(
     .unwrap();
 
     let mut pool_init_box_builder = ErgoBoxCandidateBuilder::new(erg_value_per_box, addr.script()?, height);
-    pool_init_box_builder.add_token(pool_nft);
-    pool_init_box_builder.add_token(reward_token_budget);
-    pool_init_box_builder.add_token(initial_lq_token_deposit);
-    pool_init_box_builder.add_token(vlq_tokens);
-    pool_init_box_builder.add_token(tmp_tokens);
+    pool_init_box_builder.add_token(pool_nft.clone());
+    pool_init_box_builder.add_token(reward_token_budget.clone());
+    pool_init_box_builder.add_token(initial_lq_token_deposit.clone());
+    pool_init_box_builder.add_token(vlq_tokens.clone());
+    pool_init_box_builder.add_token(tmp_tokens.clone());
     pool_init_box_builder.set_register_value(NonMandatoryRegisterId::R4, <Vec<i32>>::from(conf).into());
     pool_init_box_builder.set_register_value(
         NonMandatoryRegisterId::R5,
@@ -350,9 +356,109 @@ fn deploy_pool_chain_transaction(
     };
     let pool_input_tx = prover.sign(tx_candidate)?;
 
-    // TX 5: Create first LM pool, stake bundle and redeemer out boxes
+    // TX 5: Create first LM pool, stake bundle and redeemer out boxes -----------------------------
     let inputs = filter_tx_outputs(pool_input_tx.outputs.clone());
     let target_balance = calc_target_balance(num_transactions_left)?;
+
+    let box_selector = SimpleBoxSelector::new();
+    let box_selection = box_selector.select(
+        inputs,
+        target_balance,
+        &[
+            pool_nft.clone(),
+            reward_token_budget.clone(),
+            initial_lq_token_deposit.clone(),
+            vlq_tokens.clone(),
+            tmp_tokens.clone(),
+        ],
+    )?;
+
+    let inputs = TxIoVec::from_vec(
+        box_selection
+            .boxes
+            .clone()
+            .into_iter()
+            .map(|bx| (bx, ContextExtension::empty()))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+
+    let lq_token_amount = *initial_lq_token_deposit.amount.as_u64();
+    let vlq_token_amount = MAX_VALUE - lq_token_amount;
+
+    // TODO: set proper value
+    let num_epochs_to_delegate = 100;
+    let tmp_token_amount = MAX_VALUE - lq_token_amount * num_epochs_to_delegate;
+    // Build LM pool box output candidate
+    let pool = Pool {
+        pool_id: PoolId::from(pool_nft.token_id),
+        budget_rem: TypedAssetAmount::new(
+            reward_token_budget.token_id.clone(),
+            *reward_token_budget.amount.as_u64(),
+        ),
+        reserves_lq: TypedAssetAmount::new(
+            initial_lq_token_deposit.token_id,
+            *initial_lq_token_deposit.amount.as_u64(),
+        ),
+        reserves_vlq: TypedAssetAmount::new(vlq_tokens.token_id.clone(), vlq_token_amount),
+        reserves_tmp: TypedAssetAmount::new(tmp_tokens.token_id.clone(), tmp_token_amount),
+        epoch_ix: None,
+        conf,
+        erg_value: erg_value_per_box.into(),
+    };
+
+    let lm_pool_box_candidate = pool.into_candidate(height);
+
+    // Build redeemer out candidate
+    let redeemer_prop = ErgoTree::sigma_parse_bytes(&redeem_validator_temp())?
+        .with_constant(2, redeem_validator_temp().into())
+        .unwrap()
+        .with_constant(3, initial_lq_token_deposit.token_id.into())
+        .unwrap()
+        .with_constant(4, (*initial_lq_token_deposit.amount.as_u64() as i64).into())
+        .unwrap()
+        .with_constant(6, MINERS_FEE_BASE16_BYTES.as_bytes().to_vec().into())
+        .unwrap()
+        .with_constant(9, (max_miner_fee as i64).into())
+        .unwrap();
+
+    let bundle_key_id: TokenId = inputs.first().0.box_id().into();
+
+    let deposit_output = DepositOutput {
+        bundle_key: TypedAssetAmount::new(bundle_key_id, BUNDLE_KEY_AMOUNT_USER),
+        redeemer_prop: redeemer_prop.clone(),
+        erg_value: erg_value_per_box.into(),
+    };
+
+    let deposit_output_candidate = deposit_output.into_candidate(height);
+
+    // Build staking bundle candidate
+
+    let staking_bundle = StakingBundleProto {
+        bundle_key_id: TypedAsset::new(bundle_key_id),
+        pool_id: PoolId::from(pool_nft.token_id),
+        vlq: TypedAssetAmount::new(vlq_tokens.token_id, lq_token_amount),
+        tmp: TypedAssetAmount::new(tmp_tokens.token_id, lq_token_amount * num_epochs_to_delegate),
+        redeemer_prop,
+        erg_value: erg_value_per_box.into(),
+    };
+    let staking_bundle_candidate = staking_bundle.into_candidate(height);
+
+    let output_candidates = vec![
+        lm_pool_box_candidate,
+        deposit_output_candidate,
+        staking_bundle_candidate,
+    ];
+
+    let prover = Wallet::trivial(vec![wallet.clone()]);
+
+    let output_candidates = TxIoVec::from_vec(output_candidates).unwrap();
+    let tx_candidate = TransactionCandidate {
+        inputs,
+        data_inputs: None,
+        output_candidates,
+    };
+    let init_pool_tx = prover.sign(tx_candidate)?;
 
     Ok(vec![
         tx_0,
@@ -360,6 +466,7 @@ fn deploy_pool_chain_transaction(
         signed_mint_vlq_tokens_tx,
         signed_mint_tmp_tokens_tx,
         pool_input_tx,
+        init_pool_tx,
     ])
 }
 
