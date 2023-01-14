@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use log::trace;
 use tokio::sync::Mutex;
 
 use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Traced};
@@ -12,7 +13,7 @@ use crate::data::{AsBox, BundleId, BundleStateId, PoolId};
 pub mod process;
 pub mod rocksdb;
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait BundleRepo {
     /// Select bundles corresponding to the pool with given id that are eligible for rewards in
     /// epoch `epoch_ix`.
@@ -35,6 +36,68 @@ pub trait BundleRepo {
     async fn get_last_predicted(&self, id: BundleId) -> Option<Predicted<AsBox<StakingBundle>>>;
     /// Get state id preceding given predicted state.
     async fn get_prediction_predecessor(&self, id: BundleStateId) -> Option<BundleStateId>;
+}
+
+pub struct BundleRepoTracing<R> {
+    inner: R,
+}
+
+impl<B> BundleRepoTracing<B> {
+    pub fn wrap(backlog: B) -> Self {
+        Self { inner: backlog }
+    }
+}
+
+#[async_trait(?Send)]
+impl<R> BundleRepo for BundleRepoTracing<R>
+where
+    R: BundleRepo,
+{
+    async fn select(&self, pool_id: PoolId, epoch_ix: u32) -> Vec<BundleId> {
+        trace!(target: "bundles", "select(pool_id: {}, epoch_ix: {})", pool_id, epoch_ix);
+        let res = self.inner.select(pool_id, epoch_ix).await;
+        trace!(target: "bundles", "select(pool_id: {}, epoch_ix: {}) -> {:?}", pool_id, epoch_ix, res);
+        res
+    }
+
+    async fn may_exist(&self, sid: BundleStateId) -> bool {
+        self.inner.may_exist(sid).await
+    }
+
+    async fn get_state(&self, state_id: BundleStateId) -> Option<AsBox<IndexedStakingBundle>> {
+        self.inner.get_state(state_id).await
+    }
+
+    async fn invalidate(&self, state_id: BundleStateId) {
+        trace!(target: "bundles", "invalidate(state_id: {})", state_id);
+        self.inner.invalidate(state_id).await
+    }
+
+    async fn eliminate(&self, bundle: IndexedStakingBundle) {
+        trace!(target: "bundles", "eliminate(bundle: {:?})", bundle.bundle.bundle_id());
+        self.inner.eliminate(bundle).await
+    }
+
+    async fn put_confirmed(&self, bundle: Confirmed<AsBox<IndexedStakingBundle>>) {
+        trace!(target: "bundles", "put_confirmed(bundle: {:?})", bundle.0.1);
+        self.inner.put_confirmed(bundle).await
+    }
+
+    async fn put_predicted(&self, bundle: Traced<Predicted<AsBox<IndexedStakingBundle>>>) {
+        self.inner.put_predicted(bundle).await
+    }
+
+    async fn get_last_confirmed(&self, id: BundleId) -> Option<Confirmed<AsBox<StakingBundle>>> {
+        self.inner.get_last_confirmed(id).await
+    }
+
+    async fn get_last_predicted(&self, id: BundleId) -> Option<Predicted<AsBox<StakingBundle>>> {
+        self.inner.get_last_predicted(id).await
+    }
+
+    async fn get_prediction_predecessor(&self, id: BundleStateId) -> Option<BundleStateId> {
+        self.inner.get_prediction_predecessor(id).await
+    }
 }
 
 pub async fn resolve_bundle_state<TRepo>(
@@ -71,11 +134,7 @@ where
 }
 
 #[allow(clippy::await_holding_lock)]
-async fn is_linking<TRepo>(
-    sid: BundleStateId,
-    anchoring_sid: BundleStateId,
-    repo: Arc<Mutex<TRepo>>,
-) -> bool
+async fn is_linking<TRepo>(sid: BundleStateId, anchoring_sid: BundleStateId, repo: Arc<Mutex<TRepo>>) -> bool
 where
     TRepo: BundleRepo,
 {
@@ -125,9 +184,7 @@ mod tests {
 
     use crate::data::bundle::{IndexedBundle, IndexedStakingBundle};
     use crate::data::PoolId;
-    use crate::{
-        data::{AsBox, BundleStateId},
-    };
+    use crate::data::{AsBox, BundleStateId};
     use crate::validators::BUNDLE_VALIDATOR;
 
     use super::{rocksdb::BundleRepoRocksDB, BundleRepo, StakingBundle};

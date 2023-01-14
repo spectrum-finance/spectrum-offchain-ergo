@@ -32,6 +32,11 @@ loggers:
     appenders:
       - stdout
     additive: false
+  bundles:
+    level: trace
+    appenders:
+      - stdout
+    additive: false
   scheduler:
     level: trace
     appenders:

@@ -181,13 +181,6 @@ impl Pool {
             redeemer_prop: deposit.redeemer_prop,
             erg_value: MIN_SAFE_BOX_VALUE,
         };
-        let min_value = bundle.erg_value + user_output.erg_value + MIN_SAFE_BOX_VALUE;
-        if deposit.erg_value < min_value {
-            return Err(PoolOperationError::Permanent(PermanentError::LowValue {
-                expected: min_value.into(),
-                provided: deposit.erg_value.into(),
-            }));
-        }
         let miner_output = MinerOutput {
             erg_value: DEFAULT_MINER_FEE,
         };
@@ -199,10 +192,7 @@ impl Pool {
         if remainder_erg >= MIN_SAFE_BOX_VALUE {
             let executor_output = ExecutorOutput {
                 executor_prop: ctx.executor_prop,
-                erg_value: deposit.erg_value
-                    - bundle.erg_value
-                    - user_output.erg_value
-                    - miner_output.erg_value,
+                erg_value: remainder_erg,
             };
             Ok((next_pool, bundle, user_output, executor_output, miner_output))
         } else {
@@ -221,7 +211,7 @@ impl Pool {
         redeem: Redeem,
         bundle: StakingBundle,
         ctx: ExecutionContext,
-    ) -> Result<(Pool, RedeemOutput, ExecutorOutput), PoolOperationError> {
+    ) -> Result<(Pool, RedeemOutput, ExecutorOutput, MinerOutput), PoolOperationError> {
         if redeem.expected_lq.amount != bundle.vlq.amount {
             return Err(PoolOperationError::Permanent(PermanentError::LiqudityMismatch));
         }
@@ -238,19 +228,24 @@ impl Pool {
             redeemer_prop: redeem.redeemer_prop,
             erg_value: MIN_SAFE_BOX_VALUE,
         };
-        let erg_available = redeem.erg_value + bundle.erg_value;
-        let min_value = user_output.erg_value + MIN_SAFE_BOX_VALUE;
-        if erg_available < min_value {
-            return Err(PoolOperationError::Permanent(PermanentError::LowValue {
-                expected: min_value.into(),
-                provided: erg_available.into(),
-            }));
-        }
-        let executor_output = ExecutorOutput {
-            executor_prop: ctx.executor_prop,
-            erg_value: erg_available - user_output.erg_value,
+        let miner_output = MinerOutput {
+            erg_value: DEFAULT_MINER_FEE,
         };
-        Ok((next_pool, user_output, executor_output))
+        let remainder_erg = (redeem.erg_value + bundle.erg_value)
+            .safe_sub(user_output.erg_value)
+            .safe_sub(miner_output.erg_value);
+        if remainder_erg >= MIN_SAFE_BOX_VALUE {
+            let executor_output = ExecutorOutput {
+                executor_prop: ctx.executor_prop,
+                erg_value: remainder_erg,
+            };
+            Ok((next_pool, user_output, executor_output, miner_output))
+        } else {
+            Err(PoolOperationError::Permanent(PermanentError::LowValue {
+                expected: MIN_SAFE_BOX_VALUE.into(),
+                provided: remainder_erg.into(),
+            }))
+        }
     }
 
     /// Distribute rewards in batch.
@@ -265,6 +260,7 @@ impl Pool {
             Vec<StakingBundle>,
             Option<DistributionFundingProto>,
             Vec<RewardOutput>,
+            MinerOutput
         ),
         PoolOperationError,
     > {
@@ -306,17 +302,22 @@ impl Pool {
             next_pool.budget_rem = next_pool.budget_rem - reward;
         }
         next_pool.epoch_ix = Some(epoch_ix);
+        let mut miner_output = MinerOutput {
+            erg_value: DEFAULT_MINER_FEE,
+        };
+        accumulated_cost = accumulated_cost + miner_output.erg_value;
         let funds_total: NanoErg = funding.iter().map(|f| f.erg_value).sum();
-        let funds_remain = funds_total - accumulated_cost;
+        let funds_remain = funds_total.safe_sub(accumulated_cost);
         let next_funding_box = if funds_remain >= MIN_SAFE_BOX_VALUE {
             Some(DistributionFundingProto {
                 prop: funding.head.prop,
                 erg_value: funds_remain,
             })
         } else {
+            miner_output.erg_value = miner_output.erg_value + funds_remain;
             None
         };
-        Ok((next_pool, next_bundles, next_funding_box, reward_outputs))
+        Ok((next_pool, next_bundles, next_funding_box, reward_outputs, miner_output))
     }
 
     fn epoch_alloc(&self) -> u64 {

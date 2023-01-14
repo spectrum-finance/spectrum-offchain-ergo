@@ -3,8 +3,8 @@ use std::hash::{Hash, Hasher};
 use ergo_lib::chain::transaction::TxIoVec;
 use ergo_lib::ergo_chain_types::{blake2b256_hash, Digest32};
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
-use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
+use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
@@ -16,19 +16,19 @@ use serde::{Deserialize, Serialize};
 use type_equalities::IsEqual;
 
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
-use spectrum_offchain::data::{Has, OnChainOrder};
 use spectrum_offchain::data::unique_entity::Predicted;
+use spectrum_offchain::data::{Has, OnChainOrder};
 use spectrum_offchain::domain::TypedAssetAmount;
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::transaction::{TransactionCandidate, UnsignedTransactionOps};
 
-use crate::data::{AsBox, BundleId, BundleStateId, FundingId, OrderId, PoolId};
 use crate::data::assets::{BundleKey, Lq};
 use crate::data::bundle::StakingBundle;
 use crate::data::context::ExecutionContext;
 use crate::data::funding::DistributionFunding;
 use crate::data::pool::{Pool, PoolOperationError};
+use crate::data::{AsBox, BundleId, BundleStateId, FundingId, OrderId, PoolId};
 use crate::ergo::NanoErg;
 use crate::executor::{ConsumeExtra, ProduceExtra, RunOrder};
 use crate::validators::{DEPOSIT_TEMPLATE, REDEEM_TEMPLATE};
@@ -95,7 +95,7 @@ impl RunOrder for Compound {
     > {
         let unwrapped_bundles = bundles.clone().into_iter().map(|AsBox(_, b)| b).collect();
         match pool.distribute_rewards(unwrapped_bundles, funding.clone().map(|AsBox(_, f)| f)) {
-            Ok((next_pool, next_bundles, next_funding, rewards)) => {
+            Ok((next_pool, next_bundles, next_funding, rewards, miner_out)) => {
                 let outputs = TxIoVec::from_vec(
                     vec![next_pool.clone().into_candidate(ctx.height)]
                         .into_iter()
@@ -112,6 +112,7 @@ impl RunOrder for Compound {
                                 .map(|b| b.into_candidate(ctx.height)),
                         )
                         .chain(rewards.into_iter().map(|r| r.into_candidate(ctx.height)))
+                        .chain(vec![miner_out.into_candidate(ctx.height)])
                         .collect(),
                 )
                 .unwrap();
@@ -148,7 +149,8 @@ impl RunOrder for Compound {
                 let tx = TransactionCandidate::new(inputs, None, outputs);
                 let outputs = tx.clone().into_tx_without_proofs().outputs;
                 let next_pool_as_box = AsBox(outputs.get(0).unwrap().clone(), next_pool);
-                let bundle_outs = &outputs.clone()[2..next_bundles.len()];
+                let bun_init_ix = if next_funding.is_some() { 2 } else { 1 };
+                let bundle_outs = &outputs.clone()[bun_init_ix..bun_init_ix + next_bundles.len()];
                 let bundles_as_box = next_bundles
                     .into_iter()
                     .zip(Vec::from(bundle_outs).into_iter())
@@ -431,7 +433,7 @@ impl RunOrder for AsBox<Redeem> {
     ) -> Result<(TransactionCandidate, Predicted<AsBox<Pool>>, ()), RunOrderError<Self>> {
         let AsBox(self_in, self_order) = self.clone();
         match pool.apply_redeem(self_order, bundle, ctx.clone()) {
-            Ok((next_pool, user_out, executor_out)) => {
+            Ok((next_pool, user_out, executor_out, miner_out)) => {
                 let inputs = TxIoVec::from_vec(
                     vec![pool_in, bundle_in, self_in]
                         .into_iter()
@@ -443,6 +445,7 @@ impl RunOrder for AsBox<Redeem> {
                     next_pool.clone().into_candidate(ctx.height),
                     user_out.into_candidate(ctx.height),
                     executor_out.into_candidate(ctx.height),
+                    miner_out.into_candidate(ctx.height),
                 ])
                 .unwrap();
                 let tx = TransactionCandidate::new(inputs, None, outputs);
@@ -583,11 +586,11 @@ mod tests {
     use spectrum_offchain::event_sink::handlers::types::TryFromBox;
     use spectrum_offchain::executor::RunOrderError::Fatal;
 
-    use crate::data::AsBox;
     use crate::data::context::ExecutionContext;
     use crate::data::order::{Deposit, Order};
     use crate::data::pool::PermanentError::LowValue;
     use crate::data::pool::Pool;
+    use crate::data::AsBox;
     use crate::executor::RunOrder;
     use crate::prover::{SigmaProver, Wallet, WalletSecret};
 
@@ -597,6 +600,7 @@ mod tests {
 
     #[test]
     fn parse_order() {
+        let ss = vec!["pool", "funding", "b1", "b2", "r1", "r2"];
         let sample_json = r#"{
             "boxId": "f95eccd8ec785ecd0a2ed5188d0ad7e05694b34f6c3b9ff44dc99586947d3a73",
             "value": 2750000,

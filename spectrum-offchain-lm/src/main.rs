@@ -33,6 +33,7 @@ use spectrum_offchain::executor::executor_stream;
 
 use crate::bundle::process::bundle_update_stream;
 use crate::bundle::rocksdb::BundleRepoRocksDB;
+use crate::bundle::BundleRepoTracing;
 use crate::data::bundle::IndexedStakingBundle;
 use crate::data::funding::{ExecutorWallet, FundingUpdate};
 use crate::data::order::Order;
@@ -110,9 +111,11 @@ async fn main() {
     let programs = Arc::new(Mutex::new(ProgramRepoRocksDB::new(RocksConfig {
         db_path: config.program_repo_db_path.into(),
     })));
-    let bundles = Arc::new(Mutex::new(BundleRepoRocksDB::new(RocksConfig {
-        db_path: config.bundle_repo_db_path.into(),
-    })));
+    let bundles = Arc::new(Mutex::new(BundleRepoTracing::wrap(BundleRepoRocksDB::new(
+        RocksConfig {
+            db_path: config.bundle_repo_db_path.into(),
+        },
+    ))));
     let funding = Arc::new(Mutex::new(FundingRepoTracing::wrap(FundingRepoRocksDB::new(
         RocksConfig {
             db_path: config.funding_repo_db_path.into(),

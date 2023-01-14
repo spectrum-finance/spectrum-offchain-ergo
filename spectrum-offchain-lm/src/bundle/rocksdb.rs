@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use rocksdb::{Direction, IteratorMode};
 use tokio::task::spawn_blocking;
 
+use ergo_chain_sync::rocksdb::RocksConfig;
 use spectrum_offchain::{
     binary::prefixed_key,
     data::{
@@ -11,7 +12,6 @@ use spectrum_offchain::{
         OnChainEntity,
     },
 };
-use ergo_chain_sync::rocksdb::RocksConfig;
 
 use crate::data::bundle::IndexedStakingBundle;
 use crate::data::{AsBox, BundleId, BundleStateId, PoolId};
@@ -40,13 +40,14 @@ fn epoch_index_prefix(pool_id: PoolId, epoch_ix: u32) -> Vec<u8> {
     prefix_bytes
 }
 
-fn destructure_epoch_index_key(key: &[u8]) -> Option<(BundleId, u32)> {
+fn destructure_epoch_index_key(key: &[u8]) -> Option<(PoolId, BundleId, u32)> {
     if key.len() == POOL_EPOCH_KEY_LEN {
+        let pool_id = bincode::deserialize::<'_, PoolId>(&key[15..47]).ok();
         let bundle_id =
             bincode::deserialize::<'_, BundleId>(&key[POOL_EPOCH_KEY_LEN - 32..POOL_EPOCH_KEY_LEN]).ok();
         let neg_epoch_ix = bincode::deserialize::<'_, u32>(&key[47..51]).ok();
-        if let (Some(bundle_id), Some(neg_epoch_ix)) = (bundle_id, neg_epoch_ix) {
-            return Some((bundle_id, u32::MAX - neg_epoch_ix));
+        if let (Some(pool_id), Some(bundle_id), Some(neg_epoch_ix)) = (pool_id, bundle_id, neg_epoch_ix) {
+            return Some((pool_id, bundle_id, u32::MAX - neg_epoch_ix));
         }
     }
     None
@@ -59,7 +60,7 @@ fn epoch_index_key(pool_id: PoolId, init_epoch_ix: u32, bundle_id: BundleId) -> 
     prefix_bytes
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl BundleRepo for BundleRepoRocksDB {
     async fn select(&self, pool_id: PoolId, epoch_ix: u32) -> Vec<BundleId> {
         let db = self.db.clone();
@@ -68,8 +69,8 @@ impl BundleRepo for BundleRepoRocksDB {
             let mut acc = Vec::new();
             let mut iter = db.iterator(IteratorMode::From(&*prefix, Direction::Forward));
             while let Some(Ok((key_bytes, _))) = iter.next() {
-                if let Some((bundle_id, init_epoch_ix)) = destructure_epoch_index_key(&*key_bytes) {
-                    if init_epoch_ix <= epoch_ix {
+                if let Some((pid, bundle_id, init_epoch_ix)) = destructure_epoch_index_key(&*key_bytes) {
+                    if pid == pool_id && init_epoch_ix <= epoch_ix && !acc.contains(&bundle_id) {
                         acc.push(bundle_id);
                         continue;
                     }
@@ -245,3 +246,24 @@ const LAST_CONFIRMED_PREFIX: &str = "c:last";
 // Key structure: {prefix}{pool_id}{init_epoch_ix}{bundle_id}
 const POOL_EPOCH_PREFIX: &str = "pl:epix";
 const POOL_EPOCH_KEY_LEN: usize = 83;
+
+#[cfg(test)]
+mod tests {
+    use ergo_lib::ergo_chain_types::Digest32;
+    use ergo_lib::ergotree_ir::chain::token::TokenId;
+
+    use crate::bundle::rocksdb::{destructure_epoch_index_key, epoch_index_key};
+    use crate::data::{BundleId, PoolId};
+
+    #[test]
+    fn destructure_key() {
+        let pool_id = PoolId::from(TokenId::from(Digest32::from([0u8; 32])));
+        let bundle_id = BundleId::from(TokenId::from(Digest32::from([1u8; 32])));
+        let epoch_ix = 99;
+        let key = epoch_index_key(pool_id, epoch_ix, bundle_id);
+        let (pool, bundle, epoch) = destructure_epoch_index_key(&key).unwrap();
+        assert_eq!(pool, pool_id);
+        assert_eq!(bundle, bundle_id);
+        assert_eq!(epoch, epoch_ix);
+    }
+}
