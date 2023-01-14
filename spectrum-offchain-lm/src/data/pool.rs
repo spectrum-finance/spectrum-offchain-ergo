@@ -553,6 +553,8 @@ mod tests {
             bundle_key: output.bundle_key,
             expected_lq: deposit.lq,
             erg_value: NanoErg::from(100000000000u64),
+            miner_prop_bytes: vec![0, 0, 0],
+            max_miner_fee: 10000000,
         };
         let (pool3, output, rew) = pool2
             .clone()
