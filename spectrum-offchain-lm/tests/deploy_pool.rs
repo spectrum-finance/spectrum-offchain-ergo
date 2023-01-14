@@ -22,7 +22,7 @@ use spectrum_offchain::event_sink::handlers::types::IntoBoxCandidate;
 use spectrum_offchain_lm::data::bundle::{StakingBundleProto, BUNDLE_KEY_AMOUNT_USER};
 use spectrum_offchain_lm::data::redeemer::DepositOutput;
 use spectrum_offchain_lm::data::PoolId;
-use spectrum_offchain_lm::validators::{pool_validator, redeem_validator_temp};
+use spectrum_offchain_lm::validators::REDEEM_TEMPLATE;
 use thiserror::Error;
 
 use ergo_chain_sync::client::types::{with_path, Url};
@@ -410,8 +410,8 @@ fn deploy_pool_chain_transaction(
     let lm_pool_box_candidate = pool.into_candidate(height);
 
     // Build redeemer out candidate
-    let redeemer_prop = ErgoTree::sigma_parse_bytes(&redeem_validator_temp())?
-        .with_constant(2, redeem_validator_temp().into())
+    let redeemer_prop = ErgoTree::sigma_parse_bytes(&REDEEM_TEMPLATE)?
+        .with_constant(2, REDEEM_TEMPLATE.to_vec().into())
         .unwrap()
         .with_constant(3, initial_lq_token_deposit.token_id.into())
         .unwrap()

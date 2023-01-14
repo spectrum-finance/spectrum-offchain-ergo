@@ -3,8 +3,8 @@ use std::hash::{Hash, Hasher};
 use ergo_lib::chain::transaction::TxIoVec;
 use ergo_lib::ergo_chain_types::{blake2b256_hash, Digest32};
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
-use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
+use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
@@ -16,19 +16,19 @@ use serde::{Deserialize, Serialize};
 use type_equalities::IsEqual;
 
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
-use spectrum_offchain::data::{Has, OnChainOrder};
 use spectrum_offchain::data::unique_entity::Predicted;
+use spectrum_offchain::data::{Has, OnChainOrder};
 use spectrum_offchain::domain::TypedAssetAmount;
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::transaction::{TransactionCandidate, UnsignedTransactionOps};
 
-use crate::data::{AsBox, BundleId, BundleStateId, FundingId, OrderId, PoolId};
 use crate::data::assets::{BundleKey, Lq};
 use crate::data::bundle::StakingBundle;
 use crate::data::context::ExecutionContext;
 use crate::data::funding::DistributionFunding;
 use crate::data::pool::{Pool, PoolOperationError};
+use crate::data::{AsBox, BundleId, BundleStateId, FundingId, OrderId, PoolId};
 use crate::ergo::NanoErg;
 use crate::executor::{ConsumeExtra, ProduceExtra, RunOrder};
 use crate::validators::{DEPOSIT_TEMPLATE, REDEEM_TEMPLATE};
@@ -178,6 +178,9 @@ pub struct Deposit {
     pub order_id: OrderId,
     pub pool_id: PoolId,
     pub redeemer_prop: ErgoTree,
+    pub bundle_prop_hash: Digest32,
+    pub miner_prop_bytes: Vec<u8>,
+    pub max_miner_fee: i64,
     pub lq: TypedAssetAmount<Lq>,
     pub erg_value: NanoErg,
     pub expected_num_epochs: u32,
@@ -189,6 +192,9 @@ impl From<RawDeposit> for Deposit {
             order_id: rd.order_id,
             pool_id: rd.pool_id,
             redeemer_prop: ErgoTree::sigma_parse_bytes(&*rd.redeemer_prop_raw).unwrap(),
+            bundle_prop_hash: rd.bundle_prop_hash,
+            miner_prop_bytes: rd.miner_prop_bytes,
+            max_miner_fee: rd.max_miner_fee,
             lq: TypedAssetAmount::new(rd.lq.0, rd.lq.1),
             erg_value: NanoErg::from(rd.erg_value),
             expected_num_epochs: rd.expected_num_epochs,
@@ -201,6 +207,9 @@ pub struct RawDeposit {
     pub order_id: OrderId,
     pub pool_id: PoolId,
     pub redeemer_prop_raw: Vec<u8>,
+    pub bundle_prop_hash: Digest32,
+    pub miner_prop_bytes: Vec<u8>,
+    pub max_miner_fee: i64,
     pub lq: (TokenId, u64),
     pub erg_value: u64,
     pub expected_num_epochs: u32,
@@ -212,6 +221,9 @@ impl From<Deposit> for RawDeposit {
             order_id: d.order_id,
             pool_id: d.pool_id,
             redeemer_prop_raw: d.redeemer_prop.sigma_serialize_bytes().unwrap(),
+            bundle_prop_hash: d.bundle_prop_hash,
+            miner_prop_bytes: d.miner_prop_bytes,
+            max_miner_fee: d.max_miner_fee,
             lq: (d.lq.token_id, d.lq.amount),
             erg_value: d.erg_value.into(),
             expected_num_epochs: d.expected_num_epochs,
@@ -224,6 +236,8 @@ impl Hash for Deposit {
         self.order_id.hash(state);
         self.pool_id.hash(state);
         state.write(&*self.redeemer_prop.sigma_serialize_bytes().unwrap());
+        state.write(&<Vec<u8>>::from(self.bundle_prop_hash));
+        state.write(&self.miner_prop_bytes);
         self.lq.hash(state);
         self.erg_value.hash(state);
         self.expected_num_epochs.hash(state);
@@ -320,6 +334,27 @@ impl TryFromBox for Deposit {
                         .ok()?,
                 )
                 .ok()?;
+                let bundle_prop_hash = bx
+                    .ergo_tree
+                    .get_constant(10)
+                    .ok()??
+                    .v
+                    .try_extract_into::<Digest32>()
+                    .ok()?;
+                let miner_prop_bytes = bx
+                    .ergo_tree
+                    .get_constant(18)
+                    .ok()??
+                    .v
+                    .try_extract_into::<Vec<u8>>()
+                    .ok()?;
+                let max_miner_fee = bx
+                    .ergo_tree
+                    .get_constant(21)
+                    .ok()??
+                    .v
+                    .try_extract_into::<i64>()
+                    .ok()?;
                 let expected_num_epochs = bx
                     .ergo_tree
                     .get_constant(14)
@@ -332,6 +367,9 @@ impl TryFromBox for Deposit {
                     order_id,
                     pool_id: PoolId::from(TokenId::from(pool_id)),
                     redeemer_prop,
+                    bundle_prop_hash,
+                    miner_prop_bytes,
+                    max_miner_fee,
                     lq,
                     erg_value: bx.value.into(),
                     expected_num_epochs: expected_num_epochs as u32,
@@ -583,11 +621,11 @@ mod tests {
     use spectrum_offchain::event_sink::handlers::types::TryFromBox;
     use spectrum_offchain::executor::RunOrderError::Fatal;
 
-    use crate::data::AsBox;
     use crate::data::context::ExecutionContext;
     use crate::data::order::{Deposit, Order};
     use crate::data::pool::PermanentError::LowValue;
     use crate::data::pool::Pool;
+    use crate::data::AsBox;
     use crate::executor::RunOrder;
     use crate::prover::{SigmaProver, Wallet, WalletSecret};
 

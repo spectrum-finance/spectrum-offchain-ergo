@@ -437,12 +437,13 @@ impl IntoBoxCandidate for Pool {
 
 #[cfg(test)]
 mod tests {
-    use ergo_lib::ergo_chain_types::Digest32;
+    use ergo_lib::ergo_chain_types::{blake2b256_hash, Digest32};
     use ergo_lib::ergotree_ir::chain::ergo_box::{BoxId, ErgoBox};
     use ergo_lib::ergotree_ir::chain::token::TokenId;
     use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
     use ergo_lib::ergotree_ir::mir::constant::Constant;
     use ergo_lib::ergotree_ir::mir::expr::Expr;
+    use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
     use nonempty::nonempty;
     use rand::Rng;
 
@@ -456,6 +457,7 @@ mod tests {
     use crate::data::pool::{Pool, ProgramConfig};
     use crate::data::{BundleStateId, FundingId, OrderId, PoolId};
     use crate::ergo::{NanoErg, MAX_VALUE};
+    use crate::validators::BUNDLE_VALIDATOR;
 
     fn make_pool(epoch_len: u32, epoch_num: u32, program_start: u32, program_budget: u64) -> Pool {
         Pool {
@@ -503,6 +505,9 @@ mod tests {
             lq: deposit_lq,
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 10,
+            bundle_prop_hash: make_staking_bundle_prop_hash(),
+            miner_prop_bytes: vec![0, 0, 0],
+            max_miner_fee: 10000000,
         };
         let ctx = ExecutionContext {
             height: 9,
@@ -530,6 +535,9 @@ mod tests {
             lq: deposit,
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 9,
+            bundle_prop_hash: make_staking_bundle_prop_hash(),
+            miner_prop_bytes: vec![0, 0, 0],
+            max_miner_fee: 10000000,
         };
         let ctx = ExecutionContext {
             height: 10,
@@ -561,6 +569,10 @@ mod tests {
         assert_eq!(output.lq, deposit.lq);
     }
 
+    fn make_staking_bundle_prop_hash() -> Digest32 {
+        blake2b256_hash(&BUNDLE_VALIDATOR.sigma_serialize_bytes().unwrap())
+    }
+
     #[test]
     fn distribute_rewards() {
         let budget = 1000000000;
@@ -573,6 +585,9 @@ mod tests {
             lq: deposit_amt_a,
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 10,
+            bundle_prop_hash: make_staking_bundle_prop_hash(),
+            miner_prop_bytes: vec![0, 0, 0],
+            max_miner_fee: 10000000,
         };
         let deposit_disproportion = 2;
         let deposit_amt_b = TypedAssetAmount::new(
@@ -586,6 +601,9 @@ mod tests {
             lq: deposit_amt_b,
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 10,
+            bundle_prop_hash: make_staking_bundle_prop_hash(),
+            miner_prop_bytes: vec![0, 0, 0],
+            max_miner_fee: 10000000,
         };
         let ctx_1 = ExecutionContext {
             height: 9,
