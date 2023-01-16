@@ -34,6 +34,7 @@ pub struct ProgramConfig {
     pub epoch_num: u32,
     pub program_start: u32,
     pub redeem_blocks_delta: u32,
+    pub max_rounding_error: u64,
     pub program_budget: TypedAssetAmount<Reward>,
 }
 
@@ -89,7 +90,6 @@ pub struct Pool {
     pub reserves_vlq: TypedAssetAmount<VirtLq>,
     pub reserves_tmp: TypedAssetAmount<Tmp>,
     pub epoch_ix: Option<u32>,
-    pub max_error: u64,
     pub conf: ProgramConfig,
     pub erg_value: NanoErg,
 }
@@ -344,7 +344,7 @@ impl Pool {
     }
 
     fn epoch_completed(&self) -> bool {
-        self.budget_rem.amount as f64 % self.epoch_alloc() as f64 <= self.max_error as f64
+        self.budget_rem.amount as f64 % self.epoch_alloc() as f64 <= self.conf.max_rounding_error as f64
     }
 }
 
@@ -376,7 +376,7 @@ impl TryFromBox for Pool {
                 let tmp = tokens.get(4)?;
                 let conf = r4?.v.try_extract_into::<Vec<i32>>().ok()?;
                 let budget = r5?.v.try_extract_into::<i64>().ok()?;
-                let max_error = <u64>::try_from(r6?.v.try_extract_into::<i64>().ok()?).ok()?;
+                let max_rounding_error = <u64>::try_from(r6?.v.try_extract_into::<i64>().ok()?).ok()?;
                 let epoch_ix = r7
                     .and_then(|reg| reg.v.try_extract_into::<i32>().ok())
                     .and_then(|x| <u32>::try_from(x).ok());
@@ -385,6 +385,7 @@ impl TryFromBox for Pool {
                     epoch_num: *conf.get(1)? as u32,
                     program_start: *conf.get(2)? as u32,
                     redeem_blocks_delta: *conf.get(3)? as u32,
+                    max_rounding_error,
                     program_budget: TypedAssetAmount::new(budget_rem.token_id, budget as u64),
                 };
                 return Some(Pool {
@@ -394,7 +395,6 @@ impl TryFromBox for Pool {
                     reserves_vlq: TypedAssetAmount::new(vlq.token_id, *vlq.amount.as_u64()),
                     reserves_tmp: TypedAssetAmount::new(tmp.token_id, *tmp.amount.as_u64()),
                     epoch_ix,
-                    max_error,
                     conf,
                     erg_value: bx.value.into(),
                 });
@@ -418,7 +418,7 @@ impl IntoBoxCandidate for Pool {
             vec![
                 Constant::from(<Vec<i32>>::from(self.conf)),
                 Constant::from(self.conf.program_budget.amount as i64),
-                Constant::from(self.max_error as i64),
+                Constant::from(self.conf.max_rounding_error as i64),
             ]
             .into_iter()
             .chain(
@@ -442,12 +442,13 @@ impl IntoBoxCandidate for Pool {
 
 #[cfg(test)]
 mod tests {
-    use ergo_lib::ergo_chain_types::Digest32;
+    use ergo_lib::ergo_chain_types::{blake2b256_hash, Digest32};
     use ergo_lib::ergotree_ir::chain::ergo_box::{BoxId, ErgoBox};
     use ergo_lib::ergotree_ir::chain::token::TokenId;
     use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
     use ergo_lib::ergotree_ir::mir::constant::Constant;
     use ergo_lib::ergotree_ir::mir::expr::Expr;
+    use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
     use nonempty::nonempty;
     use rand::Rng;
 
@@ -461,6 +462,7 @@ mod tests {
     use crate::data::pool::{Pool, ProgramConfig};
     use crate::data::{BundleStateId, FundingId, OrderId, PoolId};
     use crate::ergo::{NanoErg, MAX_VALUE};
+    use crate::validators::BUNDLE_VALIDATOR;
 
     fn make_pool(epoch_len: u32, epoch_num: u32, program_start: u32, program_budget: u64) -> Pool {
         Pool {
@@ -470,12 +472,12 @@ mod tests {
             reserves_vlq: TypedAssetAmount::new(TokenId::from(random_digest()), MAX_VALUE),
             reserves_tmp: TypedAssetAmount::new(TokenId::from(random_digest()), MAX_VALUE),
             epoch_ix: None,
-            max_error: 0,
             conf: ProgramConfig {
                 epoch_len,
                 epoch_num,
                 program_start,
                 redeem_blocks_delta: 0,
+                max_rounding_error: 1,
                 program_budget: TypedAssetAmount::new(TokenId::from(random_digest()), program_budget),
             },
             erg_value: NanoErg::from(100000000000u64),
@@ -508,6 +510,8 @@ mod tests {
             lq: deposit_lq,
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 10,
+            bundle_prop_hash: make_staking_bundle_prop_hash(),
+            max_miner_fee: 10000000,
         };
         let ctx = ExecutionContext {
             height: 9,
@@ -535,6 +539,8 @@ mod tests {
             lq: deposit,
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 9,
+            bundle_prop_hash: make_staking_bundle_prop_hash(),
+            max_miner_fee: 10000000,
         };
         let ctx = ExecutionContext {
             height: 10,
@@ -550,6 +556,7 @@ mod tests {
             bundle_key: output.bundle_key,
             expected_lq: deposit.lq,
             erg_value: NanoErg::from(100000000000u64),
+            max_miner_fee: 10000000,
         };
         let (pool3, output, rew) = pool2
             .clone()
@@ -566,6 +573,10 @@ mod tests {
         assert_eq!(output.lq, deposit.lq);
     }
 
+    fn make_staking_bundle_prop_hash() -> Digest32 {
+        blake2b256_hash(&BUNDLE_VALIDATOR.sigma_serialize_bytes().unwrap())
+    }
+
     #[test]
     fn distribute_rewards() {
         let budget = 1000000000;
@@ -578,6 +589,8 @@ mod tests {
             lq: deposit_amt_a,
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 10,
+            bundle_prop_hash: make_staking_bundle_prop_hash(),
+            max_miner_fee: 10000000,
         };
         let deposit_disproportion = 2;
         let deposit_amt_b = TypedAssetAmount::new(
@@ -591,6 +604,8 @@ mod tests {
             lq: deposit_amt_b,
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 10,
+            bundle_prop_hash: make_staking_bundle_prop_hash(),
+            max_miner_fee: 10000000,
         };
         let ctx_1 = ExecutionContext {
             height: 9,

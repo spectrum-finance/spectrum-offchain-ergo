@@ -9,6 +9,7 @@ use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
 use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
+use ergo_lib::wallet::miner_fee::MINERS_FEE_BASE16_BYTES;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use nonempty::NonEmpty;
@@ -180,6 +181,8 @@ pub struct Deposit {
     pub order_id: OrderId,
     pub pool_id: PoolId,
     pub redeemer_prop: ErgoTree,
+    pub bundle_prop_hash: Digest32,
+    pub max_miner_fee: i64,
     pub lq: TypedAssetAmount<Lq>,
     pub erg_value: NanoErg,
     pub expected_num_epochs: u32,
@@ -191,6 +194,8 @@ impl From<RawDeposit> for Deposit {
             order_id: rd.order_id,
             pool_id: rd.pool_id,
             redeemer_prop: ErgoTree::sigma_parse_bytes(&*rd.redeemer_prop_raw).unwrap(),
+            bundle_prop_hash: rd.bundle_prop_hash,
+            max_miner_fee: rd.max_miner_fee,
             lq: TypedAssetAmount::new(rd.lq.0, rd.lq.1),
             erg_value: NanoErg::from(rd.erg_value),
             expected_num_epochs: rd.expected_num_epochs,
@@ -203,6 +208,8 @@ pub struct RawDeposit {
     pub order_id: OrderId,
     pub pool_id: PoolId,
     pub redeemer_prop_raw: Vec<u8>,
+    pub bundle_prop_hash: Digest32,
+    pub max_miner_fee: i64,
     pub lq: (TokenId, u64),
     pub erg_value: u64,
     pub expected_num_epochs: u32,
@@ -214,6 +221,8 @@ impl From<Deposit> for RawDeposit {
             order_id: d.order_id,
             pool_id: d.pool_id,
             redeemer_prop_raw: d.redeemer_prop.sigma_serialize_bytes().unwrap(),
+            bundle_prop_hash: d.bundle_prop_hash,
+            max_miner_fee: d.max_miner_fee,
             lq: (d.lq.token_id, d.lq.amount),
             erg_value: d.erg_value.into(),
             expected_num_epochs: d.expected_num_epochs,
@@ -226,6 +235,8 @@ impl Hash for Deposit {
         self.order_id.hash(state);
         self.pool_id.hash(state);
         state.write(&*self.redeemer_prop.sigma_serialize_bytes().unwrap());
+        self.bundle_prop_hash.hash(state);
+        self.max_miner_fee.hash(state);
         self.lq.hash(state);
         self.erg_value.hash(state);
         self.expected_num_epochs.hash(state);
@@ -322,6 +333,28 @@ impl TryFromBox for Deposit {
                         .ok()?,
                 )
                 .ok()?;
+                let bundle_prop_hash = bx
+                    .ergo_tree
+                    .get_constant(10)
+                    .ok()??
+                    .v
+                    .try_extract_into::<Digest32>()
+                    .ok()?;
+                let miner_prop_bytes = bx
+                    .ergo_tree
+                    .get_constant(18)
+                    .ok()??
+                    .v
+                    .try_extract_into::<Vec<u8>>()
+                    .ok()?;
+                assert_eq!(miner_prop_bytes, base16::decode(MINERS_FEE_BASE16_BYTES).unwrap());
+                let max_miner_fee = bx
+                    .ergo_tree
+                    .get_constant(21)
+                    .ok()??
+                    .v
+                    .try_extract_into::<i64>()
+                    .ok()?;
                 let expected_num_epochs = bx
                     .ergo_tree
                     .get_constant(14)
@@ -334,6 +367,8 @@ impl TryFromBox for Deposit {
                     order_id,
                     pool_id: PoolId::from(TokenId::from(pool_id)),
                     redeemer_prop,
+                    bundle_prop_hash,
+                    max_miner_fee,
                     lq,
                     erg_value: bx.value.into(),
                     expected_num_epochs: expected_num_epochs as u32,
@@ -353,6 +388,7 @@ pub struct Redeem {
     pub redeemer_prop: ErgoTree,
     pub bundle_key: TypedAssetAmount<BundleKey>,
     pub expected_lq: TypedAssetAmount<Lq>,
+    pub max_miner_fee: i64,
     pub erg_value: NanoErg,
 }
 
@@ -364,6 +400,7 @@ impl From<RawRedeem> for Redeem {
             redeemer_prop: ErgoTree::sigma_parse_bytes(&*rr.redeemer_prop_bytes).unwrap(),
             bundle_key: TypedAssetAmount::new(rr.bundle_key.0, rr.bundle_key.1),
             expected_lq: TypedAssetAmount::new(rr.expected_lq.0, rr.expected_lq.1),
+            max_miner_fee: rr.max_miner_fee,
             erg_value: NanoErg::from(rr.erg_value),
         }
     }
@@ -376,6 +413,7 @@ pub struct RawRedeem {
     pub redeemer_prop_bytes: Vec<u8>,
     pub bundle_key: (TokenId, u64),
     pub expected_lq: (TokenId, u64),
+    pub max_miner_fee: i64,
     pub erg_value: u64,
 }
 
@@ -387,6 +425,7 @@ impl From<Redeem> for RawRedeem {
             redeemer_prop_bytes: r.redeemer_prop.sigma_serialize_bytes().unwrap(),
             bundle_key: (r.bundle_key.token_id, r.bundle_key.amount),
             expected_lq: (r.expected_lq.token_id, r.expected_lq.amount),
+            max_miner_fee: r.max_miner_fee,
             erg_value: r.erg_value.into(),
         }
     }
@@ -397,6 +436,7 @@ impl Hash for Redeem {
         self.order_id.hash(state);
         self.pool_id.hash(state);
         state.write(&*self.redeemer_prop.sigma_serialize_bytes().unwrap());
+        self.max_miner_fee.hash(state);
         self.bundle_key.hash(state);
         self.expected_lq.hash(state);
         self.erg_value.hash(state);
@@ -502,12 +542,28 @@ impl TryFromBox for Redeem {
                     .try_extract_into::<i64>()
                     .ok()? as u64;
                 let expected_lq = TypedAssetAmount::new(expected_lq_id, expected_lq_amt);
+                let miner_prop_bytes = bx
+                    .ergo_tree
+                    .get_constant(6)
+                    .ok()??
+                    .v
+                    .try_extract_into::<Vec<u8>>()
+                    .ok()?;
+                assert_eq!(miner_prop_bytes, base16::decode(MINERS_FEE_BASE16_BYTES).unwrap());
+                let max_miner_fee = bx
+                    .ergo_tree
+                    .get_constant(9)
+                    .ok()??
+                    .v
+                    .try_extract_into::<i64>()
+                    .ok()?;
                 return Some(Redeem {
                     order_id,
                     pool_id,
                     redeemer_prop,
                     bundle_key,
                     expected_lq,
+                    max_miner_fee,
                     erg_value: bx.value.into(),
                 });
             }

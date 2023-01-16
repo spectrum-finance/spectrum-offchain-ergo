@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use derive_more::Into;
+use derive_more::{From, Into};
 use ergo_lib::chain::ergo_state_context::ErgoStateContext;
 use ergo_lib::chain::transaction::prover_result::ProverResult;
 use ergo_lib::chain::transaction::unsigned::UnsignedTransaction;
@@ -26,7 +26,7 @@ pub trait SigmaProver {
 #[derive(Deserialize, Into)]
 pub struct SeedPhrase(String);
 
-#[derive(Clone, Deserialize, Into)]
+#[derive(Clone, Deserialize, Into, From)]
 #[serde(try_from = "String")]
 pub struct WalletSecret(DlogProverInput);
 
