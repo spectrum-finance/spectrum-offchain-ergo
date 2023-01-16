@@ -1,6 +1,6 @@
 node_addr: http://213.239.193.208:9053
 http_client_timeout_duration_secs: 5
-chain_sync_starting_height: 912500
+chain_sync_starting_height: 915130
 backlog_config:
   order_lifespan: 8640000
   order_exec_time: 86400
@@ -13,6 +13,5 @@ bundle_repo_db_path: ./tmp/bundles
 funding_repo_db_path: ./tmp/funding
 schedule_repo_db_path: ./tmp/schedule
 chain_cache_db_path: ./tmp/chain
-operator_funding_addr: 9eiiXzUHQ18mfjY7exNiXKxvp9FAAWMhNN6jKKBF4P2ABxbpj2j
 operator_reward_addr: 9g9cdHhNZvtUvMveqEEfk28JZasEC8sJamV3E6d5JHv8VYUjjbX
 operator_funding_secret: "<seed>"
