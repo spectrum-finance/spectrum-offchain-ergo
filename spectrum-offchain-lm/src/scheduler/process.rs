@@ -20,10 +20,10 @@ pub fn distribution_stream<'a, TBacklog, TSchedules, TBundles, TNetwork>(
     backlog: Arc<Mutex<TBacklog>>,
     schedules: Arc<Mutex<TSchedules>>,
     bundles: Arc<Mutex<TBundles>>,
-    network: TNetwork,
+    network: &'a TNetwork,
     batch_size: usize,
     poll_interval: Duration,
-    tip_reached: &'static Once,
+    tip_reached: &'a Once,
 ) -> impl Stream<Item = ()> + 'a
 where
     TBacklog: Backlog<Order> + 'a,

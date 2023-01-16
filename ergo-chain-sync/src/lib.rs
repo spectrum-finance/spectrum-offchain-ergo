@@ -48,19 +48,20 @@ pub trait InitChainSync<TChainSync> {
     async fn init(self, starting_height: u32, tip_reached_signal: Option<&'static Once>) -> TChainSync;
 }
 
-pub struct ChainSyncNonInit<TClient, TCache> {
-    client: TClient,
+pub struct ChainSyncNonInit<'a, TClient, TCache> {
+    client: &'a TClient,
     cache: TCache,
 }
 
-impl<TClient, TCache> ChainSyncNonInit<TClient, TCache> {
-    pub fn new(client: TClient, cache: TCache) -> Self {
+impl<'a, TClient, TCache> ChainSyncNonInit<'a, TClient, TCache> {
+    pub fn new(client: &'a TClient, cache: TCache) -> Self {
         Self { client, cache }
     }
 }
 
 #[async_trait::async_trait(?Send)]
-impl<TClient, TCache> InitChainSync<ChainSync<TClient, TCache>> for ChainSyncNonInit<TClient, TCache>
+impl<'a, TClient, TCache> InitChainSync<ChainSync<'a, TClient, TCache>>
+    for ChainSyncNonInit<'a, TClient, TCache>
 where
     TClient: ErgoNetwork,
     TCache: ChainCache,
@@ -68,34 +69,34 @@ where
     async fn init(
         self,
         starting_height: u32,
-        tip_reached_signal: Option<&'static Once>,
-    ) -> ChainSync<TClient, TCache> {
+        tip_reached_signal: Option<&'a Once>,
+    ) -> ChainSync<'a, TClient, TCache> {
         ChainSync::init(starting_height, self.client, self.cache, tip_reached_signal).await
     }
 }
 
 #[pin_project]
-pub struct ChainSync<TClient, TCache> {
+pub struct ChainSync<'a, TClient, TCache> {
     starting_height: u32,
-    client: TClient,
+    client: &'a TClient,
     cache: Rc<RefCell<TCache>>,
     state: Rc<RefCell<SyncState>>,
     #[pin]
     delay: Cell<Option<Delay>>,
-    tip_reached_signal: Option<&'static Once>,
+    tip_reached_signal: Option<&'a Once>,
 }
 
-impl<TClient, TCache> ChainSync<TClient, TCache>
+impl<'a, TClient, TCache> ChainSync<'a, TClient, TCache>
 where
     TClient: ErgoNetwork,
     TCache: ChainCache,
 {
     pub async fn init(
         starting_height: u32,
-        client: TClient,
+        client: &'a TClient,
         mut cache: TCache,
-        tip_reached_signal: Option<&'static Once>,
-    ) -> Self {
+        tip_reached_signal: Option<&'a Once>,
+    ) -> ChainSync<'a, TClient, TCache> {
         let best_block = cache.get_best_block().await;
         let start_at = if let Some(best_block) = best_block {
             trace!(target: "chain_sync", "Best block is [{}]", best_block.id);
@@ -151,7 +152,7 @@ where
 
 const THROTTLE_SECS: u64 = 1;
 
-impl<TClient, TCache> Stream for ChainSync<TClient, TCache>
+impl<'a, TClient, TCache> Stream for ChainSync<'a, TClient, TCache>
 where
     TClient: ErgoNetwork + Unpin,
     TCache: ChainCache + Unpin,
@@ -189,9 +190,9 @@ where
     }
 }
 
-impl<TClient, TCache> FusedStream for ChainSync<TClient, TCache>
+impl<'a, TClient, TCache> FusedStream for ChainSync<'a, TClient, TCache>
 where
-    ChainSync<TClient, TCache>: Stream,
+    ChainSync<'a, TClient, TCache>: Stream,
 {
     /// ChainSync stream is never terminated.
     fn is_terminated(&self) -> bool {

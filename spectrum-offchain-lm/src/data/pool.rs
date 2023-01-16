@@ -558,7 +558,7 @@ mod tests {
             erg_value: NanoErg::from(100000000000u64),
             max_miner_fee: 10000000,
         };
-        let (pool3, output, rew) = pool2
+        let (pool3, output, rew, _) = pool2
             .clone()
             .apply_redeem(
                 redeem.clone(),
@@ -623,7 +623,7 @@ mod tests {
             prop: trivial_prop(),
             erg_value: NanoErg::from(2000000000u64),
         }];
-        let (_pool_4, bundles, next_funding, rewards) = pool_3
+        let (_pool_4, bundles, next_funding, rewards, _) = pool_3
             .distribute_rewards(
                 Vec::from([
                     StakingBundle::from_proto(

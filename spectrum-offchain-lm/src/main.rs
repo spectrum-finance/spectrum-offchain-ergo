@@ -87,12 +87,12 @@ async fn main() {
     let cache = ChainCacheRocksDB::new(RocksConfig {
         db_path: config.chain_cache_db_path.into(),
     });
-    static SIGNAL_TIP_REACHED: Once = Once::new();
+    let signal_tip_reached: Once = Once::new();
     let chain_sync = ChainSync::init(
         config.chain_sync_starting_height,
-        node.clone(),
+        &node,
         cache,
-        Some(&SIGNAL_TIP_REACHED),
+        Some(&signal_tip_reached),
     )
     .await;
 
@@ -129,7 +129,7 @@ async fn main() {
     );
 
     let executor = OrderExecutor::new(
-        node.clone(),
+        &node,
         Arc::clone(&backlog),
         Arc::clone(&pools),
         Arc::clone(&bundles),
@@ -137,7 +137,7 @@ async fn main() {
         prover,
         config.operator_reward_addr.ergo_tree(),
     );
-    let executor_stream = boxed(executor_stream(executor, &SIGNAL_TIP_REACHED));
+    let executor_stream = boxed(executor_stream(executor, &signal_tip_reached));
 
     let default_handler = NoopDefaultHandler;
 
@@ -181,14 +181,14 @@ async fn main() {
     let schedule_han = ConfirmedScheduleUpdateHandler {
         schedules: Arc::clone(&schedules),
     };
-    let scheduer_stream = boxed(distribution_stream(
+    let scheduler_stream = boxed(distribution_stream(
         backlog,
         schedules,
         bundles,
-        node,
+        &node,
         20,
         std::time::Duration::from_secs(60),
-        &SIGNAL_TIP_REACHED,
+        &signal_tip_reached,
     ));
 
     let program_han = ConfirmedProgramUpdateHandler {
@@ -214,7 +214,7 @@ async fn main() {
         backlog_stream,
         bundle_update_stream,
         funding_update_stream,
-        scheduer_stream,
+        scheduler_stream,
     ]);
 
     loop {

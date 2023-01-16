@@ -51,8 +51,8 @@ pub trait RunOrder: OnChainOrder + ConsumeExtra + ProduceExtra + Sized {
     ) -> Result<(TransactionCandidate, Predicted<AsBox<Pool>>, Self::TExtraOut), RunOrderError<Self>>;
 }
 
-pub struct OrderExecutor<TNetwork, TBacklog, TPools, TBundles, TFunding, TProver> {
-    network: TNetwork,
+pub struct OrderExecutor<'a, TNetwork, TBacklog, TPools, TBundles, TFunding, TProver> {
+    network: &'a TNetwork,
     backlog: Arc<Mutex<TBacklog>>,
     pool_repo: Arc<Mutex<TPools>>,
     bundle_repo: Arc<Mutex<TBundles>>,
@@ -64,13 +64,13 @@ pub struct OrderExecutor<TNetwork, TBacklog, TPools, TBundles, TFunding, TProver
 
 const CTX_TTL_SECS: i64 = 30;
 
-impl<TNetwork, TBacklog, TPools, TBundles, TFunding, TProver>
-    OrderExecutor<TNetwork, TBacklog, TPools, TBundles, TFunding, TProver>
+impl<'a, TNetwork, TBacklog, TPools, TBundles, TFunding, TProver>
+    OrderExecutor<'a, TNetwork, TBacklog, TPools, TBundles, TFunding, TProver>
 where
     TNetwork: ErgoNetwork,
 {
     pub fn new(
-        network: TNetwork,
+        network: &'a TNetwork,
         backlog: Arc<Mutex<TBacklog>>,
         pool_repo: Arc<Mutex<TPools>>,
         bundle_repo: Arc<Mutex<TBundles>>,
@@ -109,8 +109,8 @@ where
 }
 
 #[async_trait(?Send)]
-impl<TNetwork, TBacklog, TPools, TBundles, TFunding, TProver> Executor
-    for OrderExecutor<TNetwork, TBacklog, TPools, TBundles, TFunding, TProver>
+impl<'a, TNetwork, TBacklog, TPools, TBundles, TFunding, TProver> Executor
+    for OrderExecutor<'a, TNetwork, TBacklog, TPools, TBundles, TFunding, TProver>
 where
     TNetwork: ErgoNetwork,
     TBacklog: Backlog<Order>,

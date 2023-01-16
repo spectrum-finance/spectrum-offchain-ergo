@@ -125,7 +125,7 @@ const THROTTLE_SECS: u64 = 1;
 /// Construct Executor stream that drives sequential order execution.
 pub fn executor_stream<'a, TExecutor: Executor + 'a>(
     executor: TExecutor,
-    tip_reached_signal: &'static Once,
+    tip_reached_signal: &'a Once,
 ) -> impl Stream<Item = ()> + 'a {
     let executor = Arc::new(Mutex::new(executor));
     stream::unfold((), move |_| {
