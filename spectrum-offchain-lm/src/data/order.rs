@@ -9,6 +9,7 @@ use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
 use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
+use ergo_lib::wallet::miner_fee::MINERS_FEE_BASE16_BYTES;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use nonempty::NonEmpty;
@@ -179,7 +180,6 @@ pub struct Deposit {
     pub pool_id: PoolId,
     pub redeemer_prop: ErgoTree,
     pub bundle_prop_hash: Digest32,
-    pub miner_prop_bytes: Vec<u8>,
     pub max_miner_fee: i64,
     pub lq: TypedAssetAmount<Lq>,
     pub erg_value: NanoErg,
@@ -193,7 +193,6 @@ impl From<RawDeposit> for Deposit {
             pool_id: rd.pool_id,
             redeemer_prop: ErgoTree::sigma_parse_bytes(&*rd.redeemer_prop_raw).unwrap(),
             bundle_prop_hash: rd.bundle_prop_hash,
-            miner_prop_bytes: rd.miner_prop_bytes,
             max_miner_fee: rd.max_miner_fee,
             lq: TypedAssetAmount::new(rd.lq.0, rd.lq.1),
             erg_value: NanoErg::from(rd.erg_value),
@@ -208,7 +207,6 @@ pub struct RawDeposit {
     pub pool_id: PoolId,
     pub redeemer_prop_raw: Vec<u8>,
     pub bundle_prop_hash: Digest32,
-    pub miner_prop_bytes: Vec<u8>,
     pub max_miner_fee: i64,
     pub lq: (TokenId, u64),
     pub erg_value: u64,
@@ -222,7 +220,6 @@ impl From<Deposit> for RawDeposit {
             pool_id: d.pool_id,
             redeemer_prop_raw: d.redeemer_prop.sigma_serialize_bytes().unwrap(),
             bundle_prop_hash: d.bundle_prop_hash,
-            miner_prop_bytes: d.miner_prop_bytes,
             max_miner_fee: d.max_miner_fee,
             lq: (d.lq.token_id, d.lq.amount),
             erg_value: d.erg_value.into(),
@@ -237,7 +234,6 @@ impl Hash for Deposit {
         self.pool_id.hash(state);
         state.write(&*self.redeemer_prop.sigma_serialize_bytes().unwrap());
         self.bundle_prop_hash.hash(state);
-        self.miner_prop_bytes.hash(state);
         self.max_miner_fee.hash(state);
         self.lq.hash(state);
         self.erg_value.hash(state);
@@ -349,6 +345,7 @@ impl TryFromBox for Deposit {
                     .v
                     .try_extract_into::<Vec<u8>>()
                     .ok()?;
+                assert_eq!(miner_prop_bytes, base16::decode(MINERS_FEE_BASE16_BYTES).unwrap());
                 let max_miner_fee = bx
                     .ergo_tree
                     .get_constant(21)
@@ -369,7 +366,6 @@ impl TryFromBox for Deposit {
                     pool_id: PoolId::from(TokenId::from(pool_id)),
                     redeemer_prop,
                     bundle_prop_hash,
-                    miner_prop_bytes,
                     max_miner_fee,
                     lq,
                     erg_value: bx.value.into(),
@@ -390,7 +386,6 @@ pub struct Redeem {
     pub redeemer_prop: ErgoTree,
     pub bundle_key: TypedAssetAmount<BundleKey>,
     pub expected_lq: TypedAssetAmount<Lq>,
-    pub miner_prop_bytes: Vec<u8>,
     pub max_miner_fee: i64,
     pub erg_value: NanoErg,
 }
@@ -403,7 +398,6 @@ impl From<RawRedeem> for Redeem {
             redeemer_prop: ErgoTree::sigma_parse_bytes(&*rr.redeemer_prop_bytes).unwrap(),
             bundle_key: TypedAssetAmount::new(rr.bundle_key.0, rr.bundle_key.1),
             expected_lq: TypedAssetAmount::new(rr.expected_lq.0, rr.expected_lq.1),
-            miner_prop_bytes: rr.miner_prop_bytes,
             max_miner_fee: rr.max_miner_fee,
             erg_value: NanoErg::from(rr.erg_value),
         }
@@ -417,7 +411,6 @@ pub struct RawRedeem {
     pub redeemer_prop_bytes: Vec<u8>,
     pub bundle_key: (TokenId, u64),
     pub expected_lq: (TokenId, u64),
-    pub miner_prop_bytes: Vec<u8>,
     pub max_miner_fee: i64,
     pub erg_value: u64,
 }
@@ -430,7 +423,6 @@ impl From<Redeem> for RawRedeem {
             redeemer_prop_bytes: r.redeemer_prop.sigma_serialize_bytes().unwrap(),
             bundle_key: (r.bundle_key.token_id, r.bundle_key.amount),
             expected_lq: (r.expected_lq.token_id, r.expected_lq.amount),
-            miner_prop_bytes: r.miner_prop_bytes,
             max_miner_fee: r.max_miner_fee,
             erg_value: r.erg_value.into(),
         }
@@ -442,7 +434,6 @@ impl Hash for Redeem {
         self.order_id.hash(state);
         self.pool_id.hash(state);
         state.write(&*self.redeemer_prop.sigma_serialize_bytes().unwrap());
-        self.miner_prop_bytes.hash(state);
         self.max_miner_fee.hash(state);
         self.bundle_key.hash(state);
         self.expected_lq.hash(state);
@@ -555,6 +546,7 @@ impl TryFromBox for Redeem {
                     .v
                     .try_extract_into::<Vec<u8>>()
                     .ok()?;
+                assert_eq!(miner_prop_bytes, base16::decode(MINERS_FEE_BASE16_BYTES).unwrap());
                 let max_miner_fee = bx
                     .ergo_tree
                     .get_constant(9)
@@ -568,7 +560,6 @@ impl TryFromBox for Redeem {
                     redeemer_prop,
                     bundle_key,
                     expected_lq,
-                    miner_prop_bytes,
                     max_miner_fee,
                     erg_value: bx.value.into(),
                 });

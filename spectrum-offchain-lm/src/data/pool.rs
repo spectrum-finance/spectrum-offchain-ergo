@@ -472,7 +472,7 @@ mod tests {
                 epoch_num,
                 program_start,
                 redeem_blocks_delta: 0,
-                max_rounding_error: 0,
+                max_rounding_error: 1,
                 program_budget: TypedAssetAmount::new(TokenId::from(random_digest()), program_budget),
             },
             erg_value: NanoErg::from(100000000000u64),
@@ -506,7 +506,6 @@ mod tests {
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 10,
             bundle_prop_hash: make_staking_bundle_prop_hash(),
-            miner_prop_bytes: vec![0, 0, 0],
             max_miner_fee: 10000000,
         };
         let ctx = ExecutionContext {
@@ -536,7 +535,6 @@ mod tests {
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 9,
             bundle_prop_hash: make_staking_bundle_prop_hash(),
-            miner_prop_bytes: vec![0, 0, 0],
             max_miner_fee: 10000000,
         };
         let ctx = ExecutionContext {
@@ -553,7 +551,6 @@ mod tests {
             bundle_key: output.bundle_key,
             expected_lq: deposit.lq,
             erg_value: NanoErg::from(100000000000u64),
-            miner_prop_bytes: vec![0, 0, 0],
             max_miner_fee: 10000000,
         };
         let (pool3, output, rew) = pool2
@@ -588,7 +585,6 @@ mod tests {
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 10,
             bundle_prop_hash: make_staking_bundle_prop_hash(),
-            miner_prop_bytes: vec![0, 0, 0],
             max_miner_fee: 10000000,
         };
         let deposit_disproportion = 2;
@@ -604,7 +600,6 @@ mod tests {
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 10,
             bundle_prop_hash: make_staking_bundle_prop_hash(),
-            miner_prop_bytes: vec![0, 0, 0],
             max_miner_fee: 10000000,
         };
         let ctx_1 = ExecutionContext {
