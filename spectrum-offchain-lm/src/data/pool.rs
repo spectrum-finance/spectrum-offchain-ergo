@@ -313,6 +313,11 @@ impl Pool {
             bundle.tmp = bundle.tmp - charged_tmp;
             next_pool.reserves_tmp = next_pool.reserves_tmp + charged_tmp;
             next_pool.budget_rem = next_pool.budget_rem - reward;
+            if next_pool.budget_rem.amount == 0 {
+                return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned(
+                    format!("Budget depleted"),
+                )));
+            }
         }
         next_pool.epoch_ix = Some(epoch_ix);
         let mut miner_output = MinerOutput {

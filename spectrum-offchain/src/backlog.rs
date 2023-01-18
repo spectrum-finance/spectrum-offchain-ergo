@@ -254,7 +254,7 @@ where
                         self.pending_pq.push(ord.into(), wt);
                     }
                 } else {
-                    self.store.drop(ord.order_id).await;
+                    self.store.remove(ord.order_id).await;
                 }
             } else {
                 break;
@@ -276,7 +276,7 @@ where
         let ts_now = Utc::now().timestamp();
         let elapsed_secs = ts_now - ord.timestamp;
         if elapsed_secs > conf.order_lifespan.num_seconds() {
-            store.drop(ord.order_id).await;
+            store.remove(ord.order_id).await;
         } else {
             let res = store.get(ord.order_id).await.map(|bo| bo.order);
             if res.is_some() {
@@ -366,7 +366,7 @@ where
     where
         TOrd::TOrderId: Clone + 'a,
     {
-        self.store.drop(ord_id).await;
+        self.store.remove(ord_id).await;
     }
 
     async fn recharge<'a>(&mut self, ord: TOrd)
@@ -497,7 +497,7 @@ mod tests {
             self.inner.contains_key(&ord_id)
         }
 
-        async fn drop(&mut self, ord_id: MockOrderId) {
+        async fn remove(&mut self, ord_id: MockOrderId) {
             self.inner.remove(&ord_id);
         }
 
@@ -643,7 +643,7 @@ mod tests {
         }
 
         for i in 0..30 {
-            <BacklogStoreRocksDB as BacklogStore<MockOrder>>::drop(&mut store, MockOrderId(i)).await;
+            <BacklogStoreRocksDB as BacklogStore<MockOrder>>::remove(&mut store, MockOrderId(i)).await;
             assert!(!<BacklogStoreRocksDB as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
             assert!(
                 <BacklogStoreRocksDB as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))

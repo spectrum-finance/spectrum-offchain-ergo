@@ -92,26 +92,17 @@ where
                                 schedules.remove(tick).await;
                             }
                         } else {
-                            let orders =
-                                stakers
-                                    .chunks(batch_size)
-                                    .into_iter()
-                                    .enumerate()
-                                    .map(|(queue_ix, xs)| Compound {
-                                        pool_id,
-                                        epoch_ix,
-                                        queue_ix,
-                                        stakers: Vec::from(xs),
-                                    });
                             let ts_now = Utc::now().timestamp();
                             let mut backlog = backlog.lock().await;
                             for order in orders {
-                                backlog
-                                    .put(PendingOrder {
-                                        order: Order::Compound(order),
-                                        timestamp: ts_now,
-                                    })
-                                    .await
+                                if !backlog.exists(order.order_id()).await {
+                                    backlog
+                                        .put(PendingOrder {
+                                            order: Order::Compound(order),
+                                            timestamp: ts_now,
+                                        })
+                                        .await
+                                }
                             }
                             schedules.defer(tick, ts_now + TICK_SUSPENSION_DURATION).await;
                         }

@@ -170,6 +170,8 @@ where
                                 .map_err(|err| err.map(Order::Compound))
                         } else {
                             error!("No funding can be found for managed compounding");
+                            let mut backlog = self.backlog.lock().await;
+                            backlog.remove(compound.order_id()).await;
                             return Err(());
                         }
                     }
@@ -318,6 +320,7 @@ where
                 return Ok(());
             } else {
                 warn!(target: "offchain_lm", "No pool is found for order [{:?}]", ord.get_self_ref());
+                self.backlog.lock().await.remove(ord.get_self_ref()).await;
             }
         }
         Err(())
