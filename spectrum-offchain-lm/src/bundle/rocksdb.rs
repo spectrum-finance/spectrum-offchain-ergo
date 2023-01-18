@@ -123,7 +123,7 @@ impl BundleRepo for BundleRepoRocksDB {
         let pred_index_key = prefixed_key(LAST_PREDICTED_PREFIX, &bundle_st.get_self_ref());
         let epoch_index_key = epoch_index_key(
             bundle_st.bundle.pool_id,
-            bundle_st.init_epoch_ix,
+            bundle_st.lower_epoch_ix,
             bundle_st.get_self_ref(),
         );
         spawn_blocking(move || {
@@ -143,9 +143,14 @@ impl BundleRepo for BundleRepoRocksDB {
         let state_key = prefixed_key(STATE_PREFIX, &bundle_state.get_self_state_ref());
         let state_bytes = bincode::serialize(&bundle_state).unwrap();
         let index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &bundle_state.get_self_ref());
+        let prev_epoch_index_key = epoch_index_key(
+            bundle_state.1.bundle.pool_id,
+            bundle_state.1.lower_epoch_ix - 1,
+            bundle_state.get_self_ref(),
+        );
         let epoch_index_key = epoch_index_key(
             bundle_state.1.bundle.pool_id,
-            bundle_state.1.init_epoch_ix,
+            bundle_state.1.lower_epoch_ix,
             bundle_state.get_self_ref(),
         );
         let dummy_bytes = vec![0u8];
@@ -154,6 +159,7 @@ impl BundleRepo for BundleRepoRocksDB {
             tx.put(state_key, state_bytes).unwrap();
             tx.put(index_key, state_id_bytes).unwrap();
             tx.put(epoch_index_key, dummy_bytes).unwrap();
+            tx.delete(prev_epoch_index_key).unwrap();
             tx.commit().unwrap();
         })
         .await
@@ -176,7 +182,7 @@ impl BundleRepo for BundleRepoRocksDB {
         let link_key = prefixed_key(PREDICTION_LINK_PREFIX, &bundle_state.get_self_state_ref());
         let epoch_index_key = epoch_index_key(
             bundle_state.1.bundle.pool_id,
-            bundle_state.1.init_epoch_ix,
+            bundle_state.1.lower_epoch_ix,
             bundle_state.get_self_ref(),
         );
         let dummy_bytes = vec![0u8];

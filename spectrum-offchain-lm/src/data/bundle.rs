@@ -223,20 +223,20 @@ impl TryFromBox for StakingBundle {
 #[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub struct IndexedBundle<B> {
     pub bundle: B,
-    pub init_epoch_ix: u32,
+    pub lower_epoch_ix: u32,
 }
 
 impl IndexedBundle<StakingBundle> {
     pub fn new(bundle: StakingBundle, conf: ProgramConfig) -> Self {
         Self {
-            init_epoch_ix: conf.epoch_num - (bundle.tmp.amount / bundle.vlq.amount) as u32 + 1,
+            lower_epoch_ix: conf.epoch_num - (bundle.tmp.amount / bundle.vlq.amount) as u32 + 1,
             bundle,
         }
     }
     pub fn init(bundle: StakingBundle) -> Self {
         Self {
             bundle,
-            init_epoch_ix: INIT_EPOCH_IX,
+            lower_epoch_ix: INIT_EPOCH_IX,
         }
     }
 }

@@ -377,7 +377,7 @@ mod tests {
 
             let staking_bundle = IndexedBundle {
                 bundle: StakingBundle::try_from_box(eb.clone()).unwrap(),
-                init_epoch_ix: epoch_ix,
+                lower_epoch_ix: epoch_ix,
             };
             res.push(AsBox(eb, staking_bundle));
         }

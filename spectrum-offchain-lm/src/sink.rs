@@ -41,7 +41,3 @@ impl<T> Sink<T> for AsSink<T> {
         Poll::Ready(Ok(()))
     }
 }
-
-pub fn boxed<'a, T>(s: impl Stream<Item = T> + 'a) -> Pin<Box<dyn Stream<Item = T> + 'a>> {
-    Box::pin(s)
-}

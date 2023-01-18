@@ -30,6 +30,7 @@ use spectrum_offchain::event_sink::types::{EventHandler, NoopDefaultHandler};
 use spectrum_offchain::event_source::data::LedgerTxEvent;
 use spectrum_offchain::event_source::event_source_ledger;
 use spectrum_offchain::executor::executor_stream;
+use spectrum_offchain::streaming::boxed;
 
 use crate::bundle::process::bundle_update_stream;
 use crate::bundle::rocksdb::BundleRepoRocksDB;
@@ -50,7 +51,7 @@ use crate::program::rocksdb::ProgramRepoRocksDB;
 use crate::prover::{SeedPhrase, Wallet};
 use crate::scheduler::process::distribution_stream;
 use crate::scheduler::{ScheduleRepoRocksDB, ScheduleRepoTracing};
-use crate::streaming::boxed;
+use crate::sink::boxed;
 
 pub mod bundle;
 pub mod data;
@@ -61,7 +62,7 @@ pub mod funding;
 pub mod program;
 pub mod prover;
 pub mod scheduler;
-mod streaming;
+mod sink;
 pub mod validators;
 
 #[tokio::main]
