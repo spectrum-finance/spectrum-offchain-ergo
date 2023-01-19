@@ -51,7 +51,6 @@ use crate::program::rocksdb::ProgramRepoRocksDB;
 use crate::prover::{SeedPhrase, Wallet};
 use crate::scheduler::process::distribution_stream;
 use crate::scheduler::{ScheduleRepoRocksDB, ScheduleRepoTracing};
-use crate::sink::boxed;
 
 pub mod bundle;
 pub mod data;

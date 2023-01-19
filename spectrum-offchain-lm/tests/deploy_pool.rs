@@ -81,7 +81,7 @@ enum Error {
     TxSigning(TxSigningError),
 }
 
-struct DeployPoolInput {
+pub struct DeployPoolInput {
     conf: ProgramConfig,
     wallet: WalletSecret,
     tx_fee: BoxValue,
@@ -93,7 +93,7 @@ struct DeployPoolInput {
     num_epochs_to_delegate: u64,
 }
 
-async fn deploy_pool(input: DeployPoolInput, explorer: Explorer) -> Result<Vec<Transaction>, Error> {
+pub async fn deploy_pool(input: DeployPoolInput, explorer: Explorer) -> Result<Vec<Transaction>, Error> {
     let addr = Address::P2Pk(DlogProverInput::from(input.wallet.clone()).public_image());
     let uxtos = explorer.get_utxos(&addr).await;
     deploy_pool_chain_transaction(uxtos, input)

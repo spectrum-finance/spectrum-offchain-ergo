@@ -145,7 +145,7 @@ impl BundleRepo for BundleRepoRocksDB {
         let index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &bundle_state.get_self_ref());
         let prev_epoch_index_key = epoch_index_key(
             bundle_state.1.bundle.pool_id,
-            bundle_state.1.lower_epoch_ix - 1,
+            bundle_state.1.lower_epoch_ix.saturating_sub(1),
             bundle_state.get_self_ref(),
         );
         let epoch_index_key = epoch_index_key(
@@ -158,8 +158,8 @@ impl BundleRepo for BundleRepoRocksDB {
             let tx = db.transaction();
             tx.put(state_key, state_bytes).unwrap();
             tx.put(index_key, state_id_bytes).unwrap();
-            tx.put(epoch_index_key, dummy_bytes).unwrap();
             tx.delete(prev_epoch_index_key).unwrap();
+            tx.put(epoch_index_key, dummy_bytes).unwrap();
             tx.commit().unwrap();
         })
         .await

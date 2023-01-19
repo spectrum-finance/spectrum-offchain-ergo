@@ -14,4 +14,4 @@ funding_repo_db_path: ./tmp/funding
 schedule_repo_db_path: ./tmp/schedule
 chain_cache_db_path: ./tmp/chain
 operator_reward_addr: 9g9cdHhNZvtUvMveqEEfk28JZasEC8sJamV3E6d5JHv8VYUjjbX
-operator_funding_secret: "<seed>"
+operator_funding_secret: "tower twist supply size thing first track entire tenant kitten orbit cause file theme devote"
