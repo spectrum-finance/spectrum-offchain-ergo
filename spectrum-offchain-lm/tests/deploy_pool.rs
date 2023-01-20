@@ -444,7 +444,7 @@ fn deploy_pool_chain_transaction(
         pool_id: PoolId::from(pool_nft.token_id),
         vlq: TypedAssetAmount::new(vlq_tokens.token_id, lq_token_amount),
         tmp: TypedAssetAmount::new(tmp_tokens.token_id, lq_token_amount * num_epochs_to_delegate),
-        redeemer_prop,
+        redeemer_prop: todo!(),
         erg_value: erg_value_per_box.into(),
     };
     let staking_bundle_candidate = staking_bundle.into_candidate(height);

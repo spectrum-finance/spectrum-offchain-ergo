@@ -5,6 +5,7 @@ use ergo_lib::ergotree_ir::chain::ergo_box::{
     BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters,
 };
 use ergo_lib::ergotree_ir::chain::token::Token;
+use ergo_lib::ergotree_ir::ergo_tree::{ErgoTree, ErgoTreeHeader};
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
 use log::trace;
 use nonempty::NonEmpty;
@@ -260,7 +261,7 @@ impl Pool {
             Vec<StakingBundle>,
             Option<DistributionFundingProto>,
             Vec<RewardOutput>,
-            MinerOutput
+            MinerOutput,
         ),
         PoolOperationError,
     > {
@@ -317,7 +318,13 @@ impl Pool {
             miner_output.erg_value = miner_output.erg_value + funds_remain;
             None
         };
-        Ok((next_pool, next_bundles, next_funding_box, reward_outputs, miner_output))
+        Ok((
+            next_pool,
+            next_bundles,
+            next_funding_box,
+            reward_outputs,
+            miner_output,
+        ))
     }
 
     fn epoch_alloc(&self) -> u64 {
@@ -449,6 +456,7 @@ mod tests {
     use ergo_lib::ergotree_ir::mir::constant::Constant;
     use ergo_lib::ergotree_ir::mir::expr::Expr;
     use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
+    use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{ProveDlog, SigmaProp};
     use nonempty::nonempty;
     use rand::Rng;
 
@@ -498,6 +506,14 @@ mod tests {
         ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap()
     }
 
+    fn trivial_sigma_prop() -> SigmaProp {
+        let sample = "0008cd03171b64b4b185c2581d421ae0ec1f4ef2a60cf849b0f51de99f97e4c89f2500e3";
+        SigmaProp::from(
+            ProveDlog::try_from(ErgoTree::sigma_parse_bytes(&*base16::decode(sample).unwrap()).unwrap())
+                .unwrap(),
+        )
+    }
+
     #[test]
     fn early_deposit() {
         let budget = 1000000000;
@@ -506,7 +522,7 @@ mod tests {
         let deposit = Deposit {
             order_id: OrderId::from(BoxId::from(random_digest())),
             pool_id: pool.pool_id,
-            redeemer_prop: trivial_prop(),
+            redeemer_prop: trivial_sigma_prop(),
             lq: deposit_lq,
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 10,
@@ -535,7 +551,7 @@ mod tests {
         let deposit = Deposit {
             order_id: OrderId::from(BoxId::from(random_digest())),
             pool_id: pool.pool_id,
-            redeemer_prop: trivial_prop(),
+            redeemer_prop: trivial_sigma_prop(),
             lq: deposit,
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 9,
@@ -585,7 +601,7 @@ mod tests {
         let deposit_a = Deposit {
             order_id: OrderId::from(BoxId::from(random_digest())),
             pool_id: pool.pool_id,
-            redeemer_prop: trivial_prop(),
+            redeemer_prop: trivial_sigma_prop(),
             lq: deposit_amt_a,
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 10,
@@ -600,7 +616,7 @@ mod tests {
         let deposit_b = Deposit {
             order_id: OrderId::from(BoxId::from(random_digest())),
             pool_id: pool.pool_id,
-            redeemer_prop: trivial_prop(),
+            redeemer_prop: trivial_sigma_prop(),
             lq: deposit_amt_b,
             erg_value: NanoErg::from(100000000000u64),
             expected_num_epochs: 10,

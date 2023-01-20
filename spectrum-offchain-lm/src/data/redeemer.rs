@@ -1,16 +1,17 @@
 use ergo_lib::ergotree_ir::chain::ergo_box::{BoxTokens, ErgoBoxCandidate, NonMandatoryRegisters};
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
+use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::SigmaProp;
 
 use spectrum_offchain::domain::TypedAssetAmount;
 use spectrum_offchain::event_sink::handlers::types::IntoBoxCandidate;
 
 use crate::data::assets::{BundleKey, Lq, Reward};
-use crate::ergo::NanoErg;
+use crate::ergo::{NanoErg, DEFAULT_P2PK_HEADER};
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct RewardOutput {
     pub reward: TypedAssetAmount<Reward>,
-    pub redeemer_prop: ErgoTree,
+    pub redeemer_prop: SigmaProp,
     pub erg_value: NanoErg,
 }
 
@@ -18,7 +19,7 @@ impl IntoBoxCandidate for RewardOutput {
     fn into_candidate(self, height: u32) -> ErgoBoxCandidate {
         ErgoBoxCandidate {
             value: self.erg_value.into(),
-            ergo_tree: self.redeemer_prop,
+            ergo_tree: ErgoTree::new(DEFAULT_P2PK_HEADER.clone(), &self.redeemer_prop.into()).unwrap(),
             tokens: Some(BoxTokens::from([self.reward.into()])),
             additional_registers: NonMandatoryRegisters::empty(),
             creation_height: height,
@@ -29,7 +30,7 @@ impl IntoBoxCandidate for RewardOutput {
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct DepositOutput {
     pub bundle_key: TypedAssetAmount<BundleKey>,
-    pub redeemer_prop: ErgoTree,
+    pub redeemer_prop: SigmaProp,
     pub erg_value: NanoErg,
 }
 
@@ -37,7 +38,7 @@ impl IntoBoxCandidate for DepositOutput {
     fn into_candidate(self, height: u32) -> ErgoBoxCandidate {
         ErgoBoxCandidate {
             value: self.erg_value.into(),
-            ergo_tree: self.redeemer_prop,
+            ergo_tree: ErgoTree::new(DEFAULT_P2PK_HEADER.clone(), &self.redeemer_prop.into()).unwrap(),
             tokens: Some(BoxTokens::from([self.bundle_key.into()])),
             additional_registers: NonMandatoryRegisters::empty(),
             creation_height: height,

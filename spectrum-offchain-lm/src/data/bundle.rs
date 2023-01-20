@@ -7,6 +7,7 @@ use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount, TokenId};
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
 use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
+use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{ProveDlog, SigmaProp};
 use serde::{Deserialize, Serialize};
 
 use spectrum_offchain::data::OnChainEntity;
@@ -26,7 +27,7 @@ pub struct StakingBundleProto {
     pub pool_id: PoolId,
     pub vlq: TypedAssetAmount<VirtLq>,
     pub tmp: TypedAssetAmount<Tmp>,
-    pub redeemer_prop: ErgoTree,
+    pub redeemer_prop: SigmaProp,
     pub erg_value: NanoErg,
 }
 
@@ -56,9 +57,7 @@ impl IntoBoxCandidate for StakingBundleProto {
         ])
         .unwrap();
         let registers = NonMandatoryRegisters::try_from(vec![
-            RegisterValue::Parsed(Constant::from(
-                self.redeemer_prop.sigma_serialize_bytes().unwrap(),
-            )),
+            RegisterValue::Parsed(Constant::from(self.redeemer_prop)),
             RegisterValue::Parsed(Constant::from(
                 TokenId::from(self.pool_id).sigma_serialize_bytes().unwrap(),
             )),
@@ -88,7 +87,7 @@ pub struct StakingBundle {
     pub pool_id: PoolId,
     pub vlq: TypedAssetAmount<VirtLq>,
     pub tmp: TypedAssetAmount<Tmp>,
-    pub redeemer_prop: ErgoTree,
+    pub redeemer_prop: SigmaProp,
     pub erg_value: NanoErg,
 }
 
@@ -112,7 +111,9 @@ impl From<StakingBundleWithErgoTreeBytes> for StakingBundle {
             pool_id: s.pool_id,
             vlq: s.vlq,
             tmp: s.tmp,
-            redeemer_prop: ErgoTree::sigma_parse_bytes(&s.redeemer_prop_bytes).unwrap(),
+            redeemer_prop: SigmaProp::from(
+                ProveDlog::try_from(ErgoTree::sigma_parse_bytes(&s.redeemer_prop_bytes).unwrap()).unwrap(),
+            ),
             erg_value: s.erg_value,
         }
     }
@@ -126,7 +127,7 @@ impl From<StakingBundle> for StakingBundleWithErgoTreeBytes {
             pool_id: s.pool_id,
             vlq: s.vlq,
             tmp: s.tmp,
-            redeemer_prop_bytes: s.redeemer_prop.sigma_serialize_bytes().unwrap(),
+            redeemer_prop_bytes: s.redeemer_prop.prop_bytes().unwrap(),
             erg_value: s.erg_value,
         }
     }
@@ -186,13 +187,11 @@ impl TryFromBox for StakingBundle {
     fn try_from_box(bx: ErgoBox) -> Option<StakingBundle> {
         if let Some(ref tokens) = bx.tokens {
             if tokens.len() == 3 && bx.ergo_tree == *BUNDLE_VALIDATOR {
-                let redeemer_prop = ErgoTree::sigma_parse_bytes(
-                    &bx.get_register(NonMandatoryRegisterId::R4.into())?
-                        .v
-                        .try_extract_into::<Vec<u8>>()
-                        .ok()?,
-                )
-                .ok()?;
+                let redeemer_prop = bx
+                    .get_register(NonMandatoryRegisterId::R4.into())?
+                    .v
+                    .try_extract_into::<SigmaProp>()
+                    .ok()?;
                 let pool_id = TokenId::from(
                     Digest32::try_from(
                         bx.get_register(NonMandatoryRegisterId::R5.into())?

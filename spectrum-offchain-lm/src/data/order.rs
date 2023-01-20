@@ -9,6 +9,7 @@ use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
 use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
+use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{ProveDlog, SigmaProp};
 use ergo_lib::wallet::miner_fee::MINERS_FEE_BASE16_BYTES;
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -180,7 +181,7 @@ impl RunOrder for Compound {
 pub struct Deposit {
     pub order_id: OrderId,
     pub pool_id: PoolId,
-    pub redeemer_prop: ErgoTree,
+    pub redeemer_prop: SigmaProp,
     pub bundle_prop_hash: Digest32,
     pub max_miner_fee: i64,
     pub lq: TypedAssetAmount<Lq>,
@@ -193,7 +194,9 @@ impl From<RawDeposit> for Deposit {
         Self {
             order_id: rd.order_id,
             pool_id: rd.pool_id,
-            redeemer_prop: ErgoTree::sigma_parse_bytes(&*rd.redeemer_prop_raw).unwrap(),
+            redeemer_prop: SigmaProp::from(
+                ProveDlog::try_from(ErgoTree::sigma_parse_bytes(&rd.redeemer_prop_raw).unwrap()).unwrap(),
+            ),
             bundle_prop_hash: rd.bundle_prop_hash,
             max_miner_fee: rd.max_miner_fee,
             lq: TypedAssetAmount::new(rd.lq.0, rd.lq.1),
@@ -220,7 +223,7 @@ impl From<Deposit> for RawDeposit {
         Self {
             order_id: d.order_id,
             pool_id: d.pool_id,
-            redeemer_prop_raw: d.redeemer_prop.sigma_serialize_bytes().unwrap(),
+            redeemer_prop_raw: d.redeemer_prop.prop_bytes().unwrap(),
             bundle_prop_hash: d.bundle_prop_hash,
             max_miner_fee: d.max_miner_fee,
             lq: (d.lq.token_id, d.lq.amount),
@@ -234,7 +237,7 @@ impl Hash for Deposit {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.order_id.hash(state);
         self.pool_id.hash(state);
-        state.write(&*self.redeemer_prop.sigma_serialize_bytes().unwrap());
+        state.write(&*self.redeemer_prop.prop_bytes().unwrap());
         self.bundle_prop_hash.hash(state);
         self.max_miner_fee.hash(state);
         self.lq.hash(state);
@@ -324,15 +327,20 @@ impl TryFromBox for Deposit {
                         .ok()?,
                 )
                 .ok()?;
-                let redeemer_prop = ErgoTree::sigma_parse_bytes(
-                    &*bx.ergo_tree
-                        .get_constant(3)
-                        .ok()??
-                        .v
-                        .try_extract_into::<Vec<u8>>()
+                let redeemer_prop = SigmaProp::from(
+                    ProveDlog::try_from(
+                        ErgoTree::sigma_parse_bytes(
+                            &*bx.ergo_tree
+                                .get_constant(3)
+                                .ok()??
+                                .v
+                                .try_extract_into::<Vec<u8>>()
+                                .ok()?,
+                        )
                         .ok()?,
-                )
-                .ok()?;
+                    )
+                    .ok()?,
+                );
                 let bundle_prop_hash = bx
                     .ergo_tree
                     .get_constant(10)
@@ -636,9 +644,11 @@ impl Weighted for Order {
 #[cfg(test)]
 mod tests {
     use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
-    use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
+    use ergo_lib::ergotree_ir::ergo_tree::{ErgoTree, ErgoTreeHeader};
     use ergo_lib::ergotree_ir::mir::constant::Constant;
     use ergo_lib::ergotree_ir::mir::expr::Expr;
+    use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
+    use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{ProveDlog, SigmaProp};
 
     use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 
@@ -656,40 +666,41 @@ mod tests {
     #[test]
     fn parse_order() {
         let sample_json = r#"{
-            "boxId": "f95eccd8ec785ecd0a2ed5188d0ad7e05694b34f6c3b9ff44dc99586947d3a73",
+            "boxId": "006c87fcd896d414cdb44497f9e6f508e3b7939cb791a710b193dd854c10145b",
             "value": 2750000,
-            "ergoTree": "198c041604000e205c7b7988f34bfb13059c447c648c23c36d121228588fa9ea68b9943b0333ea4c04020e240008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0404040008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec040005fcffffffffffffffff0104000e20599e30a83bc971f75582f2581f0633eebfe936b95d956ed103cbec520d80438604060400040804140402050204040e691005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a5730405000500058092f401d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1ededed938cb27202730700017203ed93c27204720593860272067308b2db63087204730900ededededed93cbc27207730a93e4c67207040e720593e4c67207050e72039386028cb27202730b00017208b2db63087207730c009386028cb27202730d00019c72087e730e05b2db63087207730f0093860272067310b2db6308720773110090b0ada5d90109639593c272097312c1720973137314d90109599a8c7209018c7209027315",
+            "ergoTree": "198d041604000e2048ad28d9bb55e1da36d27c655a84279ff25d889063255d3f774ff926a370437004020e240008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0404040008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec040005fcffffffffffffffff0104000e20599e30a83bc971f75582f2581f0633eebfe936b95d956ed103cbec520d804386040604000408041c0402050204040e691005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a5730405000500058092f401d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1ededed938cb27202730700017203ed93c27204720593860272067308b2db63087204730900ededededed93cbc27207730a93d0e4c672070408720593e4c67207050e72039386028cb27202730b00017208b2db63087207730c009386028cb27202730d00019c72087e730e05b2db63087207730f0093860272067310b2db6308720773110090b0ada5d90109639593c272097312c1720973137314d90109599a8c7209018c7209027315",
             "assets": [
                 {
                     "tokenId": "98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45",
-                    "amount": 109
+                    "amount": 71
                 }
             ],
-            "creationHeight": 914528,
+            "creationHeight": 921698,
             "additionalRegisters": {},
-            "transactionId": "dabcb750b045ba34e11b4e644ad6e27ba5a92d1c3b11b0278718d389d984e3a0",
+            "transactionId": "4aaa737e4ce515d0dc5a27e3fecf24702f7c487cb873c0fbd0416526a1cb74c0",
             "index": 0
         }"#;
         let bx: ErgoBox = serde_json::from_str(sample_json).unwrap();
         let res = Order::try_from_box(bx);
+        println!("{:?}", res);
         assert!(res.is_some())
     }
 
     #[test]
     fn run_deposit() {
         let deposit_json = r#"{
-            "boxId": "f95eccd8ec785ecd0a2ed5188d0ad7e05694b34f6c3b9ff44dc99586947d3a73",
+            "boxId": "006c87fcd896d414cdb44497f9e6f508e3b7939cb791a710b193dd854c10145b",
             "value": 2750000,
-            "ergoTree": "198c041604000e205c7b7988f34bfb13059c447c648c23c36d121228588fa9ea68b9943b0333ea4c04020e240008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0404040008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec040005fcffffffffffffffff0104000e20599e30a83bc971f75582f2581f0633eebfe936b95d956ed103cbec520d80438604060400040804140402050204040e691005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a5730405000500058092f401d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1ededed938cb27202730700017203ed93c27204720593860272067308b2db63087204730900ededededed93cbc27207730a93e4c67207040e720593e4c67207050e72039386028cb27202730b00017208b2db63087207730c009386028cb27202730d00019c72087e730e05b2db63087207730f0093860272067310b2db6308720773110090b0ada5d90109639593c272097312c1720973137314d90109599a8c7209018c7209027315",
+            "ergoTree": "198d041604000e2048ad28d9bb55e1da36d27c655a84279ff25d889063255d3f774ff926a370437004020e240008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0404040008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec040005fcffffffffffffffff0104000e20599e30a83bc971f75582f2581f0633eebfe936b95d956ed103cbec520d804386040604000408041c0402050204040e691005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a5730405000500058092f401d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1ededed938cb27202730700017203ed93c27204720593860272067308b2db63087204730900ededededed93cbc27207730a93d0e4c672070408720593e4c67207050e72039386028cb27202730b00017208b2db63087207730c009386028cb27202730d00019c72087e730e05b2db63087207730f0093860272067310b2db6308720773110090b0ada5d90109639593c272097312c1720973137314d90109599a8c7209018c7209027315",
             "assets": [
                 {
                     "tokenId": "98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45",
-                    "amount": 109
+                    "amount": 71
                 }
             ],
-            "creationHeight": 914528,
+            "creationHeight": 921698,
             "additionalRegisters": {},
-            "transactionId": "dabcb750b045ba34e11b4e644ad6e27ba5a92d1c3b11b0278718d389d984e3a0",
+            "transactionId": "4aaa737e4ce515d0dc5a27e3fecf24702f7c487cb873c0fbd0416526a1cb74c0",
             "index": 0
         }"#;
         let pool_box: ErgoBox = serde_json::from_str(POOL_JSON).unwrap();
@@ -698,7 +709,7 @@ mod tests {
         let deposit = <AsBox<Deposit>>::try_from_box(deposit_box).unwrap();
 
         let ec = ExecutionContext {
-            height: 914530,
+            height: 921700,
             mintable_token_id: pool.0.box_id().into(),
             executor_prop: trivial_prop(),
         };
@@ -715,6 +726,17 @@ mod tests {
         let signed_tx = prover.sign(res.unwrap().0);
 
         assert!(signed_tx.is_ok());
+    }
+
+    #[test]
+    fn redeemer_prop_roundtrip() {
+        let sample = "0008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec";
+        let tree = ErgoTree::sigma_parse_bytes(&base16::decode(sample).unwrap()).unwrap();
+        let sigma_prop = SigmaProp::from(ProveDlog::try_from(tree).unwrap());
+        let tree_reconstructed = ErgoTree::new(ErgoTreeHeader::v0(false), &sigma_prop.into()).unwrap();
+        let tree_encoded = base16::encode_lower(&*tree_reconstructed.sigma_serialize_bytes().unwrap());
+
+        assert_eq!(tree_encoded, sample);
     }
 
     const POOL_JSON: &str = r#"{
