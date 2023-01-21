@@ -156,7 +156,6 @@ impl BundleRepo for BundleRepoRocksDB {
             let tx = db.transaction();
             tx.put(state_key, state_bytes).unwrap();
             tx.put(index_key, state_id_bytes).unwrap();
-            tx.delete(prev_epoch_index_key).unwrap();
             tx.put(epoch_index_key, dummy_bytes).unwrap();
             tx.delete(prev_epoch_index_key).unwrap();
             tx.commit().unwrap();
