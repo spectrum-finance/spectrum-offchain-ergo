@@ -78,7 +78,7 @@ impl<'a, TClient, TChainSync> MempoolSync<'a, TClient, TChainSync>
 where
     TClient: ErgoNetwork,
 {
-    pub async fn init<TChainSyncMaker: InitChainSync<TChainSync>>(
+    pub async fn init<'a, TChainSyncMaker: InitChainSync<'a, TChainSync>>(
         conf: MempoolSyncConf,
         client: &'a TClient,
         chain_sync_maker: TChainSyncMaker,
