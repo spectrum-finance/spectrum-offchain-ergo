@@ -279,7 +279,10 @@ impl Pool {
         let mut accumulated_cost = NanoErg::from(0u64);
         for mut bundle in &mut next_bundles {
             let epochs_burned = (bundle.tmp.amount / bundle.vlq.amount).saturating_sub(epochs_remain as u64);
-            trace!(target: "pool", "Bundle: [{}], epochs_remain: [{}], epochs_burned: [{}]", bundle.state_id, epochs_remain, epochs_burned);
+            trace!(target: "pool", "Bundle: [{}], epochs_remain: [{}], epochs_burned: [{}], budget_remaining: {}, epoch_complete: {}, conf: {:?}", 
+                   bundle.state_id, epochs_remain, epochs_burned, next_pool.budget_rem.amount,
+                   next_pool.epoch_completed(),
+                   next_pool.conf);
             if epochs_burned < 1 {
                 return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned(
                     format!("Already compounded"),
