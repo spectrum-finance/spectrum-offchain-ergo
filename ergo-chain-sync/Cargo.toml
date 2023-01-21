@@ -28,6 +28,7 @@ futures-timer = "3.0.2"
 derive_more = "0.99.17"
 async-std = {version = "1.12.0", features = ["attributes"] }
 async-stream = "0.3.3"
+thiserror = "1"
 
 [dev-dependencies]
 async-std = {version = "1.12.0", features = ["attributes"] }

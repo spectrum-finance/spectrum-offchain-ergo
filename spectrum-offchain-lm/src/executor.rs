@@ -1,6 +1,7 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
+use crate::data::bundle::IndexedBundle;
 use crate::data::FundingId;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -23,7 +24,6 @@ use spectrum_offchain::network::ErgoNetwork;
 use spectrum_offchain::transaction::TransactionCandidate;
 
 use crate::bundle::{resolve_bundle_state, BundleRepo};
-use crate::data::bundle::IndexedBundle;
 use crate::data::context::ExecutionContext;
 use crate::data::order::Order;
 use crate::data::pool::Pool;
@@ -130,7 +130,7 @@ where
             trace!(target: "offchain_lm", "Order acquired [{:?}]", ord.get_self_ref());
             let entity_id = ord.get_entity_ref();
             if let Some(pool) = resolve_entity_state(entity_id, Arc::clone(&self.pool_repo)).await {
-                trace!(target: "offchain_lm", "Pool for order [{:?}] is [{:?}]", ord.get_self_ref(), pool.get_self_ref());
+                trace!(target: "offchain_lm", "Pool for order [{:?}] is [{:?}], pool_state: {:?}", ord.get_self_ref(), pool.get_self_ref(), pool);
                 let conf = pool.1.conf;
                 let bundle_ids = ord.get::<Vec<BundleId>>();
                 let bundle_resolver = Arc::clone(&self.bundle_repo);
@@ -170,8 +170,6 @@ where
                                 .map_err(|err| err.map(Order::Compound))
                         } else {
                             error!("No funding can be found for managed compounding");
-                            let mut backlog = self.backlog.lock().await;
-                            backlog.remove(compound.order_id()).await;
                             return Err(());
                         }
                     }

@@ -93,6 +93,7 @@ async fn main() {
         &node,
         cache,
         Some(&signal_tip_reached),
+        config.chain_sync_tip_height,
     )
     .await;
 
@@ -228,6 +229,7 @@ struct AppConfig<'a> {
     node_addr: Url,
     http_client_timeout_duration_secs: u32,
     chain_sync_starting_height: u32,
+    chain_sync_tip_height: Option<u32>,
     backlog_config: BacklogConfig,
     log4rs_yaml_path: &'a str,
     backlog_store_db_path: &'a str,

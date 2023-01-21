@@ -92,6 +92,11 @@ where
                                 schedules.remove(tick).await;
                             }
                         } else {
+                            info!(
+                                target: "scheduler",
+                                "# stakers left in epoch [{}] of pool [{}]: {}",
+                                epoch_ix, pool_id, stakers.len(),
+                            );
                             let ts_now = Utc::now().timestamp();
                             let mut backlog = backlog.lock().await;
                             for order in orders {
