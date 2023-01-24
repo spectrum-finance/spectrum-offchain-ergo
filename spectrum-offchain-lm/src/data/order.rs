@@ -637,14 +637,25 @@ impl Weighted for Order {
 
 #[cfg(test)]
 mod tests {
+    use ergo_chain_sync::client::node::ErgoNodeHttpClient;
+    use ergo_chain_sync::client::types::Url;
+    use ergo_lib::ergo_chain_types::Digest32;
     use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
     use ergo_lib::ergotree_ir::ergo_tree::{ErgoTree, ErgoTreeHeader};
-    use ergo_lib::ergotree_ir::mir::constant::Constant;
+    use ergo_lib::ergotree_ir::mir::constant::{Constant, Literal};
     use ergo_lib::ergotree_ir::mir::expr::Expr;
     use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
-    use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{ProveDlog, SigmaProp};
+    use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{
+        ProveDlog, SigmaBoolean, SigmaProofOfKnowledgeTree, SigmaProp,
+    };
 
+    use ergo_lib::ergotree_ir::types::stype::SType;
+    use ergo_lib::wallet::miner_fee::MINERS_FEE_BASE16_BYTES;
+    use isahc::prelude::Configurable;
+    use isahc::HttpClient;
+    use sigma_test_util::force_any_val;
     use spectrum_offchain::event_sink::handlers::types::TryFromBox;
+    use spectrum_offchain::network::ErgoNetwork;
 
     use crate::data::context::ExecutionContext;
     use crate::data::order::{Deposit, Order};
@@ -720,6 +731,84 @@ mod tests {
         let signed_tx = prover.sign(res.unwrap().0);
 
         assert!(signed_tx.is_ok());
+    }
+
+    #[tokio::test]
+    async fn submit_deposit_tx() {
+        let deposit_json = r#"{
+            "boxId": "006d1f580237bb3d482c74ce2eadac2676e32066afc6e9f58ceb5fd907483b20",
+            "value": 2750000,
+            "ergoTree": "1987041604000e20020202020202020202020202020202020202020202020202020202020202020204020e2000000000000000000000000000000000000000000000000000000000000000000404040008cd02217daf90deb73bdf8b6709bb42093fdfaff6573fd47b630e2d3fdd4a8193a74d040005fcffffffffffffffff0104000e20010101010101010101010101010101010101010101010101010101010101010104060400040804140402050204040e691005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a573040500050005a09c01d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1ededed938cb27202730700017203ed93c27204720593860272067308b2db63087204730900ededededed93cbc27207730a93e4c67207040e720593e4c67207050e72039386028cb27202730b00017208b2db63087207730c009386028cb27202730d00019c72087e730e05b2db63087207730f0093860272067310b2db6308720773110090b0ada5d90109639593c272097312c1720973137314d90109599a8c7209018c7209027315",
+            "assets": [
+                {
+                    "tokenId": "98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45",
+                    "amount": 71
+                }
+            ],
+            "creationHeight": 921698,
+            "additionalRegisters": {},
+            "transactionId": "4aaa737e4ce515d0dc5a27e3fecf24702f7c487cb873c0fbd0416526a1cb74c0",
+            "index": 0
+        }"#;
+        let pool_box: ErgoBox = serde_json::from_str(POOL_JSON).unwrap();
+        let pool = <AsBox<Pool>>::try_from_box(pool_box).unwrap();
+        let mut deposit_box: ErgoBox = serde_json::from_str(deposit_json).unwrap();
+
+        let pdlog = force_any_val::<ProveDlog>();
+        let c = Constant {
+            tpe: SType::SSigmaProp,
+            v: Literal::SigmaProp(Box::new(SigmaProp::from(SigmaBoolean::ProofOfKnowledge(
+                SigmaProofOfKnowledgeTree::ProveDlog(pdlog),
+            )))),
+        };
+        let etree = ErgoTree::new(ErgoTreeHeader::v1(false), &Expr::Const(c)).unwrap();
+        let expr = deposit_box.ergo_tree.clone().proposition().unwrap();
+        let tree = ErgoTree::new(ErgoTreeHeader::v1(true), &expr)
+            .unwrap()
+            .with_constant(1, <Vec<u8>>::from(force_any_val::<Digest32>()).into())
+            .unwrap()
+            .with_constant(3, etree.sigma_serialize_bytes().unwrap().into())
+            .unwrap()
+            .with_constant(10, force_any_val::<Digest32>().into())
+            .unwrap()
+            .with_constant(21, 100_i64.into())
+            .unwrap()
+            .with_constant(14, 14_i32.into())
+            .unwrap()
+            .with_constant(18, base16::decode(MINERS_FEE_BASE16_BYTES).unwrap().into())
+            .unwrap();
+        deposit_box.ergo_tree = tree;
+
+        println!("{:?}", deposit_box.box_id());
+        let deposit = <AsBox<Deposit>>::try_from_box(deposit_box).unwrap();
+
+        let ec = ExecutionContext {
+            height: 921700,
+            mintable_token_id: pool.0.box_id().into(),
+            executor_prop: trivial_prop(),
+        };
+
+        let res = deposit.clone().try_run(pool, (), ec);
+
+        println!("{:?}", res);
+        assert!(res.is_ok());
+
+        let prover = Wallet::trivial(Vec::new());
+
+        let signed_tx = prover.sign(res.unwrap().0).unwrap();
+
+        let client = HttpClient::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .unwrap();
+
+        let node = ErgoNodeHttpClient::new(
+            client,
+            Url::try_from(String::from("http://213.239.193.208:9053")).unwrap(),
+        );
+        let res = node.submit_tx(signed_tx).await;
+        println!("submit_tx: {:?}", res);
+        assert!(res.is_ok());
     }
 
     #[test]
