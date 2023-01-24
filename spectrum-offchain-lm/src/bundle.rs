@@ -171,6 +171,7 @@ mod tests {
             serialization::SigmaSerializable,
         },
     };
+    use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{ProveDlog, SigmaProp};
     use rand::RngCore;
     use sigma_test_util::force_any_val;
 
@@ -343,10 +344,12 @@ mod tests {
 
             let mut builder = ErgoBoxCandidateBuilder::new(value, ergo_tree, height);
 
-            let redeemer_prop = force_any_val::<ErgoTree>();
+            let redeemer_prop = "0008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec";
+            let tree = ErgoTree::sigma_parse_bytes(&base16::decode(redeemer_prop).unwrap()).unwrap();
+            let sigma_prop = SigmaProp::from(ProveDlog::try_from(tree).unwrap());
             builder.set_register_value(
                 NonMandatoryRegisterId::R4,
-                Constant::from(redeemer_prop.sigma_serialize_bytes().unwrap()),
+                Constant::from(sigma_prop),
             );
 
             builder.set_register_value(NonMandatoryRegisterId::R5, Constant::from(TokenId::from(pool_id)));

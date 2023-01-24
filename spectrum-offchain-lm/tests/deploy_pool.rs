@@ -13,6 +13,7 @@ use ergo_lib::ergotree_ir::chain::ergo_box::{
 use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount, TokenId};
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::serialization::{SigmaParsingError, SigmaSerializable};
+use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{ProveDlog, SigmaProp};
 use ergo_lib::wallet::box_selector::{BoxSelector, BoxSelectorError, SimpleBoxSelector};
 use ergo_lib::wallet::miner_fee::{MINERS_FEE_ADDRESS, MINERS_FEE_BASE16_BYTES};
 use ergo_lib::wallet::secret_key::SecretKey;
@@ -89,7 +90,7 @@ pub struct DeployPoolInput {
     change_address: Address,
     height: u32,
     initial_lq_token_deposit: Token,
-    max_miner_fee: u64,
+    miner_fee: u64,
     num_epochs_to_delegate: u64,
 }
 
@@ -111,7 +112,7 @@ fn deploy_pool_chain_transaction(
         change_address,
         height,
         initial_lq_token_deposit,
-        max_miner_fee,
+        miner_fee,
         num_epochs_to_delegate,
     } = input;
     let reward_token_budget = Token {
@@ -120,6 +121,7 @@ fn deploy_pool_chain_transaction(
     };
     let addr = Address::P2Pk(DlogProverInput::from(wallet.clone()).public_image());
     let guard = addr.script()?;
+    let redeemer_prop = SigmaProp::from(ProveDlog::try_from(guard.clone()).unwrap());
     // We need to create a chain of 6 transactions:
     //   - TX 0: Move initial deposit of LQ and reward tokens into a single box.
     //   - TX 1 to 3: Minting of pool NFT, vLQ tokens and TMP tokens.
@@ -413,20 +415,6 @@ fn deploy_pool_chain_transaction(
 
     let lm_pool_box_candidate = pool.into_candidate(height);
 
-    // Build redeemer out candidate
-    let redeemer_prop = REDEEM_VALIDATOR
-        .clone()
-        .with_constant(2, REDEEM_VALIDATOR_BYTES.as_bytes().to_vec().into())
-        .unwrap()
-        .with_constant(3, initial_lq_token_deposit.token_id.into())
-        .unwrap()
-        .with_constant(4, (*initial_lq_token_deposit.amount.as_u64() as i64).into())
-        .unwrap()
-        .with_constant(6, MINERS_FEE_BASE16_BYTES.as_bytes().to_vec().into())
-        .unwrap()
-        .with_constant(9, (max_miner_fee as i64).into())
-        .unwrap();
-
     let bundle_key_id: TokenId = inputs.first().0.box_id().into();
 
     let deposit_output = DepositOutput {
@@ -444,7 +432,7 @@ fn deploy_pool_chain_transaction(
         pool_id: PoolId::from(pool_nft.token_id),
         vlq: TypedAssetAmount::new(vlq_tokens.token_id, lq_token_amount),
         tmp: TypedAssetAmount::new(tmp_tokens.token_id, lq_token_amount * num_epochs_to_delegate),
-        redeemer_prop: todo!(),
+        redeemer_prop,
         erg_value: erg_value_per_box.into(),
     };
     let staking_bundle_candidate = staking_bundle.into_candidate(height);
@@ -533,7 +521,7 @@ fn test_deploy_pool_chain_tx() {
         change_address,
         height,
         initial_lq_token_deposit,
-        max_miner_fee: 2_000_000,
+        miner_fee: 2_000_000,
         num_epochs_to_delegate: 100,
     };
     let res = deploy_pool_chain_transaction(vec![input_box], input).unwrap();
