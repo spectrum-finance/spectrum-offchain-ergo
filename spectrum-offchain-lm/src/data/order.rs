@@ -31,7 +31,7 @@ use crate::data::context::ExecutionContext;
 use crate::data::funding::DistributionFunding;
 use crate::data::pool::{Pool, PoolOperationError};
 use crate::data::{AsBox, BundleId, BundleStateId, FundingId, OrderId, PoolId};
-use crate::ergo::NanoErg;
+use crate::ergo::{default_sigma_prop_tree, NanoErg};
 use crate::executor::{ConsumeExtra, ProduceExtra, RunOrder};
 use crate::validators::{DEPOSIT_TEMPLATE, REDEEM_TEMPLATE};
 
@@ -123,15 +123,9 @@ impl RunOrder for Compound {
                         .into_iter()
                         .chain(funding.map(|AsBox(i, _)| i))
                         .map(|bx| (bx, ContextExtension::empty()))
-                        .chain(bundles.iter().map(|AsBox(bx, _)| bx.clone()).map(|bx| {
-                            let redeemer_prop = ErgoTree::sigma_parse_bytes(
-                                &*bx.get_register(NonMandatoryRegisterId::R4.into())
-                                    .unwrap()
-                                    .v
-                                    .try_extract_into::<Vec<u8>>()
-                                    .unwrap(),
-                            )
-                            .unwrap();
+                        .chain(bundles.iter().map(|AsBox(bx, bn)| {
+                            let bx = bx.clone();
+                            let redeemer_prop = default_sigma_prop_tree(bn.redeemer_prop.clone());
                             let (redeemer_out_ix, _) = outputs
                                 .iter()
                                 .find_position(|o| o.ergo_tree == redeemer_prop)
