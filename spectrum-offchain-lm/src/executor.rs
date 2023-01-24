@@ -25,7 +25,7 @@ use crate::data::bundle::IndexedBundle;
 use crate::data::context::ExecutionContext;
 use crate::data::order::Order;
 use crate::data::pool::Pool;
-use crate::data::{AsBox, BundleId};
+use crate::data::{AsBox, BundleId, BundleStateId};
 use crate::funding::FundingRepo;
 use crate::prover::SigmaProver;
 
@@ -184,19 +184,33 @@ where
                         match self.prover.sign(tx) {
                             Ok(tx) => {
                                 trace!(target: "offchain_lm", "Transaction ID for order [{}] is [{}]", ord.get_self_ref(), tx.id());
-                                if let Err(client_err) = self.network.submit_tx(tx).await {
-                                    // Note, here `submit_tx(tx)` can fail not only bc pool state is consumed,
-                                    // but also bc bundle is consumed, what is less possible though. That's why
-                                    // we just invalidate pool.
-                                    // todo: In the future more precise error handling may be possible if we
-                                    // todo: implement a way to find out which input failed exactly.
+                                if let Err(client_err) = self.network.submit_tx(tx.clone()).await {
                                     warn!("Execution failed while submitting tx due to {}", client_err);
-                                    self.pool_repo
-                                        .lock()
-                                        .await
-                                        .invalidate(pool.get_self_state_ref(), pool.get_self_ref())
-                                        .await;
-                                    self.backlog.lock().await.recharge(ord).await;
+                                    if let Some(missing_indices) = parse_err(&client_err.0) {
+                                        for idx in missing_indices {
+                                            // Staking bundles start at index 2 of inputs.
+                                            if idx > 1 {
+                                                self.bundle_repo
+                                                    .lock()
+                                                    .await
+                                                    .invalidate(BundleStateId::from(
+                                                        tx.inputs
+                                                            .get(idx as usize - 2)
+                                                            .unwrap()
+                                                            .box_id
+                                                            .clone(),
+                                                    ))
+                                                    .await;
+                                            }
+                                        }
+                                    } else {
+                                        self.pool_repo
+                                            .lock()
+                                            .await
+                                            .invalidate(pool.get_self_state_ref(), pool.get_self_ref())
+                                            .await;
+                                        self.backlog.lock().await.recharge(ord).await;
+                                    }
                                 // Return order to backlog
                                 } else {
                                     self.pool_repo
@@ -275,5 +289,32 @@ where
             }
         }
         Err(())
+    }
+}
+
+type MissingIndex = i32;
+
+fn parse_err(err: &str) -> Option<Vec<MissingIndex>> {
+    let prefix = "Missing inputs: ";
+    if err.starts_with(prefix) {
+        return Some(
+            err.strip_prefix(prefix)
+                .unwrap()
+                .split(',')
+                .map(|s| s.parse::<i32>().unwrap())
+                .collect(),
+        );
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_err;
+
+    #[test]
+    fn test_missing_indices() {
+        assert_eq!(parse_err("Missing inputs: 3,4,6").unwrap(), vec![3_i32, 4, 6]);
     }
 }
