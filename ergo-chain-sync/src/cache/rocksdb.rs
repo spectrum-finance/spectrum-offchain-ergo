@@ -34,7 +34,7 @@ impl ChainCacheRocksDB {
 #[async_trait(?Send)]
 impl ChainCache for ChainCacheRocksDB {
     async fn append_block(&mut self, block: Block) {
-        let db = self.db.clone();
+        // let db = self.db.clone();
 
         spawn_blocking(move || {
             println!("1");
@@ -80,7 +80,8 @@ impl ChainCache for ChainCacheRocksDB {
             );
             println!("9");
 
-            assert!(db.write(batch).is_ok());
+
+            assert!(self.db.write(batch).is_ok());
 
             println!("10");
         })
