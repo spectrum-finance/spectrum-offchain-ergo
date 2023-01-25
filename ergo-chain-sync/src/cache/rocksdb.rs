@@ -81,7 +81,7 @@ impl ChainCache for ChainCacheRocksDB {
             println!("9");
 
 
-            assert!(self.db.write(batch).is_ok());
+            assert!(self.db.as_ref().write(batch).is_ok());
 
             println!("10");
         })
