@@ -136,7 +136,7 @@ where
                 trace!(target: "chain_sync", "Chain is linked, upgrading ..");
                 let blk = Block::from(api_blk);
                 let ten_millis = time::Duration::from_millis(1000);
-                thread::sleep(ten_millis);
+                // thread::sleep(ten_millis);
                 trace!(target: "chain_sync", "cache.append_block(blk.clone()).await;");
                 cache.append_block(blk.clone()).await;
                 trace!(target: "chain_sync", "Chain is linked, finish upgrade.");
