@@ -134,9 +134,11 @@ where
             if linked || api_blk.header.height == self.starting_height {
                 trace!(target: "chain_sync", "Chain is linked, upgrading ..");
                 let blk = Block::from(api_blk);
+                trace!(target: "chain_sync", "cache.append_block(blk.clone()).await;");
                 cache.append_block(blk.clone()).await;
-                self.state.borrow_mut().upgrade();
                 trace!(target: "chain_sync", "Chain is linked, finish upgrade.");
+                self.state.borrow_mut().upgrade();
+                trace!(target: "chain_sync", "self.state.borrow_mut().upgrade();");
                 return Some(ChainUpgrade::RollForward(blk));
             } else {
                 // Local chain does not link anymore
