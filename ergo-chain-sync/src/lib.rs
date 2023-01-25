@@ -7,6 +7,7 @@ use std::sync::Once;
 use std::task::{Context, Poll};
 use std::{thread, time};
 use std::time::Duration;
+use futures::executor::block_on;
 
 use futures::stream::FusedStream;
 use futures::Stream;
@@ -138,7 +139,7 @@ where
                 let ten_millis = time::Duration::from_millis(1000);
                 // thread::sleep(ten_millis);
                 trace!(target: "chain_sync", "cache.append_block(blk.clone()).await;");
-                cache.append_block(blk.clone()).await;
+                block_on(cache.append_block(blk.clone())).await;
                 trace!(target: "chain_sync", "Chain is linked, finish upgrade.");
                 self.state.borrow_mut().upgrade();
                 trace!(target: "chain_sync", "self.state.borrow_mut().upgrade();");

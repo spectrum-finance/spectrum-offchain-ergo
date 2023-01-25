@@ -37,7 +37,7 @@ impl ChainCache for ChainCacheRocksDB {
     async fn append_block(&mut self, block: Block) {
         let db = self.db.clone();
 
-        block_on({
+        {
             println!("1");
             let mut batch = WriteBatchWithTransaction::<true>::default();
             println!("2");
@@ -85,9 +85,7 @@ impl ChainCache for ChainCacheRocksDB {
             assert!(db.write(batch).is_ok());
 
             println!("10");
-        })
-        .await
-        .unwrap();
+        };
     }
 
     async fn exists(&mut self, block_id: BlockId) -> bool {
