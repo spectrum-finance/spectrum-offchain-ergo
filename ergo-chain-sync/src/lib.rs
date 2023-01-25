@@ -136,6 +136,7 @@ where
                 let blk = Block::from(api_blk);
                 cache.append_block(blk.clone()).await;
                 self.state.borrow_mut().upgrade();
+                trace!(target: "chain_sync", "Chain is linked, finish upgrade.");
                 return Some(ChainUpgrade::RollForward(blk));
             } else {
                 // Local chain does not link anymore
