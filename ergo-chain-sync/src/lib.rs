@@ -5,6 +5,7 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Once;
 use std::task::{Context, Poll};
+use std::{thread, time};
 use std::time::Duration;
 
 use futures::stream::FusedStream;
@@ -134,6 +135,8 @@ where
             if linked || api_blk.header.height == self.starting_height {
                 trace!(target: "chain_sync", "Chain is linked, upgrading ..");
                 let blk = Block::from(api_blk);
+                let ten_millis = time::Duration::from_millis(1000);
+                thread::sleep(ten_millis);
                 trace!(target: "chain_sync", "cache.append_block(blk.clone()).await;");
                 cache.append_block(blk.clone()).await;
                 trace!(target: "chain_sync", "Chain is linked, finish upgrade.");
