@@ -6,6 +6,7 @@ use ergo_lib::{
     ergo_chain_types::BlockId,
     ergotree_ir::serialization::SigmaSerializable,
 };
+use futures::executor::block_on;
 use rocksdb::WriteBatchWithTransaction;
 use tokio::task::spawn_blocking;
 
@@ -36,7 +37,7 @@ impl ChainCache for ChainCacheRocksDB {
     async fn append_block(&mut self, block: Block) {
         let db = self.db.clone();
 
-        spawn_blocking(move || {
+        block_on(move || {
             println!("1");
             let mut batch = WriteBatchWithTransaction::<true>::default();
             println!("2");
