@@ -37,34 +37,39 @@ impl ChainCache for ChainCacheRocksDB {
         let db = self.db.clone();
 
         spawn_blocking(move || {
+            println!("1");
             let mut batch = WriteBatchWithTransaction::<true>::default();
+            println!("2");
             batch.put(
                 &block_id_parent_bytes(&block.id),
                 bincode::serialize(&block.parent_id).unwrap(),
             );
+            println!("3");
             batch.put(
                 &block_id_height_bytes(&block.id),
                 bincode::serialize(&block.height).unwrap(),
             );
-
+            println!("4");
             let tx_ids: Vec<TxId> = block.transactions.iter().map(|t| t.id()).collect();
+            println!("5");
             // We package together all transactions ids into a Vec.
             batch.put(
                 &block_id_transaction_bytes(&block.id),
                 bincode::serialize(&tx_ids).unwrap(),
             );
+            println!("6");
 
             // Each transaction is stored in an Ergo-serialized binary representation.
             let serialized_transactions = block
                 .transactions
                 .iter()
                 .map(|t| t.sigma_serialize_bytes().unwrap());
-
+            println!("7");
             // Map each transaction id to a bincode-encoded representation of its transaction.
             for (tx_id, tx) in tx_ids.into_iter().zip(serialized_transactions) {
                 batch.put(bincode::serialize(&tx_id).unwrap(), tx);
             }
-
+            println!("8");
             batch.put(
                 bincode::serialize(BEST_BLOCK).unwrap(),
                 bincode::serialize(&BlockRecord {
@@ -73,6 +78,7 @@ impl ChainCache for ChainCacheRocksDB {
                 })
                 .unwrap(),
             );
+            println!("9");
 
             assert!(db.write(batch).is_ok());
         })
