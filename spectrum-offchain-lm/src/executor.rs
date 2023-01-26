@@ -1,6 +1,7 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
+use crate::data::FundingId;
 use async_trait::async_trait;
 use chrono::Utc;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
@@ -144,11 +145,13 @@ where
                 let run_result = match (ord.clone(), bundles.first().cloned()) {
                     (Order::Deposit(deposit), _) => deposit
                         .try_run(pool.clone(), (), ctx)
-                        .map(|(tx, next_pool, bundle)| (tx, next_pool, vec![bundle], None))
+                        .map(|(tx, next_pool, bundle)| {
+                            (tx, next_pool, vec![bundle], None, OrderType::Deposit)
+                        })
                         .map_err(|err| err.map(Order::Deposit)),
                     (Order::Redeem(redeem), Some(bundle)) => redeem
                         .try_run(pool.clone(), bundle, ctx)
-                        .map(|(tx, next_pool, _)| (tx, next_pool, Vec::new(), None))
+                        .map(|(tx, next_pool, _)| (tx, next_pool, Vec::new(), None, OrderType::Redeem))
                         .map_err(|err| err.map(Order::Redeem)),
                     (Order::Compound(compound), _) if !bundles.is_empty() => {
                         let funding = self
@@ -161,7 +164,7 @@ where
                             compound
                                 .try_run(pool.clone(), (bundles.clone(), funding), ctx)
                                 .map(|(tx, next_pool, (next_bundles, residual_funding))| {
-                                    (tx, next_pool, next_bundles, residual_funding)
+                                    (tx, next_pool, next_bundles, residual_funding, OrderType::Compound)
                                 })
                                 .map_err(|err| err.map(Order::Compound))
                         } else {
@@ -179,7 +182,7 @@ where
                     }
                 };
                 match run_result {
-                    Ok((tx, next_pool, next_bundles, residual_funding)) => {
+                    Ok((tx, next_pool, next_bundles, residual_funding, order_type)) => {
                         trace!(target: "offchain_lm", "Order [{}] successfully evaluated", ord.get_self_ref());
                         match self.prover.sign(tx) {
                             Ok(tx) => {
@@ -187,20 +190,52 @@ where
                                 if let Err(client_err) = self.network.submit_tx(tx.clone()).await {
                                     warn!("Execution failed while submitting tx due to {}", client_err);
                                     if let Some(missing_indices) = parse_err(&client_err.0) {
-                                        for idx in missing_indices {
-                                            // Staking bundles start at index 2 of inputs.
-                                            if idx > 1 {
-                                                self.bundle_repo
-                                                    .lock()
-                                                    .await
-                                                    .invalidate(BundleStateId::from(
-                                                        tx.inputs
-                                                            .get(idx as usize - 2)
-                                                            .unwrap()
-                                                            .box_id
-                                                            .clone(),
-                                                    ))
-                                                    .await;
+                                        let invalidations =
+                                            generate_invalidations(order_type, missing_indices);
+
+                                        for i in invalidations {
+                                            match i {
+                                                Invalidation::Pool => {
+                                                    self.pool_repo
+                                                        .lock()
+                                                        .await
+                                                        .invalidate(
+                                                            pool.get_self_state_ref(),
+                                                            pool.get_self_ref(),
+                                                        )
+                                                        .await;
+                                                }
+
+                                                Invalidation::Funding => {
+                                                    assert_eq!(order_type, OrderType::Compound);
+                                                    self.funding_repo
+                                                        .lock()
+                                                        .await
+                                                        .remove(FundingId::from(
+                                                            tx.inputs.get(1).unwrap().box_id,
+                                                        ))
+                                                        .await;
+                                                }
+
+                                                Invalidation::Order => {
+                                                    self.backlog
+                                                        .lock()
+                                                        .await
+                                                        .remove(ord.get_self_ref())
+                                                        .await;
+                                                }
+
+                                                Invalidation::StakingBundles(bundles_ix) => {
+                                                    for ix in bundles_ix {
+                                                        self.bundle_repo
+                                                            .lock()
+                                                            .await
+                                                            .invalidate(BundleStateId::from(
+                                                                tx.inputs.get(ix).unwrap().box_id,
+                                                            ))
+                                                            .await;
+                                                    }
+                                                }
                                             }
                                         }
                                     } else {
@@ -290,6 +325,62 @@ where
         }
         Err(())
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum OrderType {
+    Deposit,
+    Compound,
+    Redeem,
+}
+
+enum Invalidation {
+    Pool,
+    StakingBundles(Vec<usize>),
+    Order,
+    Funding,
+}
+
+fn generate_invalidations(order_type: OrderType, missing_indices: Vec<MissingIndex>) -> Vec<Invalidation> {
+    let mut res = vec![];
+    // For all orders, inputs[0] is the LM pool box.
+    if missing_indices.contains(&0) {
+        res.push(Invalidation::Pool);
+    }
+
+    match order_type {
+        OrderType::Deposit => {
+            if missing_indices.contains(&1) {
+                res.push(Invalidation::Order);
+            }
+        }
+        OrderType::Compound => {
+            if missing_indices.contains(&1) {
+                res.push(Invalidation::Funding);
+            }
+
+            for ix in missing_indices {
+                // Staking bundles start at index 2 of inputs.
+                let mut bundles_to_invalidate = vec![];
+                if ix > 1 {
+                    bundles_to_invalidate.push(ix as usize - 2);
+                }
+                if !bundles_to_invalidate.is_empty() {
+                    res.push(Invalidation::StakingBundles(bundles_to_invalidate));
+                }
+            }
+        }
+        OrderType::Redeem => {
+            if missing_indices.contains(&1) {
+                res.push(Invalidation::StakingBundles(vec![1]));
+            }
+
+            if missing_indices.contains(&2) {
+                res.push(Invalidation::Order);
+            }
+        }
+    }
+    res
 }
 
 type MissingIndex = i32;
