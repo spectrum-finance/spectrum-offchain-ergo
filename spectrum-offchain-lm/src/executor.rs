@@ -16,8 +16,9 @@ use spectrum_offchain::box_resolver::persistence::EntityRepo;
 use spectrum_offchain::box_resolver::resolve_entity_state;
 use spectrum_offchain::data::unique_entity::{Predicted, Traced};
 use spectrum_offchain::data::{Has, OnChainEntity, OnChainOrder};
-use spectrum_offchain::executor::Executor;
-use spectrum_offchain::executor::RunOrderError;
+use spectrum_offchain::executor::{
+    generate_invalidations, parse_err, Executor, Invalidation, OrderType, RunOrderError,
+};
 use spectrum_offchain::network::ErgoNetwork;
 use spectrum_offchain::transaction::TransactionCandidate;
 
@@ -238,13 +239,6 @@ where
                                                 }
                                             }
                                         }
-                                    } else {
-                                        self.pool_repo
-                                            .lock()
-                                            .await
-                                            .invalidate(pool.get_self_state_ref(), pool.get_self_ref())
-                                            .await;
-                                        self.backlog.lock().await.recharge(ord).await;
                                     }
                                 // Return order to backlog
                                 } else {
@@ -324,88 +318,5 @@ where
             }
         }
         Err(())
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum OrderType {
-    Deposit,
-    Compound,
-    Redeem,
-}
-
-enum Invalidation {
-    Pool,
-    StakingBundles(Vec<usize>),
-    Order,
-    Funding,
-}
-
-fn generate_invalidations(order_type: OrderType, missing_indices: Vec<MissingIndex>) -> Vec<Invalidation> {
-    let mut res = vec![];
-    // For all orders, inputs[0] is the LM pool box.
-    if missing_indices.contains(&0) {
-        res.push(Invalidation::Pool);
-    }
-
-    match order_type {
-        OrderType::Deposit => {
-            if missing_indices.contains(&1) {
-                res.push(Invalidation::Order);
-            }
-        }
-        OrderType::Compound => {
-            if missing_indices.contains(&1) {
-                res.push(Invalidation::Funding);
-            }
-
-            for ix in missing_indices {
-                // Staking bundles start at index 2 of inputs.
-                let mut bundles_to_invalidate = vec![];
-                if ix > 1 {
-                    bundles_to_invalidate.push(ix as usize - 2);
-                }
-                if !bundles_to_invalidate.is_empty() {
-                    res.push(Invalidation::StakingBundles(bundles_to_invalidate));
-                }
-            }
-        }
-        OrderType::Redeem => {
-            if missing_indices.contains(&1) {
-                res.push(Invalidation::StakingBundles(vec![1]));
-            }
-
-            if missing_indices.contains(&2) {
-                res.push(Invalidation::Order);
-            }
-        }
-    }
-    res
-}
-
-type MissingIndex = i32;
-
-fn parse_err(err: &str) -> Option<Vec<MissingIndex>> {
-    let prefix = "Missing inputs: ";
-    if err.starts_with(prefix) {
-        return Some(
-            err.strip_prefix(prefix)
-                .unwrap()
-                .split(',')
-                .map(|s| s.parse::<i32>().unwrap())
-                .collect(),
-        );
-    }
-
-    None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_err;
-
-    #[test]
-    fn test_missing_indices() {
-        assert_eq!(parse_err("Missing inputs: 3,4,6").unwrap(), vec![3_i32, 4, 6]);
     }
 }
