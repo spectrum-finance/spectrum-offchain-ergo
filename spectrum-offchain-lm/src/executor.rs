@@ -1,6 +1,7 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
+use crate::data::FundingId;
 use async_trait::async_trait;
 use chrono::Utc;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
@@ -15,8 +16,9 @@ use spectrum_offchain::box_resolver::persistence::EntityRepo;
 use spectrum_offchain::box_resolver::resolve_entity_state;
 use spectrum_offchain::data::unique_entity::{Predicted, Traced};
 use spectrum_offchain::data::{Has, OnChainEntity, OnChainOrder};
-use spectrum_offchain::executor::Executor;
-use spectrum_offchain::executor::RunOrderError;
+use spectrum_offchain::executor::{
+    generate_invalidations, parse_err, Executor, Invalidation, OrderType, RunOrderError,
+};
 use spectrum_offchain::network::ErgoNetwork;
 use spectrum_offchain::transaction::TransactionCandidate;
 
@@ -25,7 +27,7 @@ use crate::data::bundle::IndexedBundle;
 use crate::data::context::ExecutionContext;
 use crate::data::order::Order;
 use crate::data::pool::Pool;
-use crate::data::{AsBox, BundleId};
+use crate::data::{AsBox, BundleId, BundleStateId};
 use crate::funding::FundingRepo;
 use crate::prover::SigmaProver;
 
@@ -144,11 +146,13 @@ where
                 let run_result = match (ord.clone(), bundles.first().cloned()) {
                     (Order::Deposit(deposit), _) => deposit
                         .try_run(pool.clone(), (), ctx)
-                        .map(|(tx, next_pool, bundle)| (tx, next_pool, vec![bundle], None))
+                        .map(|(tx, next_pool, bundle)| {
+                            (tx, next_pool, vec![bundle], None, OrderType::Deposit)
+                        })
                         .map_err(|err| err.map(Order::Deposit)),
                     (Order::Redeem(redeem), Some(bundle)) => redeem
                         .try_run(pool.clone(), bundle, ctx)
-                        .map(|(tx, next_pool, _)| (tx, next_pool, Vec::new(), None))
+                        .map(|(tx, next_pool, _)| (tx, next_pool, Vec::new(), None, OrderType::Redeem))
                         .map_err(|err| err.map(Order::Redeem)),
                     (Order::Compound(compound), _) if !bundles.is_empty() => {
                         let funding = self
@@ -161,7 +165,7 @@ where
                             compound
                                 .try_run(pool.clone(), (bundles.clone(), funding), ctx)
                                 .map(|(tx, next_pool, (next_bundles, residual_funding))| {
-                                    (tx, next_pool, next_bundles, residual_funding)
+                                    (tx, next_pool, next_bundles, residual_funding, OrderType::Compound)
                                 })
                                 .map_err(|err| err.map(Order::Compound))
                         } else {
@@ -179,24 +183,63 @@ where
                     }
                 };
                 match run_result {
-                    Ok((tx, next_pool, next_bundles, residual_funding)) => {
+                    Ok((tx, next_pool, next_bundles, residual_funding, order_type)) => {
                         trace!(target: "offchain_lm", "Order [{}] successfully evaluated", ord.get_self_ref());
                         match self.prover.sign(tx) {
                             Ok(tx) => {
                                 trace!(target: "offchain_lm", "Transaction ID for order [{}] is [{}]", ord.get_self_ref(), tx.id());
-                                if let Err(client_err) = self.network.submit_tx(tx).await {
-                                    // Note, here `submit_tx(tx)` can fail not only bc pool state is consumed,
-                                    // but also bc bundle is consumed, what is less possible though. That's why
-                                    // we just invalidate pool.
-                                    // todo: In the future more precise error handling may be possible if we
-                                    // todo: implement a way to find out which input failed exactly.
+                                if let Err(client_err) = self.network.submit_tx(tx.clone()).await {
                                     warn!("Execution failed while submitting tx due to {}", client_err);
-                                    self.pool_repo
-                                        .lock()
-                                        .await
-                                        .invalidate(pool.get_self_state_ref(), pool.get_self_ref())
-                                        .await;
-                                    self.backlog.lock().await.recharge(ord).await;
+                                    if let Some(missing_indices) = parse_err(&client_err.0) {
+                                        let invalidations =
+                                            generate_invalidations(order_type, missing_indices);
+
+                                        for i in invalidations {
+                                            match i {
+                                                Invalidation::Pool => {
+                                                    self.pool_repo
+                                                        .lock()
+                                                        .await
+                                                        .invalidate(
+                                                            pool.get_self_state_ref(),
+                                                            pool.get_self_ref(),
+                                                        )
+                                                        .await;
+                                                }
+
+                                                Invalidation::Funding => {
+                                                    assert_eq!(order_type, OrderType::Compound);
+                                                    self.funding_repo
+                                                        .lock()
+                                                        .await
+                                                        .remove(FundingId::from(
+                                                            tx.inputs.get(1).unwrap().box_id,
+                                                        ))
+                                                        .await;
+                                                }
+
+                                                Invalidation::Order => {
+                                                    self.backlog
+                                                        .lock()
+                                                        .await
+                                                        .remove(ord.get_self_ref())
+                                                        .await;
+                                                }
+
+                                                Invalidation::StakingBundles(bundles_ix) => {
+                                                    for ix in bundles_ix {
+                                                        self.bundle_repo
+                                                            .lock()
+                                                            .await
+                                                            .invalidate(BundleStateId::from(
+                                                                tx.inputs.get(ix).unwrap().box_id,
+                                                            ))
+                                                            .await;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 // Return order to backlog
                                 } else {
                                     self.pool_repo
