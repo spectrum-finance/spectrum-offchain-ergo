@@ -48,7 +48,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
             println!("Response txn is: {:?}", resp.status().clone());
             let block_transactions = if resp.status().is_success() {
                 let a = resp.json::<BlockTransactions>().await;
-                println!("Parse txns: ${:?}", a.err());
+                println!("Parse txns: ${:?}", a.as_ref());
                 a.ok()?
             } else {
                 return None;
