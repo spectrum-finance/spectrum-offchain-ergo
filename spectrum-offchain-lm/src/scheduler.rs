@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use log::trace;
 use rocksdb::{Direction, IteratorMode};
-use tokio::task::spawn_blocking;
 
 use ergo_chain_sync::rocksdb::RocksConfig;
 use spectrum_offchain::binary::{prefixed_key, raw_prefixed_key};
@@ -94,14 +94,11 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
             transaction.commit().unwrap();
         })
         .await
-        .unwrap()
     }
 
     async fn exists(&self, pool_id: PoolId) -> bool {
         let db = Arc::clone(&self.db);
-        spawn_blocking(move || db.get(prefixed_key(SCHEDULE_PREFIX, &pool_id)).unwrap().is_some())
-            .await
-            .unwrap()
+        spawn_blocking(move || db.get(prefixed_key(SCHEDULE_PREFIX, &pool_id)).unwrap().is_some()).await
     }
 
     async fn peek(&mut self) -> Option<Tick> {
@@ -126,7 +123,6 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
             tick
         })
         .await
-        .unwrap()
     }
 
     async fn remove(&mut self, tick: Tick) {
@@ -136,7 +132,6 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
             db.delete(index).unwrap()
         })
         .await
-        .unwrap()
     }
 }
 

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use rocksdb::{Direction, IteratorMode};
-use tokio::task::spawn_blocking;
 
 use ergo_chain_sync::rocksdb::RocksConfig;
 use spectrum_offchain::{
@@ -80,13 +80,12 @@ impl BundleRepo for BundleRepoRocksDB {
             acc
         })
         .await
-        .unwrap()
     }
 
     async fn may_exist(&self, sid: BundleStateId) -> bool {
         let db = self.db.clone();
         let state_key = prefixed_key(STATE_PREFIX, &sid);
-        spawn_blocking(move || db.key_may_exist(state_key)).await.unwrap()
+        spawn_blocking(move || db.key_may_exist(state_key)).await
     }
 
     async fn get_state(&self, state_id: BundleStateId) -> Option<AsBox<IndexedStakingBundle>> {
@@ -114,7 +113,6 @@ impl BundleRepo for BundleRepoRocksDB {
             tx.commit().unwrap();
         })
         .await
-        .unwrap()
     }
 
     async fn eliminate(&self, bundle_st: IndexedStakingBundle) {
@@ -134,7 +132,6 @@ impl BundleRepo for BundleRepoRocksDB {
             tx.commit().unwrap();
         })
         .await
-        .unwrap()
     }
 
     async fn put_confirmed(&self, Confirmed(bundle_state): Confirmed<AsBox<IndexedStakingBundle>>) {
@@ -163,7 +160,6 @@ impl BundleRepo for BundleRepoRocksDB {
             tx.commit().unwrap();
         })
         .await
-        .unwrap()
     }
 
     async fn put_predicted(
@@ -198,7 +194,6 @@ impl BundleRepo for BundleRepoRocksDB {
             tx.commit().unwrap();
         })
         .await
-        .unwrap();
     }
 
     async fn get_last_confirmed(&self, id: BundleId) -> Option<Confirmed<AsBox<StakingBundle>>> {
@@ -212,7 +207,6 @@ impl BundleRepo for BundleRepoRocksDB {
                 .and_then(|bytes| bincode::deserialize::<'_, AsBox<IndexedStakingBundle>>(&bytes).ok())
         })
         .await
-        .unwrap()
         .map(|as_box| Confirmed(as_box.map(|ib| ib.bundle)))
     }
 
@@ -227,7 +221,6 @@ impl BundleRepo for BundleRepoRocksDB {
                 .and_then(|bytes| bincode::deserialize::<'_, AsBox<IndexedStakingBundle>>(&bytes).ok())
         })
         .await
-        .unwrap()
         .map(|as_box| Predicted(as_box.map(|ib| ib.bundle)))
     }
 

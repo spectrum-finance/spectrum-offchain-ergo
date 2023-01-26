@@ -9,7 +9,7 @@ use ergo_chain_sync::client::node::ErgoNodeHttpClient;
 use ergo_chain_sync::client::types::with_path;
 
 #[derive(Debug, Display)]
-pub struct ClientError(String);
+pub struct ClientError(pub String);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NodeError {

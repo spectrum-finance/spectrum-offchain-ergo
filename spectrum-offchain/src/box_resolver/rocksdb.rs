@@ -1,10 +1,10 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use tokio::task::spawn_blocking;
 
 use ergo_chain_sync::rocksdb::RocksConfig;
 
@@ -85,7 +85,6 @@ where
                 .map(Predicted)
         })
         .await
-        .unwrap()
     }
 
     async fn get_last_confirmed<'a>(
@@ -116,7 +115,6 @@ where
                 .map(Confirmed)
         })
         .await
-        .unwrap()
     }
 
     async fn get_last_unconfirmed<'a>(
@@ -147,7 +145,6 @@ where
                 .map(Unconfirmed)
         })
         .await
-        .unwrap()
     }
 
     async fn put_predicted<'a>(
@@ -176,7 +173,6 @@ where
             tx.commit().unwrap();
         })
         .await
-        .unwrap()
     }
 
     async fn put_confirmed<'a>(&mut self, Confirmed(entity): Confirmed<TEntity>)
@@ -195,7 +191,6 @@ where
             tx.commit().unwrap();
         })
         .await
-        .unwrap()
     }
 
     async fn put_unconfirmed<'a>(&mut self, Unconfirmed(entity): Unconfirmed<TEntity>)
@@ -214,7 +209,6 @@ where
             tx.commit().unwrap();
         })
         .await
-        .unwrap()
     }
 
     async fn invalidate<'a>(
@@ -237,7 +231,6 @@ where
             tx.commit().unwrap();
         })
         .await
-        .unwrap()
     }
 
     async fn eliminate<'a>(&mut self, entity: TEntity)
@@ -260,7 +253,6 @@ where
             tx.commit().unwrap();
         })
         .await
-        .unwrap()
     }
 
     async fn may_exist<'a>(&self, sid: <TEntity as OnChainEntity>::TStateId) -> bool
@@ -269,7 +261,7 @@ where
     {
         let db = self.db.clone();
         let state_key = prefixed_key(STATE_PREFIX, &sid);
-        spawn_blocking(move || db.key_may_exist(state_key)).await.unwrap()
+        spawn_blocking(move || db.key_may_exist(state_key)).await
     }
 
     async fn get_state<'a>(&self, sid: <TEntity as OnChainEntity>::TStateId) -> Option<TEntity>

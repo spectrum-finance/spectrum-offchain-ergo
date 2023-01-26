@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
+use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use log::trace;
 use nonempty::NonEmpty;
 use rocksdb::{Direction, IteratorMode};
 use serde::Serialize;
-use tokio::task::spawn_blocking;
 
 use ergo_chain_sync::rocksdb::RocksConfig;
 use spectrum_offchain::binary::prefixed_key;
@@ -178,7 +178,6 @@ impl FundingRepo for FundingRepoRocksDB {
             }
         })
         .await
-        .unwrap()
     }
 
     async fn put_confirmed(&mut self, Confirmed(AsBox(bx, df)): Confirmed<AsBox<DistributionFunding>>) {
@@ -199,7 +198,6 @@ impl FundingRepo for FundingRepoRocksDB {
             tx.commit().unwrap()
         })
         .await
-        .unwrap()
     }
 
     async fn put_predicted(&mut self, Predicted(AsBox(bx, df)): Predicted<AsBox<DistributionFunding>>) {
@@ -220,13 +218,12 @@ impl FundingRepo for FundingRepoRocksDB {
             tx.commit().unwrap()
         })
         .await
-        .unwrap()
     }
 
     async fn may_exist(&self, fid: FundingId) -> bool {
         let db = Arc::clone(&self.db);
         let index_key = prefixed_key(FUNDING_KEY_INDEX_PREFIX, &fid);
-        spawn_blocking(move || db.key_may_exist(index_key)).await.unwrap()
+        spawn_blocking(move || db.key_may_exist(index_key)).await
     }
 
     async fn remove(&mut self, fid: FundingId) {
@@ -241,7 +238,6 @@ impl FundingRepo for FundingRepoRocksDB {
             }
         })
         .await
-        .unwrap()
     }
 }
 
