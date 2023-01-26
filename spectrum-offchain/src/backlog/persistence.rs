@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use tokio::task::spawn_blocking;
 
 use crate::backlog::data::BacklogOrder;
 use crate::data::OnChainOrder;
@@ -47,21 +47,16 @@ where
             )
             .unwrap();
         })
-        .await
-        .unwrap();
+        .await;
     }
     async fn exists(&self, ord_id: TOrd::TOrderId) -> bool {
         let db = self.db.clone();
-        spawn_blocking(move || db.get(bincode::serialize(&ord_id).unwrap()).unwrap().is_some())
-            .await
-            .unwrap()
+        spawn_blocking(move || db.get(bincode::serialize(&ord_id).unwrap()).unwrap().is_some()).await
     }
 
     async fn drop(&mut self, ord_id: TOrd::TOrderId) {
         let db = self.db.clone();
-        spawn_blocking(move || db.delete(bincode::serialize(&ord_id).unwrap()).unwrap())
-            .await
-            .unwrap();
+        spawn_blocking(move || db.delete(bincode::serialize(&ord_id).unwrap()).unwrap()).await;
     }
 
     async fn get(&self, ord_id: TOrd::TOrderId) -> Option<BacklogOrder<TOrd>> {

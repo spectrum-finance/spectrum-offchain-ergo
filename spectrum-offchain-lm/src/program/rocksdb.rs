@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use async_std::task::spawn_blocking;
 use async_trait::async_trait;
-use tokio::task::spawn_blocking;
 
 use ergo_chain_sync::rocksdb::RocksConfig;
 
@@ -31,7 +31,6 @@ impl ProgramRepo for ProgramRepoRocksDB {
             db.put(key, value).unwrap();
         })
         .await
-        .unwrap()
     }
 
     async fn get(&self, pool_id: PoolId) -> Option<ProgramConfig> {
@@ -49,8 +48,6 @@ impl ProgramRepo for ProgramRepoRocksDB {
     async fn exists(&self, pool_id: PoolId) -> bool {
         let db = self.db.clone();
         let key = bincode::serialize(&pool_id).unwrap();
-        spawn_blocking(move || db.get(&key).unwrap().is_some())
-            .await
-            .unwrap()
+        spawn_blocking(move || db.get(&key).unwrap().is_some()).await
     }
 }

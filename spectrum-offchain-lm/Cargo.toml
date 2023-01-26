@@ -43,6 +43,7 @@ clap = { version = "4.0", features = ["derive"] }
 sigma-test-util = "0.3"
 lazy_static = "1.4.0"
 thiserror = "1.0"
+async-std = "1.12"
 
 [dev-dependencies]
 ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "62b8dedc0577f01551b6f8be4585f39b028d70f7", features = ["json", "arbitrary"] }
