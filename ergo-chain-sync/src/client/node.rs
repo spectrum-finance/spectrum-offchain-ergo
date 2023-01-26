@@ -37,7 +37,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
             .json::<Vec<BlockId>>()
             .await
             .ok()?;
-        println!("Response block is: {:?}", blocks.clone());
+        println!("Response block is: {:?}", blocks.status().clone());
         if !blocks.is_empty() {
             let header_id = base16::encode_lower(&blocks[0].0 .0);
             let transactions_path = format!("/blocks/{}/transactions", header_id);
@@ -46,7 +46,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
                 .get_async(with_path(&self.base_url, &transactions_path))
                 .await
                 .ok()?;
-            println!("Response txn is: {:?}", resp.clone());
+            println!("Response txn is: {:?}", resp.status().clone());
             let block_transactions = if resp.status().is_success() {
                 resp.json::<BlockTransactions>().await.ok()?
             } else {
@@ -59,7 +59,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
                 .get_async(with_path(&self.base_url, &header_path))
                 .await
                 .ok()?;
-            println!("Response header is: {:?}", resp.clone());
+            println!("Response header is: {:?}", resp.status().clone());
             let header = if resp.status().is_success() {
                 resp.json::<Header>().await.ok()?
             } else {
