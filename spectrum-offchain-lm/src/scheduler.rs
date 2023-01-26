@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
+use chrono::Utc;
 use log::trace;
 use rocksdb::{Direction, IteratorMode};
 
@@ -18,12 +19,12 @@ pub mod process;
 pub trait ScheduleRepo {
     /// Persist schedule.
     async fn put_schedule(&mut self, schedule: PoolSchedule);
-    /// Check whether a schedule for the given pool exists.
-    async fn exists(&self, pool_id: PoolId) -> bool;
     /// Get closest tick.
     async fn peek(&mut self) -> Option<Tick>;
-    /// Remove tick from storage.
+    /// Remove tried tick from db.
     async fn remove(&mut self, tick: Tick);
+    /// Defer tick processing until the given timestamp.
+    async fn defer(&mut self, tick: Tick, until: i64);
 }
 
 pub struct ScheduleRepoTracing<R> {
@@ -47,10 +48,6 @@ where
         trace!(target: "schedules", "put_schedule({}) -> ()", schedule);
     }
 
-    async fn exists(&self, pool_id: PoolId) -> bool {
-        self.inner.exists(pool_id).await
-    }
-
     async fn peek(&mut self) -> Option<Tick> {
         trace!(target: "schedules", "peek()");
         let res = self.inner.peek().await;
@@ -62,6 +59,12 @@ where
         trace!(target: "schedules", "remove({:?})", tick);
         self.inner.remove(tick.clone()).await;
         trace!(target: "schedules", "remove({:?}) -> ()", tick);
+    }
+
+    async fn defer(&mut self, tick: Tick, until: i64) {
+        trace!(target: "schedules", "defer(tick: {:?}, until: {})", tick, until);
+        self.inner.defer(tick.clone(), until).await;
+        trace!(target: "schedules", "defer(tick: {:?}, until: {})", tick, until);
     }
 }
 
@@ -83,33 +86,35 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
         let db = Arc::clone(&self.db);
         let pid = schedule.pool_id;
         spawn_blocking(move || {
-            let transaction = db.transaction();
-            let schedule_key = prefixed_key(SCHEDULE_PREFIX, &pid);
-            let schedule_bytes = bincode::serialize(&schedule).unwrap();
-            transaction.put(schedule_key, schedule_bytes).unwrap();
-            if let Some(next_compounding_at) = schedule.next_compounding_at() {
-                let index = schedule_index(&pid, &next_compounding_at);
-                transaction.put(index, vec![]).unwrap();
+            if let Some(next_height) = schedule.next_compounding_at() {
+                let transaction = db.transaction();
+                let tried_tick = tick_key(DEFERRED_TICKS_PREFIX, &pid, &next_height);
+                let tick = tick_key(TICKS_PREFIX, &pid, &next_height);
+                // Write updated schedule only in case we haven't tried to compound it already on this height.
+                if transaction.get(tried_tick).unwrap().is_none()
+                    && transaction.get(tick.clone()).unwrap().is_none()
+                {
+                    let schedule_key = prefixed_key(SCHEDULE_PREFIX, &pid);
+                    let schedule_bytes = bincode::serialize(&schedule).unwrap();
+                    transaction.put(schedule_key, schedule_bytes).unwrap();
+                    transaction.put(tick, vec![]).unwrap();
+                }
+                transaction.commit().unwrap();
             }
-            transaction.commit().unwrap();
         })
         .await
-    }
-
-    async fn exists(&self, pool_id: PoolId) -> bool {
-        let db = Arc::clone(&self.db);
-        spawn_blocking(move || db.get(prefixed_key(SCHEDULE_PREFIX, &pool_id)).unwrap().is_some()).await
     }
 
     async fn peek(&mut self) -> Option<Tick> {
         let db = Arc::clone(&self.db);
         spawn_blocking(move || {
-            let index_prefix = bincode::serialize(SCHEDULE_INDEX_PREFIX).unwrap();
-            let mut iter = db.iterator(IteratorMode::From(&index_prefix, Direction::Forward));
+            let ticks_prefix = bincode::serialize(TICKS_PREFIX).unwrap();
+            let mut ticks = db.iterator(IteratorMode::From(&ticks_prefix, Direction::Forward));
             let mut tick: Option<Tick> = None;
+            // First we try to peek closest pending tick.
             while tick.is_none() {
-                if let Some((bs, _)) = iter.next().and_then(|res| res.ok()) {
-                    tick = destructure_schedule_index(&*bs)
+                if let Some((bs, _)) = ticks.next().and_then(|res| res.ok()) {
+                    tick = destructure_tick_key(&*bs)
                         .and_then(|pid| {
                             let schedule_key = prefixed_key(SCHEDULE_PREFIX, &pid);
                             db.get(schedule_key).unwrap()
@@ -120,6 +125,32 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                     break;
                 }
             }
+            // If there are no pending ticks we check deferred ticks.
+            if tick.is_none() {
+                let deferred_ticks_prefix = bincode::serialize(DEFERRED_TICKS_PREFIX).unwrap();
+                let mut deferred_ticks =
+                    db.iterator(IteratorMode::From(&deferred_ticks_prefix, Direction::Forward));
+                let ts_now = Utc::now().timestamp();
+                while tick.is_none() {
+                    if let Some((bs, deferred_unil)) = deferred_ticks.next().and_then(|res| res.ok()) {
+                        if let Ok(deferred_unil) = bincode::deserialize::<i64>(&deferred_unil) {
+                            if deferred_unil >= ts_now {
+                                tick = destructure_deferred_tick_key(&*bs)
+                                    .and_then(|pid| {
+                                        let schedule_key = prefixed_key(SCHEDULE_PREFIX, &pid);
+                                        db.get(schedule_key).unwrap()
+                                    })
+                                    .and_then(|bs| bincode::deserialize::<PoolSchedule>(&bs).ok())
+                                    .and_then(|sc| sc.try_into().ok());
+                            } else {
+                                break;
+                            }
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
             tick
         })
         .await
@@ -128,27 +159,54 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
     async fn remove(&mut self, tick: Tick) {
         let db = Arc::clone(&self.db);
         spawn_blocking(move || {
-            let index = schedule_index(&tick.pool_id, &tick.height);
+            let index = tick_key(DEFERRED_TICKS_PREFIX, &tick.pool_id, &tick.height);
             db.delete(index).unwrap()
+        })
+        .await
+    }
+
+    async fn defer(&mut self, tick: Tick, until: i64) {
+        let db = Arc::clone(&self.db);
+        spawn_blocking(move || {
+            let transaction = db.transaction();
+            let tried_tick_key = tick_key(DEFERRED_TICKS_PREFIX, &tick.pool_id, &tick.height);
+            let until_bytes = bincode::serialize(&until).unwrap();
+            let tick_key = tick_key(TICKS_PREFIX, &tick.pool_id, &tick.height);
+            transaction.delete(tick_key).unwrap();
+            transaction.put(tried_tick_key, until_bytes).unwrap();
+            transaction.commit().unwrap();
         })
         .await
     }
 }
 
-const SCHEDULE_PREFIX: &str = "schedule:";
-const SCHEDULE_INDEX_PREFIX: &str = "index:";
-const SCHEDULE_INDEX_LEN: usize = 50;
+/// Schedules: (PREFIX:PoolId -> Schedule)
+const SCHEDULE_PREFIX: &str = "sc:";
+/// Pending ticks (queue): (PREFIX:H:PoolId -> ())
+const TICKS_PREFIX: &str = "ts:";
+/// Tried ticks (queue): (PREFIX:H:PoolId -> RETRY_AFTER)
+const DEFERRED_TICKS_PREFIX: &str = "tr:ts:";
+const TICK_KEY_LEN: usize = 47;
+const TRIED_TICK_KEY_LEN: usize = 50;
 
-fn schedule_index(pool_id: &PoolId, next_epoch_height: &u32) -> Vec<u8> {
+fn tick_key(pfx: &str, pool_id: &PoolId, next_epoch_height: &u32) -> Vec<u8> {
     let mut key_body = bincode::serialize(next_epoch_height).unwrap();
     key_body.reverse();
     let pool_id = bincode::serialize(pool_id).unwrap();
     key_body.extend_from_slice(&*pool_id);
-    raw_prefixed_key(SCHEDULE_INDEX_PREFIX, &key_body)
+    raw_prefixed_key(pfx, &key_body)
 }
 
-fn destructure_schedule_index(bytes: &[u8]) -> Option<PoolId> {
-    if bytes.len() == SCHEDULE_INDEX_LEN {
+fn destructure_tick_key(bytes: &[u8]) -> Option<PoolId> {
+    if bytes.len() == TICK_KEY_LEN {
+        bincode::deserialize(&bytes[15..]).ok()
+    } else {
+        None
+    }
+}
+
+fn destructure_deferred_tick_key(bytes: &[u8]) -> Option<PoolId> {
+    if bytes.len() == TRIED_TICK_KEY_LEN {
         bincode::deserialize(&bytes[18..]).ok()
     } else {
         None
@@ -170,7 +228,10 @@ mod tests {
     use crate::data::pool::Pool;
     use crate::data::{AsBox, PoolId};
     use crate::scheduler::data::PoolSchedule;
-    use crate::scheduler::{destructure_schedule_index, schedule_index, ScheduleRepo, ScheduleRepoRocksDB};
+    use crate::scheduler::{
+        destructure_deferred_tick_key, destructure_tick_key, tick_key, ScheduleRepo, ScheduleRepoRocksDB,
+        DEFERRED_TICKS_PREFIX, TICKS_PREFIX,
+    };
 
     fn rocks_db_client() -> ScheduleRepoRocksDB {
         let rnd = rand::thread_rng().next_u32();
@@ -180,11 +241,20 @@ mod tests {
     }
 
     #[test]
-    fn index_serialization_roundtrip() {
+    fn tick_index_serialization_roundtrip() {
         let pool_id = PoolId::from(force_any_val::<TokenId>());
         let height = 10000u32;
-        let index = schedule_index(&pool_id, &height);
-        let pool_id_extracted = destructure_schedule_index(&index);
+        let index = tick_key(TICKS_PREFIX, &pool_id, &height);
+        let pool_id_extracted = destructure_tick_key(&index);
+        assert_eq!(pool_id_extracted, Some(pool_id));
+    }
+
+    #[test]
+    fn tried_tick_index_serialization_roundtrip() {
+        let pool_id = PoolId::from(force_any_val::<TokenId>());
+        let height = 10000u32;
+        let index = tick_key(DEFERRED_TICKS_PREFIX, &pool_id, &height);
+        let pool_id_extracted = destructure_deferred_tick_key(&index);
         assert_eq!(pool_id_extracted, Some(pool_id));
     }
 
@@ -198,54 +268,10 @@ mod tests {
         let mut ticks = Vec::new();
         while let Some(tick) = client.peek().await {
             ticks.push(tick);
-            client.remove(tick).await;
+            client.defer(tick, 0).await;
         }
         assert_eq!(ticks[0].height, schedule.next_compounding_at().unwrap())
     }
-
-    // #[tokio::test]
-    // async fn schedule_check_later() {
-    //     let mut client = rocks_db_client();
-    //     let pool_id = PoolId::from(TokenId::from(Digest32::zero()));
-    //     let schedule = PoolSchedule {
-    //         pool_id,
-    //         ticks: vec![(1, 10), (2, 20), (3, 30)],
-    //     };
-    //     client.put_schedule(schedule.clone()).await;
-    //
-    //     let tick1 = Tick {
-    //         pool_id,
-    //         epoch_ix: 1,
-    //         height: 10,
-    //     };
-    //     let tick2 = Tick {
-    //         pool_id,
-    //         epoch_ix: 2,
-    //         height: 20,
-    //     };
-    //     let tick3 = Tick {
-    //         pool_id,
-    //         epoch_ix: 3,
-    //         height: 30,
-    //     };
-    //
-    //     client.check_later(tick1).await;
-    //     let next_tick = client.peek().await.unwrap();
-    //     assert_eq!(next_tick, tick2);
-    //
-    //     // Try again, expect same result
-    //     let next_tick = client.peek().await.unwrap();
-    //     assert_eq!(next_tick, tick2);
-    //
-    //     client.check_later(tick2).await;
-    //     let next_tick = client.peek().await.unwrap();
-    //     assert_eq!(next_tick, tick3);
-    //
-    //     client.check_later(tick3).await;
-    //     let next_tick = client.peek().await.unwrap();
-    //     // This is the first time cycling through `check_later` Ticks.
-    //     assert_eq!(next_tick, tick1);
-    // }
 
     #[tokio::test]
     async fn put_interfering_schedules_peek_ticks() {
@@ -269,7 +295,7 @@ mod tests {
         let mut ticks = Vec::new();
         while let Some(tick) = client.peek().await {
             ticks.push(tick);
-            client.remove(tick).await;
+            client.defer(tick, 0).await;
         }
         assert_eq!(ticks[0].height, schedule_1.next_compounding_at().unwrap());
         assert_eq!(ticks[1].height, schedule_2.next_compounding_at().unwrap());

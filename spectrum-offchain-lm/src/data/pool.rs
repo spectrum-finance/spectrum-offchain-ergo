@@ -5,7 +5,6 @@ use ergo_lib::ergotree_ir::chain::ergo_box::{
     BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters,
 };
 use ergo_lib::ergotree_ir::chain::token::Token;
-use ergo_lib::ergotree_ir::ergo_tree::{ErgoTree, ErgoTreeHeader};
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
 use log::trace;
 use nonempty::NonEmpty;

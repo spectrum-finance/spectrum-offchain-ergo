@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::data::pool::{Pool, ProgramConfig};
 use crate::data::PoolId;
 
-/// Time point when a particular poolshould distribute rewards.
+/// Time point when a particular pool should distribute rewards.
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Tick {
     pub pool_id: PoolId,
@@ -16,11 +16,13 @@ pub struct Tick {
 /// A set of time points when a particular pool should distribute rewards.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PoolSchedule {
+    //This part is immutable:
     pub pool_id: PoolId,
     pub epoch_len: u32,
     pub epoch_num: u32,
     pub program_start: u32,
     // Index of the last fully compounded epoch.
+    // This index increases as pool progresses:
     pub last_completed_epoch_ix: u32,
 }
 

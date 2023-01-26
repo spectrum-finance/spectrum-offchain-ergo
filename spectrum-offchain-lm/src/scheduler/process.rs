@@ -16,6 +16,8 @@ use crate::data::order::{Compound, Order};
 use crate::scheduler::data::Tick;
 use crate::scheduler::ScheduleRepo;
 
+const TICK_SUSPENSION_DURATION: i64 = 60 * 30;
+
 pub fn distribution_stream<'a, TBacklog, TSchedules, TBundles, TNetwork>(
     backlog: Arc<Mutex<TBacklog>>,
     schedules: Arc<Mutex<TSchedules>>,
@@ -84,6 +86,7 @@ where
                                     })
                                     .await
                             }
+                            schedules.defer(tick, ts_now + TICK_SUSPENSION_DURATION).await;
                         }
                     }
                 }
