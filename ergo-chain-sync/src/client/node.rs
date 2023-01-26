@@ -37,7 +37,6 @@ impl ErgoNetwork for ErgoNodeHttpClient {
             .json::<Vec<BlockId>>()
             .await
             .ok()?;
-        println!("Response block is: {:?}", blocks.status().clone());
         if !blocks.is_empty() {
             let header_id = base16::encode_lower(&blocks[0].0 .0);
             let transactions_path = format!("/blocks/{}/transactions", header_id);
