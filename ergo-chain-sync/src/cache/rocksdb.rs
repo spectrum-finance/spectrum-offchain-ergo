@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use ergo_lib::{
     chain::transaction::{Transaction, TxId},
@@ -7,7 +8,6 @@ use ergo_lib::{
     ergotree_ir::serialization::SigmaSerializable,
 };
 use rocksdb::WriteBatchWithTransaction;
-use tokio::task::spawn_blocking;
 
 use crate::model::{Block, BlockRecord};
 use crate::rocksdb::RocksConfig;
@@ -20,7 +20,6 @@ pub struct ChainCacheRocksDB {
     pub db: Arc<rocksdb::OptimisticTransactionDB>,
 }
 
-
 impl ChainCacheRocksDB {
     pub fn new(conf: RocksConfig) -> Self {
         Self {
@@ -30,7 +29,7 @@ impl ChainCacheRocksDB {
 }
 
 /// The Rocksdb bindings are not async, so we must wrap any uses of the library in
-/// `tokio::task::spawn_blocking`.
+/// `async_std::task::spawn_blocking`.
 #[async_trait(?Send)]
 impl ChainCache for ChainCacheRocksDB {
     async fn append_block(&mut self, block: Block) {
@@ -76,15 +75,12 @@ impl ChainCache for ChainCacheRocksDB {
 
             assert!(db.write(batch).is_ok());
         })
-        .await
-        .unwrap();
+        .await;
     }
 
     async fn exists(&mut self, block_id: BlockId) -> bool {
         let db = self.db.clone();
-        spawn_blocking(move || db.get(block_id_height_bytes(&block_id)).unwrap().is_some())
-            .await
-            .unwrap()
+        spawn_blocking(move || db.get(block_id_height_bytes(&block_id)).unwrap().is_some()).await
     }
 
     async fn get_best_block(&mut self) -> Option<BlockRecord> {
@@ -97,7 +93,6 @@ impl ChainCache for ChainCacheRocksDB {
             }
         })
         .await
-        .unwrap()
     }
 
     async fn take_best_block(&mut self) -> Option<Block> {
@@ -176,7 +171,6 @@ impl ChainCache for ChainCacheRocksDB {
             }
         })
         .await
-        .unwrap()
     }
 }
 
