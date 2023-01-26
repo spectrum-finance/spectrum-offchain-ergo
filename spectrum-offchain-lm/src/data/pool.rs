@@ -327,6 +327,16 @@ impl Pool {
         ))
     }
 
+    pub fn epochs_left_to_process(&self) -> u32 {
+        println!("Epoch Alloc: {}", self.epoch_alloc());
+        (self
+            .budget_rem
+            .amount
+            .saturating_sub(self.conf.max_rounding_error) as f64
+            / self.epoch_alloc() as f64)
+            .ceil() as u32
+    }
+
     fn epoch_alloc(&self) -> u64 {
         self.conf.program_budget.amount / self.conf.epoch_num as u64
     }

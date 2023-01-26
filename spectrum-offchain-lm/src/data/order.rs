@@ -45,8 +45,14 @@ pub struct Compound {
 
 impl Compound {
     pub fn order_id(&self) -> OrderId {
-        let preimage = format!("{}{}{}", self.pool_id, self.epoch_ix, self.queue_ix);
-        OrderId::from(blake2b256_hash(preimage.as_bytes()))
+        OrderId::from(blake2b256_hash(
+            &*self
+                .stakers
+                .iter()
+                .map(|bid| <Vec<u8>>::from(bid.0))
+                .flatten()
+                .collect::<Vec<u8>>(),
+        ))
     }
 
     pub fn estimated_min_value(&self) -> NanoErg {

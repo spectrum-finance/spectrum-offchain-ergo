@@ -53,7 +53,8 @@ where
                     let height_now = network.get_height().await;
                     if height <= height_now {
                         info!(target: "scheduler", "Processing epoch [{}] of pool [{}]", epoch_ix, pool_id);
-                        let stakers = bundles.lock().await.select(pool_id, epoch_ix).await;
+                        let mut stakers = bundles.lock().await.select(pool_id, epoch_ix).await;
+                        stakers.sort();
                         if stakers.is_empty() {
                             info!(
                                 target: "scheduler",
@@ -83,8 +84,6 @@ where
                                     })
                                     .await
                             }
-
-                            schedules.check_later(tick).await;
                         }
                     }
                 }

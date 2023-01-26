@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use log::trace;
 use tokio::sync::Mutex;
 
-use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 use spectrum_offchain::event_sink::types::EventHandler;
 use spectrum_offchain::event_source::data::LedgerTxEvent;
@@ -35,10 +34,8 @@ where
                 for o in &tx.outputs {
                     if let Some(pool) = Pool::try_from_box(o.clone()) {
                         let mut repo = self.schedules.lock().await;
-                        if !repo.exists(pool.pool_id).await {
-                            is_success = true;
-                            repo.put_schedule(PoolSchedule::from(pool)).await;
-                        }
+                        repo.put_schedule(PoolSchedule::from(pool)).await;
+                        is_success = true;
                     }
                 }
                 if is_success {
