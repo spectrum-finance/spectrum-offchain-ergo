@@ -53,10 +53,13 @@ where
                 let mut is_success = false;
                 let pools = self.pools.lock().await;
                 for i in &tx.inputs {
-                    if let Some(AsBox(_, pool)) = pools.get_state(PoolStateId::from(i.box_id)).await {
-                        let mut repo = self.schedules.lock().await;
-                        repo.put_schedule(PoolSchedule::from(pool)).await;
-                        is_success = true;
+                    let sid = PoolStateId::from(i.box_id);
+                    if pools.may_exist(sid).await {
+                        if let Some(AsBox(_, pool)) = pools.get_state(sid).await {
+                            let mut repo = self.schedules.lock().await;
+                            repo.put_schedule(PoolSchedule::from(pool)).await;
+                            is_success = true;
+                        }
                     }
                 }
                 if is_success {

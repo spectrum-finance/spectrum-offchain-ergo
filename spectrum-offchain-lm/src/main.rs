@@ -144,7 +144,7 @@ async fn main() {
     // pools
     let (pool_snd, pool_recv) = mpsc::unbounded::<Confirmed<StateUpdate<AsBox<Pool>>>>();
     let pool_han = ConfirmedUpdateHandler::<_, AsBox<Pool>, _>::new(pool_snd, Arc::clone(&pools));
-    let pool_update_stream = boxed(entity_tracking_stream(pool_recv, pools));
+    let pool_update_stream = boxed(entity_tracking_stream(pool_recv, Arc::clone(&pools)));
 
     // orders
     let (order_snd, order_recv) = mpsc::unbounded::<OrderUpdate<Order>>();
@@ -180,6 +180,7 @@ async fn main() {
     ))));
     let schedule_han = ConfirmedScheduleUpdateHandler {
         schedules: Arc::clone(&schedules),
+        pools,
     };
     let scheduler_stream = boxed(distribution_stream(
         backlog,

@@ -134,7 +134,7 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                 while tick.is_none() {
                     if let Some((bs, deferred_unil)) = deferred_ticks.next().and_then(|res| res.ok()) {
                         if let Ok(deferred_unil) = bincode::deserialize::<i64>(&deferred_unil) {
-                            if deferred_unil >= ts_now {
+                            if deferred_unil <= ts_now {
                                 tick = destructure_deferred_tick_key(&*bs)
                                     .and_then(|pid| {
                                         let schedule_key = prefixed_key(SCHEDULE_PREFIX, &pid);
@@ -268,7 +268,7 @@ mod tests {
         let mut ticks = Vec::new();
         while let Some(tick) = client.peek().await {
             ticks.push(tick);
-            client.defer(tick, 0).await;
+            client.defer(tick, <i64>::MAX).await;
         }
         assert_eq!(ticks[0].height, schedule.next_compounding_at().unwrap())
     }
@@ -295,10 +295,31 @@ mod tests {
         let mut ticks = Vec::new();
         while let Some(tick) = client.peek().await {
             ticks.push(tick);
-            client.defer(tick, 0).await;
+            client.defer(tick, <i64>::MAX).await;
         }
         assert_eq!(ticks[0].height, schedule_1.next_compounding_at().unwrap());
         assert_eq!(ticks[1].height, schedule_2.next_compounding_at().unwrap());
+    }
+
+    #[tokio::test]
+    async fn peek_defer_remove() {
+        let mut client = rocks_db_client();
+        let schedule_1 = PoolSchedule {
+            pool_id: PoolId::from(TokenId::from(Digest32::from([0u8; 32]))),
+            epoch_len: 10,
+            epoch_num: 10,
+            program_start: 100,
+            last_completed_epoch_ix: 0,
+        };
+        client.put_schedule(schedule_1.clone()).await;
+        let tick = client.peek().await;
+        assert!(tick.is_some());
+        client.defer(tick.unwrap(), 0).await;
+        let deferred_tick = client.peek().await;
+        assert!(deferred_tick.is_some());
+        assert_eq!(deferred_tick, tick);
+        client.remove(deferred_tick.unwrap()).await;
+        assert!(client.peek().await.is_none());
     }
 
     const POOL_JSON: &str = r#"{
