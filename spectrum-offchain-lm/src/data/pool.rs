@@ -327,7 +327,6 @@ impl Pool {
     }
 
     pub fn epochs_left_to_process(&self) -> u32 {
-        println!("Epoch Alloc: {}", self.epoch_alloc());
         (self
             .budget_rem
             .amount
