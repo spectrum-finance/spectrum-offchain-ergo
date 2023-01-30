@@ -5,7 +5,6 @@ use ergo_lib::ergotree_ir::chain::ergo_box::{
     BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters,
 };
 use ergo_lib::ergotree_ir::chain::token::Token;
-use ergo_lib::ergotree_ir::ergo_tree::{ErgoTree, ErgoTreeHeader};
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
 use log::trace;
 use nonempty::NonEmpty;
@@ -325,6 +324,15 @@ impl Pool {
             reward_outputs,
             miner_output,
         ))
+    }
+
+    pub fn epochs_left_to_process(&self) -> u32 {
+        (self
+            .budget_rem
+            .amount
+            .saturating_sub(self.conf.max_rounding_error) as f64
+            / self.epoch_alloc() as f64)
+            .ceil() as u32
     }
 
     fn epoch_alloc(&self) -> u64 {

@@ -16,6 +16,8 @@ use crate::data::order::{Compound, Order};
 use crate::scheduler::data::Tick;
 use crate::scheduler::ScheduleRepo;
 
+const TICK_SUSPENSION_DURATION: i64 = 60 * 30;
+
 pub fn distribution_stream<'a, TBacklog, TSchedules, TBundles, TNetwork>(
     backlog: Arc<Mutex<TBacklog>>,
     schedules: Arc<Mutex<TSchedules>>,
@@ -53,7 +55,8 @@ where
                     let height_now = network.get_height().await;
                     if height <= height_now {
                         info!(target: "scheduler", "Processing epoch [{}] of pool [{}]", epoch_ix, pool_id);
-                        let stakers = bundles.lock().await.select(pool_id, epoch_ix).await;
+                        let mut stakers = bundles.lock().await.select(pool_id, epoch_ix).await;
+                        stakers.sort();
                         if stakers.is_empty() {
                             info!(
                                 target: "scheduler",
@@ -83,8 +86,7 @@ where
                                     })
                                     .await
                             }
-
-                            schedules.check_later(tick).await;
+                            schedules.defer(tick, ts_now + TICK_SUSPENSION_DURATION).await;
                         }
                     }
                 }

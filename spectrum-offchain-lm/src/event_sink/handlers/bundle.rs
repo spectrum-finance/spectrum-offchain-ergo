@@ -16,7 +16,6 @@ use spectrum_offchain::event_source::data::LedgerTxEvent;
 use crate::bundle::BundleRepo;
 use crate::data::{AsBox, BundleId, BundleStateId};
 use crate::data::bundle::{IndexedBundle, IndexedStakingBundle, StakingBundle};
-use crate::data::pool::INIT_EPOCH_IX;
 use crate::program::ProgramRepo;
 
 pub struct ConfirmedBundleUpdateHadler<TSink, TBundles, TProgs> {
