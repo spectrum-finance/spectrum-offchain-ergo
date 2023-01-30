@@ -98,7 +98,6 @@ impl BundleRepo for BundleRepoRocksDB {
                 .and_then(|bytes| bincode::deserialize(&bytes).ok())
         })
         .await
-        .unwrap()
     }
 
     /// Invalidate bundle state snapshot corresponding to the given `state_id`.
@@ -234,7 +233,6 @@ impl BundleRepo for BundleRepoRocksDB {
                 .and_then(|bytes| bincode::deserialize(&bytes).ok())
         })
         .await
-        .unwrap()
     }
 }
 
