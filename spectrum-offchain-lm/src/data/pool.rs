@@ -285,11 +285,11 @@ impl Pool {
             }
             let actual_tmp =
                 MAX_VALUE - self.reserves_tmp.amount - (self.reserves_lq.amount - 1) * epochs_remain as u64;
-            let alloc_rem = self.budget_rem.amount as u128
-                - self.conf.program_budget.amount as u128 * epochs_remain as u128
-                    / (self.conf.epoch_num as u128)
-                - 1;
             let reward_amt = if actual_tmp > 0 {
+                let alloc_rem = self.budget_rem.amount as u128
+                    - self.conf.program_budget.amount as u128 * epochs_remain as u128
+                        / (self.conf.epoch_num as u128)
+                    - 1;
                 (alloc_rem * bundle.vlq.amount as u128 * epochs_burned as u128 / actual_tmp as u128) as u64
                     - 1
             } else {
