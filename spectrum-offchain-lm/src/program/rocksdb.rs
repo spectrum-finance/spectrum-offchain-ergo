@@ -42,7 +42,6 @@ impl ProgramRepo for ProgramRepoRocksDB {
                 .and_then(|bs| bincode::deserialize(&*bs).ok())
         })
         .await
-        .unwrap()
     }
 
     async fn exists(&self, pool_id: PoolId) -> bool {

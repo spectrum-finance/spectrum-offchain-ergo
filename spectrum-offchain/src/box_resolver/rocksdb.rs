@@ -54,7 +54,6 @@ where
                 .and_then(|bytes| bincode::deserialize(&bytes).ok())
         })
         .await
-        .unwrap()
     }
 
     async fn get_last_predicted<'a>(
@@ -276,6 +275,5 @@ where
                 .and_then(|bytes| bincode::deserialize(&*bytes).ok())
         })
         .await
-        .unwrap()
     }
 }

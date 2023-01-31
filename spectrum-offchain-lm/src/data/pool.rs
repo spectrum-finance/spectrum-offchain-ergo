@@ -23,7 +23,7 @@ use crate::data::miner::MinerOutput;
 use crate::data::order::{Deposit, Redeem};
 use crate::data::redeemer::{DepositOutput, RedeemOutput, RewardOutput};
 use crate::data::{AsBox, PoolId, PoolStateId};
-use crate::ergo::{NanoErg, DEFAULT_MINER_FEE, MIN_SAFE_BOX_VALUE, UNIT_VALUE};
+use crate::ergo::{NanoErg, DEFAULT_MINER_FEE, MAX_VALUE, MIN_SAFE_BOX_VALUE, UNIT_VALUE};
 use crate::validators::POOL_VALIDATOR;
 
 pub const INIT_EPOCH_IX: u32 = 1;
@@ -271,8 +271,7 @@ impl Pool {
             ((self.conf.epoch_num + 1) as u64 - (self.budget_rem.amount / epoch_alloc) - 1) as u32
         };
         let epochs_remain = self.conf.epoch_num - epoch_ix;
-        let lq_reserves_0 = self.reserves_lq;
-        let mut next_pool = self;
+        let mut next_pool = self.clone();
         let mut next_bundles = bundles;
         let mut reward_outputs = Vec::new();
         let mut accumulated_cost = NanoErg::from(0u64);
@@ -284,9 +283,21 @@ impl Pool {
                     format!("Already compounded"),
                 )));
             }
-            let reward_amt =
-                (next_pool.epoch_alloc() as u128 * bundle.vlq.amount as u128 * epochs_burned as u128
-                    / (lq_reserves_0.amount - 1) as u128) as u64;
+            let actual_tmp = MAX_VALUE
+                .saturating_sub(self.reserves_tmp.amount)
+                .saturating_sub(self.reserves_lq.amount.saturating_sub(1) * epochs_remain as u64);
+            let reward_amt = if actual_tmp > 0 {
+                let alloc_rem = (self.budget_rem.amount as u128)
+                    .saturating_sub(
+                        self.conf.program_budget.amount as u128 * epochs_remain as u128
+                            / (self.conf.epoch_num as u128),
+                    )
+                    .saturating_sub(1);
+                ((alloc_rem * bundle.vlq.amount as u128 * epochs_burned as u128 / actual_tmp as u128) as u64)
+                    .saturating_sub(1)
+            } else {
+                0
+            };
             let reward = TypedAssetAmount::new(next_pool.budget_rem.token_id, reward_amt);
             let reward_output = RewardOutput {
                 reward,
@@ -457,6 +468,8 @@ impl IntoBoxCandidate for Pool {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Borrow;
+
     use ergo_lib::ergo_chain_types::{blake2b256_hash, Digest32};
     use ergo_lib::ergotree_ir::chain::ergo_box::{BoxId, ErgoBox};
     use ergo_lib::ergotree_ir::chain::token::TokenId;
@@ -647,7 +660,7 @@ mod tests {
             prop: trivial_prop(),
             erg_value: NanoErg::from(2000000000u64),
         }];
-        let (_pool_4, bundles, next_funding, rewards, _) = pool_3
+        let (pool_4, bundles, next_funding, rewards, _) = pool_3
             .distribute_rewards(
                 Vec::from([
                     StakingBundle::from_proto(
@@ -662,9 +675,16 @@ mod tests {
                 funding,
             )
             .unwrap();
-        assert_eq!(
-            rewards[0].reward.amount * deposit_disproportion,
-            rewards[1].reward.amount
+        assert!(rewards[0].reward.amount <= pool_4.epoch_alloc());
+        assert!(rewards[1].reward.amount <= pool_4.epoch_alloc());
+
+        // It's fine for reward rounding to leave an extra token in the pool.
+        assert!(
+            rewards[1]
+                .reward
+                .amount
+                .abs_diff(rewards[0].reward.amount * deposit_disproportion)
+                <= 1
         );
         assert_eq!(bundles[0].tmp, bundle_a.tmp - bundle_a.vlq.coerce());
         assert_eq!(bundles[1].tmp, bundle_b.tmp - bundle_b.vlq.coerce());
@@ -676,11 +696,10 @@ mod tests {
         let res = Pool::try_from_box(bx);
         assert!(res.is_some())
     }
-
     const POOL_JSON: &str = r#"{
-        "boxId": "7153d14ec1fad42943102cc0541c96e44549f5c4e496e27f43b0885fd4a9fd43",
+        "boxId": "1520f09923d264e75933f7de8f53840393183891d478ec9763b009fe6ade6926",
         "value": 1250000,
-        "ergoTree": "19ec052404000400040204020404040404060406040804080404040204000400040204020400040a050005000404040204020e2074aeba0675c10c7fff46d3aa5e5a8efc55f0b0d87393dcb2f4b0a04be213cecb040004020500040204020406050005000402050205000500d81ed601b2a5730000d602db63087201d603db6308a7d604b27203730100d605e4c6a70410d606e4c6a70505d607e4c6a70605d608b27202730200d609b27203730300d60ab27202730400d60bb27203730500d60cb27202730600d60db27203730700d60e8c720d01d60fb27202730800d610b27203730900d6118c721001d6128c720b02d613998c720a027212d6148c720902d615b27205730a00d6169a99a37215730bd617b27205730c00d6189d72167217d61995919e72167217730d9a7218730e7218d61ab27205730f00d61b7e721a05d61c9d7206721bd61d998c720c028c720d02d61e998c720f028c721002d1ededededed93b272027310007204ededed93e4c672010410720593e4c672010505720693e4c6720106057207928cc77201018cc7a70193c27201c2a7ededed938c7208018c720901938c720a018c720b01938c720c01720e938c720f01721193b172027311959172137312d802d61f9c721399721ba273137e721905d620b2a5731400ededed929a997206721472079c7e9995907219721a72199a721a7315731605721c937213f0721d93721ff0721eedededed93cbc272207317938602720e7213b2db630872207318009386027211721fb2db63087220731900e6c67220040893e4c67220050e8c720401958f7213731aededec929a997206721472079c7e9995907219721a72199a721a731b731c05721c92a39a9a72159c721a7217b27205731d0093721df0721392721e95917219721a731e9c721d99721ba2731f7e721905d801d61fe4c672010704edededed90721f9972197320909972149c7e99721a721f05721c9a721c7207907ef0998c7208027214069d9c7e721c067e721e067e997212732106937213732293721d7323",
+        "ergoTree": "19c0062904000400040204020404040404060406040804080404040204000400040204020601010400040a050005000404040204020e20a20a53f905f41ebdd71c2c239f270392d0ae0f23f6bd9f3687d166eea745bbf60400040205000402040204060500050005feffffffffffffffff010502050005000402050005000100d820d601b2a5730000d602db63087201d603db6308a7d604b27203730100d605e4c6a70410d606e4c6a70505d607e4c6a70605d608b27202730200d609b27203730300d60ab27202730400d60bb27203730500d60cb27202730600d60db27203730700d60e8c720d01d60fb27202730800d610b27203730900d6118c721001d6128c720b02d613998c720a027212d6148c720902d615b27205730a00d6169a99a37215730bd617b27205730c00d6189d72167217d61995919e72167217730d9a7218730e7218d61ab27205730f00d61b7e721a05d61c9d7206721bd61d998c720c028c720d02d61e8c721002d61f998c720f02721ed6207310d1ededededed93b272027311007204ededed93e4c672010410720593e4c672010505720693e4c6720106057207928cc77201018cc7a70193c27201c2a7ededed938c7208018c720901938c720a018c720b01938c720c01720e938c720f01721193b172027312959172137313d802d6219c721399721ba273147e721905d622b2a5731500ededed929a997206721472079c7e9995907219721a72199a721a7316731705721c937213f0721d937221f0721fedededed93cbc272227318938602720e7213b2db6308722273190093860272117221b2db63087222731a00e6c67222040893e4c67222050e8c720401958f7213731bededec929a997206721472079c7e9995907219721a72199a721a731c731d05721c92a39a9a72159c721a7217b27205731e0093721df0721392721f95917219721a731f9c721d99721ba273207e721905d804d621e4c672010704d62299721a7221d6237e722205d62499997321721e9c9972127322722395ed917224732391721f7324edededed9072219972197325909972149c7223721c9a721c7207907ef0998c7208027214069a9d9c99997e7214069d9c7e7206067e7222067e721a0672207e721f067e7224067220937213732693721d73277328",
         "assets": [
             {
                 "tokenId": "48ad28d9bb55e1da36d27c655a84279ff25d889063255d3f774ff926a3704370",

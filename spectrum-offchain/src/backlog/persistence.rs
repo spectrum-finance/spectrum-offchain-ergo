@@ -67,6 +67,5 @@ where
                 .map(|b| bincode::deserialize(&b).unwrap())
         })
         .await
-        .unwrap()
     }
 }
