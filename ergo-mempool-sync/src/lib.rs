@@ -59,27 +59,27 @@ impl SyncState {
 }
 
 pub struct MempoolSyncConf {
-    sync_interval: Delay,
+    pub sync_interval: Delay,
 }
 
 #[pin_project::pin_project]
-pub struct MempoolSync<TClient, TChainSync> {
+pub struct MempoolSync<'a, TClient, TChainSync> {
     conf: MempoolSyncConf,
-    client: TClient,
+    client: &'a TClient,
     #[pin]
     chain_sync: TChainSync,
     state: Rc<RefCell<SyncState>>,
 }
 
-impl<TClient, TChainSync> MempoolSync<TClient, TChainSync>
+impl<'a, TClient, TChainSync> MempoolSync<'a, TClient, TChainSync>
 where
     TClient: ErgoNetwork,
 {
     pub async fn init<TChainSyncMaker: InitChainSync<TChainSync>>(
         conf: MempoolSyncConf,
-        client: TClient,
+        client: &'a TClient,
         chain_sync_maker: TChainSyncMaker,
-    ) -> Self {
+    ) -> MempoolSync<'a, TClient, TChainSync> {
         let chain_tip_height = client.get_best_height().await;
         let start_at = chain_tip_height as usize - KEEP_LAST_BLOCKS;
         let chain_sync = chain_sync_maker.init(start_at as u32, None).await;
@@ -130,7 +130,7 @@ async fn sync<'a, TClient: ErgoNetwork>(client: &TClient, mut state: RefMut<'a, 
     }
 }
 
-impl<TClient, TChainSync> Stream for MempoolSync<TClient, TChainSync>
+impl<'a, TClient, TChainSync> Stream for MempoolSync<'a, TClient, TChainSync>
 where
     TClient: ErgoNetwork,
     TChainSync: Stream<Item = ChainUpgrade> + Unpin,
@@ -139,6 +139,7 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
+        let client: &TClient = this.client;
         if Future::poll(Pin::new(&mut this.conf.sync_interval), cx).is_ready() {
             let mut state = this.state.borrow_mut();
             // Sync chain tail
@@ -150,7 +151,7 @@ where
                     Poll::Pending => break,
                 }
             }
-            let mut sync_fut = Box::pin(sync(this.client, state));
+            let mut sync_fut = Box::pin(sync(client, state));
             // Drive sync to completion
             loop {
                 match sync_fut.as_mut().poll(cx) {
@@ -166,9 +167,9 @@ where
     }
 }
 
-impl<TClient, TChainSync> FusedStream for MempoolSync<TClient, TChainSync>
+impl<'a, TClient, TChainSync> FusedStream for MempoolSync<'a, TClient, TChainSync>
 where
-    MempoolSync<TClient, TChainSync>: Stream,
+    MempoolSync<'a, TClient, TChainSync>: Stream,
 {
     /// MempoolSync stream is never terminated.
     fn is_terminated(&self) -> bool {
