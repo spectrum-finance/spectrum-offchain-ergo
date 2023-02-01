@@ -130,7 +130,7 @@ where
             trace!(target: "offchain_lm", "Order acquired [{:?}]", ord.get_self_ref());
             let entity_id = ord.get_entity_ref();
             if let Some(pool) = resolve_entity_state(entity_id, Arc::clone(&self.pool_repo)).await {
-                trace!(target: "offchain_lm", "Pool for order [{:?}] is [{:?}], pool_state: {:?}", ord.get_self_ref(), pool.get_self_ref(), pool);
+                trace!(target: "offchain_lm", "Pool for order [{:?}] is [{:?}]", ord.get_self_ref(), pool.get_self_ref());
                 let conf = pool.1.conf;
                 let bundle_ids = ord.get::<Vec<BundleId>>();
                 let bundle_resolver = Arc::clone(&self.bundle_repo);

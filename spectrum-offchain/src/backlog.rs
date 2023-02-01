@@ -340,13 +340,13 @@ where
 
     async fn try_pop(&mut self) -> Option<TOrd> {
         self.revisit_progressing_orders().await;
-        //if self.pending_pq.is_empty() && self.revisit_queue.is_empty() && self.suspended_pq.is_empty() {
-        //    trace!(target: "backlog", "try_pop(): all priority queues empty. Repopulating from persistent store");
-        //    for ord in self.store.get_all().await {
-        //        let wt = ord.order.weight();
-        //        self.pending_pq.push(ord.into(), wt);
-        //    }
-        //}
+        if self.pending_pq.is_empty() && self.revisit_queue.is_empty() && self.suspended_pq.is_empty() {
+            trace!(target: "backlog", "try_pop(): all priority queues empty. Repopulating from persistent store");
+            for ord in self.store.get_all().await {
+                let wt = ord.order.weight();
+                self.pending_pq.push(ord.into(), wt);
+            }
+        }
         let rng = rand::thread_rng().gen_range(0..=99);
         if rng >= self.conf.retry_suspended_prob.get() {
             try_pop_max_order(&self.conf, &mut self.store, &mut self.pending_pq).await

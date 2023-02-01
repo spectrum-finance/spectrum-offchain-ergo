@@ -176,7 +176,6 @@ impl FundingRepo for FundingRepoRocksDB {
             if acc >= target {
                 Ok(NonEmpty::from_vec(funds).unwrap())
             } else {
-                trace!(target: "funding", "acc: {}, funds: {:?}", acc, funds);
                 Err(())
             }
         })
