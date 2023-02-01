@@ -42,7 +42,10 @@ impl ErgoNetwork for ErgoMempoolHttpClient {
     async fn fetch_mempool(&self, offset: usize, limit: usize) -> Vec<Transaction> {
         self
             .client
-            .get_async(with_path(&self.base_url, &format!("/transactions/unconfirmed")))
+            .get_async(with_path(
+                &self.base_url,
+                &format!("/transactions/unconfirmed?offset={:?}&limit={:?}", offset, limit)
+            ))
             .await
             .ok().unwrap()
             .json::<Vec<Transaction>>()
