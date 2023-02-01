@@ -15,7 +15,7 @@ use ergo_chain_sync::{ChainUpgrade, InitChainSync};
 
 use crate::client::node::ErgoNetwork;
 
-mod client;
+pub mod client;
 
 #[derive(Debug, Clone)]
 pub enum MempoolUpdate {
