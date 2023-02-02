@@ -63,7 +63,17 @@ where
                                 "No more stakers left in epoch [{}] of pool [{}]",
                                 epoch_ix, pool_id
                             );
-                            schedules.remove(tick).await;
+
+                            {
+                                // Note that our implementation of `ScheduleRepo::remove(..)`
+                                // applies only to deferred ticks. Now this tick has no stakers and
+                                // thus will never be deferred. It must be removed by
+                                // `ScheduleRepo` though, so as a workaround we simply defer the
+                                // tick, then remove.
+                                let ts_now = Utc::now().timestamp();
+                                schedules.defer(tick, ts_now + TICK_SUSPENSION_DURATION).await;
+                                schedules.remove(tick).await;
+                            }
                         } else {
                             let orders =
                                 stakers
