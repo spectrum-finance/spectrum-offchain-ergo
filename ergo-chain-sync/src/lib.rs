@@ -42,12 +42,7 @@ impl SyncState {
 
 #[async_trait::async_trait(?Send)]
 pub trait InitChainSync<'a, TChainSync> {
-    async fn init(
-        self,
-        starting_height: u32,
-        tip_reached_signal: Option<&'a Once>,
-        tip_height: Option<u32>,
-    ) -> TChainSync;
+    async fn init(self, starting_height: u32, tip_reached_signal: Option<&'a Once>) -> TChainSync;
 }
 
 pub struct ChainSyncNonInit<'a, TClient, TCache> {
@@ -86,7 +81,6 @@ pub struct ChainSync<'a, TClient, TCache> {
     #[pin]
     delay: Cell<Option<Delay>>,
     tip_reached_signal: Option<&'a Once>,
-    tip_height: Option<u32>,
 }
 
 impl<'a, TClient, TCache> ChainSync<'a, TClient, TCache>
@@ -99,7 +93,6 @@ where
         client: &'a TClient,
         mut cache: TCache,
         tip_reached_signal: Option<&'a Once>,
-        tip_height: Option<u32>,
     ) -> ChainSync<'a, TClient, TCache> {
         let best_block = cache.get_best_block().await;
         let start_at = if let Some(best_block) = best_block {
@@ -117,7 +110,6 @@ where
             })),
             delay: Cell::new(None),
             tip_reached_signal,
-            tip_height,
         }
     }
 
@@ -125,11 +117,6 @@ where
     /// `None` is returned when no upgrade is available at the moment.
     async fn try_upgrade(&self) -> Option<ChainUpgrade> {
         let next_height = { self.state.borrow().next_height };
-        if let Some(tip_height) = self.tip_height {
-            if next_height == tip_height {
-                return None;
-            }
-        }
         trace!(target: "chain_sync", "Processing height [{}]", next_height);
         match self.client.get_block_at(next_height).await {
             Ok(api_blk) => {
