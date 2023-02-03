@@ -1,7 +1,6 @@
 node_addr: https://ergonode-api-uy.ergohost.io 
 http_client_timeout_duration_secs: 20 
 chain_sync_starting_height: 920000
-#chain_sync_tip_height: 917500
 backlog_config:
   order_lifespan: 8640000
   order_exec_time: 86400
