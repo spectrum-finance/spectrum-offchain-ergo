@@ -58,17 +58,6 @@ where
                         info!(target: "scheduler", "Processing epoch [{}] of pool [{}]", epoch_ix, pool_id);
                         let mut stakers = bundles.lock().await.select(pool_id, epoch_ix).await;
                         stakers.sort();
-                        let orders =
-                            stakers
-                                .chunks(batch_size)
-                                .into_iter()
-                                .enumerate()
-                                .map(|(queue_ix, xs)| Compound {
-                                    pool_id,
-                                    epoch_ix,
-                                    queue_ix,
-                                    stakers: Vec::from(xs),
-                                });
                         if stakers.is_empty() {
                             info!(
                                 target: "scheduler",
@@ -103,6 +92,17 @@ where
                                 schedules.remove(tick).await;
                             }
                         } else {
+                            let orders =
+                                stakers
+                                    .chunks(batch_size)
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(queue_ix, xs)| Compound {
+                                        pool_id,
+                                        epoch_ix,
+                                        queue_ix,
+                                        stakers: Vec::from(xs),
+                                    });
                             info!(
                                 target: "scheduler",
                                 "# stakers left in epoch [{}] of pool [{}]: {}",
