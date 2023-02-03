@@ -41,8 +41,8 @@ impl SyncState {
 }
 
 #[async_trait::async_trait(?Send)]
-pub trait InitChainSync<'a, TChainSync> {
-    async fn init(self, starting_height: u32, tip_reached_signal: Option<&'a Once>) -> TChainSync;
+pub trait InitChainSync<TChainSync> {
+    async fn init(self, starting_height: u32, tip_reached_signal: Option<&'static Once>) -> TChainSync;
 }
 
 pub struct ChainSyncNonInit<'a, TClient, TCache> {
@@ -57,7 +57,7 @@ impl<'a, TClient, TCache> ChainSyncNonInit<'a, TClient, TCache> {
 }
 
 #[async_trait::async_trait(?Send)]
-impl<'a, TClient, TCache> InitChainSync<'a, ChainSync<'a, TClient, TCache>>
+impl<'a, TClient, TCache> InitChainSync<ChainSync<'a, TClient, TCache>>
     for ChainSyncNonInit<'a, TClient, TCache>
 where
     TClient: ErgoNetwork,
