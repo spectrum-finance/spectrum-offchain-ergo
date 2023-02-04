@@ -167,6 +167,7 @@ where
                     None
                 }
             }
+            ev => Some(ev),
         };
         let _ = self.topic.flush().await;
         res

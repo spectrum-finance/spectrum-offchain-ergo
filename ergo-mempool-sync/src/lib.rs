@@ -23,6 +23,8 @@ pub enum MempoolUpdate {
     TxAccepted(Transaction),
     /// Tx was discarded.
     TxWithdrawn(Transaction),
+    /// Tx was confirmed.
+    TxConfirmed(Transaction)
 }
 
 #[derive(Debug, Clone)]
@@ -111,13 +113,13 @@ async fn sync<'a, TClient: ErgoNetwork>(client: &TClient, mut state: RefMut<'a, 
     let old_pool_ids = state.mempool_projection.keys().cloned().collect::<HashSet<_>>();
     let elim_txs = old_pool_ids.difference(&new_pool_ids);
     'check_withdrawn: for tx_id in elim_txs {
-        state.mempool_projection.remove(tx_id);
-        for blk in state.latest_blocks.iter() {
-            if blk.contains(tx_id) {
-                continue 'check_withdrawn;
+        if let Some(tx) = state.mempool_projection.remove(tx_id) {
+            for blk in state.latest_blocks.iter() {
+                if blk.contains(tx_id) {
+                    state.pending_updates.push_back(MempoolUpdate::TxConfirmed(tx));
+                    continue 'check_withdrawn;
+                }
             }
-        }
-        if let Some(tx) = state.mempool_projection.get(tx_id).cloned() {
             state.pending_updates.push_back(MempoolUpdate::TxWithdrawn(tx));
         }
     }

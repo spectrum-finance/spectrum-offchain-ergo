@@ -152,6 +152,7 @@ where
                 }
                 Some(MempoolUpdate::TxWithdrawn(tx))
             }
+            ev => Some(ev),
         };
         let _ = self.topic.flush().await;
         res
