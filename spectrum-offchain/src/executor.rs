@@ -72,6 +72,7 @@ impl<'a, TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity> Executor
     for OrderExecutor<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity>
 where
     TOrd: OnChainOrder + RunOrder<TEntity, TCtx> + Clone + Display,
+    TOrd::TOrderId: Clone,
     TEntity: OnChainEntity + Clone,
     TEntity::TEntityId: Copy,
     TOrd::TEntityId: IsEqual<TEntity::TEntityId>,

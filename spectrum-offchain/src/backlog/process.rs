@@ -16,6 +16,7 @@ pub fn backlog_stream<'a, S, TOrd, TBacklog>(
 where
     S: Stream<Item = OrderUpdate<TOrd>> + 'a,
     TOrd: OnChainOrder + 'a,
+    TOrd::TOrderId: Clone,
     TBacklog: Backlog<TOrd> + 'a,
 {
     trace!(target: "offchain_lm", "Watching for Backlog events..");

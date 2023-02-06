@@ -50,11 +50,15 @@ where
     /// Remove order from backlog.
     async fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
     where
-        TOrd::TOrderId: 'a;
+        TOrd::TOrderId: 'a + Clone;
     /// Return order back to backlog.
     async fn recharge<'a>(&mut self, ord: TOrd)
     where
         TOrd: 'a;
+    /// Return all orders satisfying the given predicate.
+    async fn find_orders<F: Fn(&TOrd) -> bool + Send + 'static>(&self, f: F) -> Vec<TOrd>
+    where
+        F: Fn(&TOrd) -> bool + Send + 'static;
 }
 
 pub struct BacklogTracing<B> {
@@ -134,6 +138,14 @@ where
         self.inner.recharge(ord.clone()).await;
         trace!(target: "backlog", "recharge({:?}) -> ()", ord);
     }
+
+    async fn find_orders<F>(&self, f: F) -> Vec<TOrd>
+    where
+        F: Fn(&TOrd) -> bool + Send + 'static,
+    {
+        trace!(target: "backlog", "find_order()");
+        self.inner.find_orders(f).await
+    }
 }
 
 #[serde_with::serde_as]
@@ -146,7 +158,7 @@ pub struct BacklogConfig {
     pub retry_suspended_prob: BoundedU8<0, 100>,
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 struct WeightedOrder<TOrderId> {
     order_id: TOrderId,
     timestamp: i64,
@@ -345,7 +357,7 @@ where
 
     async fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
     where
-        TOrd::TOrderId: 'a,
+        TOrd::TOrderId: Clone + 'a,
     {
         self.store.drop(ord_id).await;
     }
@@ -364,6 +376,18 @@ where
                 wt,
             );
         }
+    }
+
+    async fn find_orders<F>(&self, f: F) -> Vec<TOrd>
+    where
+        F: Fn(&TOrd) -> bool + Send + 'static,
+    {
+        self.store
+            .find_orders(f)
+            .await
+            .into_iter()
+            .map(|b| b.order)
+            .collect()
     }
 }
 
@@ -472,6 +496,13 @@ mod tests {
 
         async fn get(&self, ord_id: MockOrderId) -> Option<BacklogOrder<MockOrder>> {
             self.inner.get(&ord_id).cloned()
+        }
+
+        async fn find_orders<F>(&self, f: F) -> Vec<BacklogOrder<MockOrder>>
+        where
+            F: Fn(&MockOrder) -> bool + Send + 'static,
+        {
+            self.inner.values().cloned().filter(|b| f(&b.order)).collect()
         }
     }
 

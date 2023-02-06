@@ -4,6 +4,7 @@ use std::time::Duration;
 use chrono::Utc;
 use futures::{Stream, StreamExt};
 use log::info;
+use spectrum_offchain::data::OnChainOrder;
 use stream_throttle::{ThrottlePool, ThrottleRate, ThrottledStream};
 use tokio::sync::Mutex;
 
@@ -63,6 +64,22 @@ where
                                 "No more stakers left in epoch [{}] of pool [{}]",
                                 epoch_ix, pool_id
                             );
+
+                            // No stakers means that the compounding orders for this epoch are
+                            // complete, and so they should be removed from the backlog.
+                            let mut backlog = backlog.lock().await;
+                            let compound_orders = backlog
+                                .find_orders(move |ord| {
+                                    if let Order::Compound(c) = ord {
+                                        c.epoch_ix == epoch_ix && c.pool_id == pool_id
+                                    } else {
+                                        false
+                                    }
+                                })
+                                .await;
+                            for c in compound_orders {
+                                backlog.remove(c.get_self_ref()).await;
+                            }
 
                             {
                                 // Note that our implementation of `ScheduleRepo::remove(..)`
