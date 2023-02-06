@@ -20,7 +20,7 @@ impl IntoBoxCandidate for RewardOutput {
         ErgoBoxCandidate {
             value: self.erg_value.into(),
             ergo_tree: ErgoTree::new(DEFAULT_P2PK_HEADER.clone(), &self.redeemer_prop.into()).unwrap(),
-            tokens: Some(BoxTokens::from([self.reward.into()])),
+            tokens: Some(BoxTokens::from([self.reward.try_into().unwrap()])),
             additional_registers: NonMandatoryRegisters::empty(),
             creation_height: height,
         }
@@ -39,7 +39,7 @@ impl IntoBoxCandidate for DepositOutput {
         ErgoBoxCandidate {
             value: self.erg_value.into(),
             ergo_tree: ErgoTree::new(DEFAULT_P2PK_HEADER.clone(), &self.redeemer_prop.into()).unwrap(),
-            tokens: Some(BoxTokens::from([self.bundle_key.into()])),
+            tokens: Some(BoxTokens::from([self.bundle_key.try_into().unwrap()])),
             additional_registers: NonMandatoryRegisters::empty(),
             creation_height: height,
         }
@@ -58,7 +58,7 @@ impl IntoBoxCandidate for RedeemOutput {
         ErgoBoxCandidate {
             value: self.erg_value.into(),
             ergo_tree: self.redeemer_prop,
-            tokens: Some(BoxTokens::from([self.lq.into()])),
+            tokens: Some(BoxTokens::from([self.lq.try_into().unwrap()])),
             additional_registers: NonMandatoryRegisters::empty(),
             creation_height: height,
         }

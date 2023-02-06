@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::ops::{Add, Sub};
 
-use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount, TokenId};
+use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount, TokenAmountError, TokenId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, Serialize, Deserialize)]
@@ -71,12 +71,14 @@ impl<T> TypedAssetAmount<T> {
     }
 }
 
-impl<T> From<TypedAssetAmount<T>> for Token {
-    fn from(ta: TypedAssetAmount<T>) -> Self {
-        Token {
+impl<T> TryFrom<TypedAssetAmount<T>> for Token {
+    type Error = TokenAmountError;
+    fn try_from(ta: TypedAssetAmount<T>) -> Result<Self, Self::Error> {
+        let amount = TokenAmount::try_from(ta.amount)?;
+        Ok(Token {
             token_id: ta.token_id,
-            amount: TokenAmount::try_from(ta.amount).unwrap(),
-        }
+            amount,
+        })
     }
 }
 

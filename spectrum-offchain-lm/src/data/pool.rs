@@ -433,11 +433,11 @@ impl TryFromBox for Pool {
 impl IntoBoxCandidate for Pool {
     fn into_candidate(self, height: u32) -> ErgoBoxCandidate {
         let tokens = BoxTokens::from_vec(vec![
-            Token::from(self.pool_nft()),
-            Token::from(self.budget_rem),
-            Token::from(self.reserves_lq),
-            Token::from(self.reserves_vlq),
-            Token::from(self.reserves_tmp),
+            Token::try_from(self.pool_nft()).unwrap(),
+            Token::try_from(self.budget_rem).unwrap(),
+            Token::try_from(self.reserves_lq).unwrap(),
+            Token::try_from(self.reserves_vlq).unwrap(),
+            Token::try_from(self.reserves_tmp).unwrap(),
         ])
         .unwrap();
         let registers = NonMandatoryRegisters::try_from(

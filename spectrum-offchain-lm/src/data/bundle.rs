@@ -47,14 +47,15 @@ impl StakingBundleProto {
 
 impl IntoBoxCandidate for StakingBundleProto {
     fn into_candidate(self, height: u32) -> ErgoBoxCandidate {
-        let tokens = BoxTokens::from_vec(vec![
-            Token::from(self.vlq),
-            Token::from(self.tmp),
-            Token {
-                token_id: self.bundle_key_id.token_id,
-                amount: TokenAmount::try_from(BUNDLE_KEY_AMOUNT).unwrap(),
-            },
-        ])
+        let bundle_key = Token {
+            token_id: self.bundle_key_id.token_id,
+            amount: TokenAmount::try_from(BUNDLE_KEY_AMOUNT).unwrap(),
+        };
+        let tokens = BoxTokens::from_vec(if let Ok(tmp) = Token::try_from(self.tmp) {
+            vec![Token::try_from(self.vlq).unwrap(), tmp, bundle_key]
+        } else {
+            vec![Token::try_from(self.vlq).unwrap(), bundle_key]
+        })
         .unwrap();
         let registers = NonMandatoryRegisters::try_from(vec![
             RegisterValue::Parsed(Constant::from(self.redeemer_prop)),
