@@ -18,6 +18,9 @@ where
     async fn exists(&self, ord_id: TOrd::TOrderId) -> bool;
     async fn drop(&mut self, ord_id: TOrd::TOrderId);
     async fn get(&self, ord_id: TOrd::TOrderId) -> Option<BacklogOrder<TOrd>>;
+    async fn find_orders<F>(&self, f: F) -> Vec<BacklogOrder<TOrd>>
+    where
+        F: Fn(&TOrd) -> bool + Send + 'static;
 }
 
 pub struct BacklogStoreRocksDB {
@@ -65,6 +68,27 @@ where
             db.get(bincode::serialize(&ord_id).unwrap())
                 .unwrap()
                 .map(|b| bincode::deserialize(&b).unwrap())
+        })
+        .await
+    }
+
+    async fn find_orders<F>(&self, f: F) -> Vec<BacklogOrder<TOrd>>
+    where
+        F: Fn(&TOrd) -> bool + Send + 'static,
+    {
+        let db = self.db.clone();
+        spawn_blocking(move || {
+            db.iterator(rocksdb::IteratorMode::Start)
+                .filter_map(|i| {
+                    let (_, v) = i.unwrap();
+                    let b: BacklogOrder<TOrd> = bincode::deserialize(&v).unwrap();
+                    if f(&b.order) {
+                        Some(b)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
         })
         .await
     }
