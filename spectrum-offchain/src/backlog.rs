@@ -266,7 +266,10 @@ where
         if elapsed_secs > conf.order_lifespan.num_seconds() {
             store.drop(ord.order_id).await;
         } else {
-            return store.get(ord.order_id).await.map(|bo| bo.order);
+            let res = store.get(ord.order_id).await.map(|bo| bo.order);
+            if res.is_some() {
+                return res;
+            }
         }
     }
     None
