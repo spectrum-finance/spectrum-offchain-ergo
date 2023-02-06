@@ -81,12 +81,12 @@ where
             db.iterator(rocksdb::IteratorMode::Start)
                 .filter_map(|i| {
                     let (_, v) = i.unwrap();
-                    let b: BacklogOrder<TOrd> = bincode::deserialize(&v).unwrap();
-                    if f(&b.order) {
-                        Some(b)
-                    } else {
-                        None
+                    if let Ok(b) = bincode::deserialize::<BacklogOrder<TOrd>>(&v) {
+                        if f(&b.order) {
+                            return Some(b);
+                        }
                     }
+                    None
                 })
                 .collect()
         })

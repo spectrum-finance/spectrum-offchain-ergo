@@ -356,28 +356,6 @@ where
     where
         TOrd::TOrderId: Clone + 'a,
     {
-        let w = self
-            .pending_pq
-            .iter()
-            .find(|o| o.0.order_id == ord_id)
-            .map(|w| w.0.clone());
-        if let Some(w) = w {
-            self.pending_pq.remove(&w);
-        }
-
-        let w = self
-            .suspended_pq
-            .iter()
-            .find(|o| o.0.order_id == ord_id)
-            .map(|w| w.0.clone());
-        if let Some(w) = w {
-            self.suspended_pq.remove(&w);
-        }
-
-        if let Some(ix) = self.revisit_queue.iter().position(|o| o.order_id == ord_id) {
-            self.revisit_queue.remove(ix);
-        }
-
         self.store.drop(ord_id).await;
     }
 
