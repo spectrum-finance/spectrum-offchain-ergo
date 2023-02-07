@@ -342,7 +342,7 @@ where
         self.revisit_progressing_orders().await;
         if self.pending_pq.is_empty() && self.revisit_queue.is_empty() && self.suspended_pq.is_empty() {
             trace!(target: "backlog", "try_pop(): all priority queues empty. Repopulating from persistent store");
-            for ord in self.store.get_all().await {
+            for ord in self.store.find_orders(|_| true).await {
                 let wt = ord.order.weight();
                 self.pending_pq.push(ord.into(), wt);
             }
