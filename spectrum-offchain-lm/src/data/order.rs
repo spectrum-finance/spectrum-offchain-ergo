@@ -31,9 +31,9 @@ use crate::data::context::ExecutionContext;
 use crate::data::funding::DistributionFunding;
 use crate::data::pool::{Pool, PoolOperationError};
 use crate::data::{AsBox, BundleId, BundleStateId, FundingId, OrderId, PoolId};
-use crate::ergo::{default_sigma_prop_tree, NanoErg};
+use crate::ergo::NanoErg;
 use crate::executor::{ConsumeExtra, ProduceExtra, RunOrder};
-use crate::validators::{DEPOSIT_TEMPLATE, REDEEM_TEMPLATE};
+use crate::validators::{BUNDLE_VALIDATOR, DEPOSIT_TEMPLATE, REDEEM_TEMPLATE};
 
 #[derive(Debug, Eq, PartialEq, Clone, Hash, Serialize, Deserialize)]
 pub struct Compound {
@@ -124,26 +124,23 @@ impl RunOrder for Compound {
                         .collect(),
                 )
                 .unwrap();
+                let num_bundles = bundles.len();
+                let (first_bundle_out_ix, _) = outputs
+                    .iter()
+                    .find_position(|o| o.ergo_tree == *BUNDLE_VALIDATOR)
+                    .expect("Bundles must always be present in outputs");
                 let inputs = TxIoVec::from_vec(
                     vec![pool_in]
                         .into_iter()
                         .chain(funding.map(|AsBox(i, _)| i))
                         .map(|bx| (bx, ContextExtension::empty()))
-                        .chain(bundles.iter().map(|AsBox(bx, bn)| {
-                            let bx = bx.clone();
-                            let redeemer_prop = default_sigma_prop_tree(bn.redeemer_prop.clone());
-                            let (redeemer_out_ix, _) = outputs
-                                .iter()
-                                .find_position(|o| o.ergo_tree == redeemer_prop)
-                                .expect("Redeemer out not found");
-                            let (succ_ix, _) = outputs
-                                .iter()
-                                .find_position(|o| o.additional_registers == bx.additional_registers)
-                                .expect("Successor out not found");
+                        .chain(bundles.iter().enumerate().map(|(i, AsBox(bx, _))| {
+                            let succ_ix = first_bundle_out_ix + i;
+                            let redeemer_out_ix = succ_ix + num_bundles;
                             let mut constants = IndexMap::new();
                             constants.insert(0u8, Constant::from(redeemer_out_ix as i32));
                             constants.insert(1u8, Constant::from(succ_ix as i32));
-                            (bx, ContextExtension { values: constants })
+                            (bx.clone(), ContextExtension { values: constants })
                         }))
                         .collect::<Vec<_>>(),
                 )
