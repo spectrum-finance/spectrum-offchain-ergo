@@ -14,7 +14,7 @@ use ergo_chain_sync::cache::rocksdb::ChainCacheRocksDB;
 use ergo_chain_sync::client::node::ErgoNodeHttpClient;
 use ergo_chain_sync::client::types::Url;
 use ergo_chain_sync::rocksdb::RocksConfig;
-use ergo_chain_sync::ChainSync;
+use ergo_chain_sync::{chain_sync_stream, ChainSync};
 use spectrum_offchain::backlog::persistence::BacklogStoreRocksDB;
 use spectrum_offchain::backlog::process::backlog_stream;
 use spectrum_offchain::backlog::{BacklogConfig, BacklogService, BacklogTracing};
@@ -205,7 +205,7 @@ async fn main() {
         Box::new(program_han),
     ];
 
-    let event_source = event_source_ledger(chain_sync);
+    let event_source = event_source_ledger(chain_sync_stream(chain_sync));
     let process_events_stream = boxed(process_events(event_source, handlers, default_handler));
 
     let mut app = select_all(vec![

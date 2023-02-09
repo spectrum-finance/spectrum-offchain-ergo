@@ -153,7 +153,10 @@ impl RunOrder for Compound {
                 let bundles_as_box = next_bundles
                     .into_iter()
                     .zip(Vec::from(bundle_outs).into_iter())
-                    .map(|(bn, out)| Predicted(AsBox(out, bn)))
+                    .map(|(mut bn, out)| {
+                        bn.state_id = BundleStateId::from(out.box_id());
+                        Predicted(AsBox(out, bn))
+                    })
                     .collect();
                 let next_funding_as_box = next_funding.map(|nf| {
                     let out = outputs.get(1).unwrap().clone();
