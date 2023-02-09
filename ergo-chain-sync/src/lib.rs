@@ -7,6 +7,7 @@ use std::sync::Once;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use async_stream::stream;
 use futures::stream::FusedStream;
 use futures::Stream;
 use futures_timer::Delay;
@@ -152,50 +153,28 @@ where
 
 const THROTTLE_SECS: u64 = 1;
 
-impl<'a, TClient, TCache> Stream for ChainSync<'a, TClient, TCache>
+pub fn chain_sync_stream<'a, TClient, TCache>(
+    chain_sync: ChainSync<'a, TClient, TCache>,
+) -> impl Stream<Item = ChainUpgrade> + 'a
 where
     TClient: ErgoNetwork + Unpin,
-    TCache: ChainCache + Unpin,
+    TCache: ChainCache + Unpin + 'a,
 {
-    type Item = ChainUpgrade;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        if let Some(mut delay) = self.delay.take() {
-            match Future::poll(Pin::new(&mut delay), cx) {
-                Poll::Ready(_) => {}
-                Poll::Pending => {
-                    self.delay.set(Some(delay));
-                    return Poll::Pending;
-                }
-            }
+    stream! {
+        if let Some(delay) = chain_sync.delay.take() {
+            delay.await;
         }
 
-        let mut upgr_fut = Box::pin(self.try_upgrade());
         loop {
-            match upgr_fut.as_mut().poll(cx) {
-                Poll::Ready(Some(upgr)) => return Poll::Ready(Some(upgr)),
-                Poll::Ready(None) => {
-                    self.delay
-                        .set(Some(Delay::new(Duration::from_secs(THROTTLE_SECS))));
-                    if let Some(sig) = self.tip_reached_signal {
-                        sig.call_once(|| {
-                            trace!(target: "chain_sync", "Tip reached, waiting for new blocks ..");
-                        });
-                    }
-                    return Poll::Pending;
+            if let Some(upgr)= chain_sync.try_upgrade().await {
+                yield upgr;
+            } else {
+                if let Some(sig) = chain_sync.tip_reached_signal {
+                    sig.call_once(|| {
+                        trace!(target: "chain_sync", "Tip reached, waiting for new blocks ..");
+                    });
                 }
-                Poll::Pending => continue,
             }
         }
-    }
-}
-
-impl<'a, TClient, TCache> FusedStream for ChainSync<'a, TClient, TCache>
-where
-    ChainSync<'a, TClient, TCache>: Stream,
-{
-    /// ChainSync stream is never terminated.
-    fn is_terminated(&self) -> bool {
-        false
     }
 }
