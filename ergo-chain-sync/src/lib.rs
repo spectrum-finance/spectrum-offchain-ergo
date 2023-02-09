@@ -169,6 +169,8 @@ where
             if let Some(upgr)= chain_sync.try_upgrade().await {
                 yield upgr;
             } else {
+                chain_sync.delay
+                        .set(Some(Delay::new(Duration::from_secs(THROTTLE_SECS))));
                 if let Some(sig) = chain_sync.tip_reached_signal {
                     sig.call_once(|| {
                         trace!(target: "chain_sync", "Tip reached, waiting for new blocks ..");
