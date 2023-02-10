@@ -23,7 +23,7 @@ use crate::data::miner::MinerOutput;
 use crate::data::order::{Deposit, Redeem};
 use crate::data::redeemer::{DepositOutput, RedeemOutput, RewardOutput};
 use crate::data::{AsBox, PoolId, PoolStateId};
-use crate::ergo::{NanoErg, DEFAULT_MINER_FEE, MAX_VALUE, MIN_SAFE_BOX_VALUE, UNIT_VALUE};
+use crate::ergo::{NanoErg, DEFAULT_MINER_FEE, MAX_VALUE, MIN_SAFE_BOX_VALUE, UNIT_VALUE, MIN_SAFE_FAT_BOX_VALUE};
 use crate::validators::POOL_VALIDATOR;
 
 pub const INIT_EPOCH_IX: u32 = 1;
@@ -174,7 +174,7 @@ impl Pool {
             vlq: release_vlq,
             tmp: release_tmp,
             redeemer_prop: deposit.redeemer_prop.clone(),
-            erg_value: MIN_SAFE_BOX_VALUE,
+            erg_value: MIN_SAFE_FAT_BOX_VALUE,
         };
         let user_output = DepositOutput {
             bundle_key: bundle_key_for_user,
