@@ -15,16 +15,20 @@ use crate::scheduler::data::{PoolSchedule, Tick};
 pub mod data;
 pub mod process;
 
+#[derive(Debug)]
+pub struct ProgramExhausted;
+
 #[async_trait(?Send)]
 pub trait ScheduleRepo {
     /// Persist schedule.
-    async fn put_schedule(&mut self, schedule: PoolSchedule);
+    async fn update_schedule(&mut self, schedule: PoolSchedule) -> Result<(), ProgramExhausted>;
     /// Get closest tick.
     async fn peek(&mut self) -> Option<Tick>;
     /// Remove tried tick from db.
     async fn remove(&mut self, tick: Tick);
     /// Defer tick processing until the given timestamp.
     async fn defer(&mut self, tick: Tick, until: i64);
+    async fn clean(&mut self, pool_id: PoolId);
 }
 
 pub struct ScheduleRepoTracing<R> {
@@ -42,10 +46,11 @@ impl<R> ScheduleRepo for ScheduleRepoTracing<R>
 where
     R: ScheduleRepo,
 {
-    async fn put_schedule(&mut self, schedule: PoolSchedule) {
-        trace!(target: "schedules", "put_schedule({})", schedule);
-        self.inner.put_schedule(schedule.clone()).await;
-        trace!(target: "schedules", "put_schedule({}) -> ()", schedule);
+    async fn update_schedule(&mut self, schedule: PoolSchedule) -> Result<(), ProgramExhausted> {
+        trace!(target: "schedules", "update_schedule({})", schedule);
+        let r = self.inner.update_schedule(schedule.clone()).await;
+        trace!(target: "schedules", "update_schedule({}) -> ()", schedule);
+        r
     }
 
     async fn peek(&mut self) -> Option<Tick> {
@@ -64,7 +69,13 @@ where
     async fn defer(&mut self, tick: Tick, until: i64) {
         trace!(target: "schedules", "defer(tick: {:?}, until: {})", tick, until);
         self.inner.defer(tick.clone(), until).await;
-        trace!(target: "schedules", "defer(tick: {:?}, until: {})", tick, until);
+        trace!(target: "schedules", "defer(tick: {:?}, until: {}) -> ()", tick, until);
+    }
+
+    async fn clean(&mut self, pool_id: PoolId) {
+        trace!(target: "schedules", "clean({})", pool_id);
+        self.inner.clean(pool_id).await;
+        trace!(target: "schedules", "clean({}) -> ()", pool_id);
     }
 }
 
@@ -82,7 +93,7 @@ impl ScheduleRepoRocksDB {
 
 #[async_trait(?Send)]
 impl ScheduleRepo for ScheduleRepoRocksDB {
-    async fn put_schedule(&mut self, schedule: PoolSchedule) {
+    async fn update_schedule(&mut self, schedule: PoolSchedule) -> Result<(), ProgramExhausted> {
         let db = Arc::clone(&self.db);
         let pid = schedule.pool_id;
         spawn_blocking(move || {
@@ -100,6 +111,9 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                     transaction.put(tick, vec![]).unwrap();
                 }
                 transaction.commit().unwrap();
+                Ok(())
+            } else {
+                Err(ProgramExhausted)
             }
         })
         .await
@@ -178,6 +192,23 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
         })
         .await
     }
+
+    async fn clean(&mut self, pool_id: PoolId) {
+        let db = Arc::clone(&self.db);
+        spawn_blocking(move || {
+            let transaction = db.transaction();
+            let mut iter = db.iterator(IteratorMode::From(&[], Direction::Forward));
+            while let Some((bs, _)) = iter.next().and_then(|res| res.ok()) {
+                if let Some(ext_pool_id) = extract_pool_id(&*bs) {
+                    if ext_pool_id == pool_id {
+                        transaction.delete(bs).unwrap();
+                    }
+                }
+            }
+            transaction.commit().unwrap();
+        })
+        .await
+    }
 }
 
 /// Schedules: (PREFIX:PoolId -> Schedule)
@@ -188,6 +219,7 @@ const TICKS_PREFIX: &str = "ts:";
 const DEFERRED_TICKS_PREFIX: &str = "tr:ts:";
 const TICK_KEY_LEN: usize = 47;
 const TRIED_TICK_KEY_LEN: usize = 50;
+const POOL_ID_LEN: usize = 32;
 
 fn tick_key(pfx: &str, pool_id: &PoolId, next_epoch_height: &u32) -> Vec<u8> {
     let mut key_body = bincode::serialize(next_epoch_height).unwrap();
@@ -200,6 +232,15 @@ fn tick_key(pfx: &str, pool_id: &PoolId, next_epoch_height: &u32) -> Vec<u8> {
 fn destructure_tick_key(bytes: &[u8]) -> Option<PoolId> {
     if bytes.len() == TICK_KEY_LEN {
         bincode::deserialize(&bytes[15..]).ok()
+    } else {
+        None
+    }
+}
+
+fn extract_pool_id(bytes: &[u8]) -> Option<PoolId> {
+    if bytes.len() >= POOL_ID_LEN {
+        let bytes = &bytes[bytes.len() - POOL_ID_LEN..];
+        bincode::deserialize(bytes).ok()
     } else {
         None
     }
@@ -223,14 +264,15 @@ mod tests {
     use rand::RngCore;
     use sigma_test_util::force_any_val;
 
+    use spectrum_offchain::binary::prefixed_key;
     use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 
     use crate::data::pool::Pool;
     use crate::data::{AsBox, PoolId};
     use crate::scheduler::data::PoolSchedule;
     use crate::scheduler::{
-        destructure_deferred_tick_key, destructure_tick_key, tick_key, ScheduleRepo, ScheduleRepoRocksDB,
-        DEFERRED_TICKS_PREFIX, TICKS_PREFIX,
+        destructure_deferred_tick_key, destructure_tick_key, extract_pool_id, tick_key, ScheduleRepo,
+        ScheduleRepoRocksDB, DEFERRED_TICKS_PREFIX, SCHEDULE_PREFIX, TICKS_PREFIX,
     };
 
     fn rocks_db_client() -> ScheduleRepoRocksDB {
@@ -264,7 +306,7 @@ mod tests {
         let pool_box: ErgoBox = serde_json::from_str(POOL_JSON).unwrap();
         let pool = <AsBox<Pool>>::try_from_box(pool_box).unwrap();
         let schedule = PoolSchedule::from(pool.1);
-        client.put_schedule(schedule.clone()).await;
+        client.update_schedule(schedule.clone()).await.unwrap();
         let mut ticks = Vec::new();
         while let Some(tick) = client.peek().await {
             ticks.push(tick);
@@ -290,8 +332,8 @@ mod tests {
             program_start: 110,
             last_completed_epoch_ix: 0,
         };
-        client.put_schedule(schedule_1.clone()).await;
-        client.put_schedule(schedule_2.clone()).await;
+        client.update_schedule(schedule_1.clone()).await.unwrap();
+        client.update_schedule(schedule_2.clone()).await.unwrap();
         let mut ticks = Vec::new();
         while let Some(tick) = client.peek().await {
             ticks.push(tick);
@@ -311,7 +353,7 @@ mod tests {
             program_start: 100,
             last_completed_epoch_ix: 0,
         };
-        client.put_schedule(schedule_1.clone()).await;
+        client.update_schedule(schedule_1.clone()).await.unwrap();
         let tick = client.peek().await;
         assert!(tick.is_some());
         client.defer(tick.unwrap(), 0).await;
@@ -320,6 +362,21 @@ mod tests {
         assert_eq!(deferred_tick, tick);
         client.remove(deferred_tick.unwrap()).await;
         assert!(client.peek().await.is_none());
+    }
+
+    #[test]
+    fn extract_pool_id_from_any_key() {
+        let pool_id = PoolId::from(force_any_val::<TokenId>());
+        let height = 10000u32;
+        let tick_index = tick_key(TICKS_PREFIX, &pool_id, &height);
+        let def_tick_index = tick_key(DEFERRED_TICKS_PREFIX, &pool_id, &height);
+        let schedule_key = prefixed_key(SCHEDULE_PREFIX, &pool_id);
+        let pool_id_extracted_1 = extract_pool_id(&tick_index);
+        let pool_id_extracted_2 = extract_pool_id(&def_tick_index);
+        let pool_id_extracted_3 = extract_pool_id(&schedule_key);
+        assert_eq!(pool_id_extracted_1, Some(pool_id));
+        assert_eq!(pool_id_extracted_2, Some(pool_id));
+        assert_eq!(pool_id_extracted_3, Some(pool_id));
     }
 
     const POOL_JSON: &str = r#"{

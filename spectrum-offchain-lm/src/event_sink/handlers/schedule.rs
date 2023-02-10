@@ -38,7 +38,10 @@ where
                 for o in &tx.outputs {
                     if let Some(pool) = Pool::try_from_box(o.clone()) {
                         let mut repo = self.schedules.lock().await;
-                        repo.put_schedule(PoolSchedule::from(pool)).await;
+                        let pid = pool.pool_id;
+                        if let Err(_exhausted) = repo.update_schedule(PoolSchedule::from(pool)).await {
+                            repo.clean(pid).await;
+                        }
                         is_success = true;
                     }
                 }
@@ -57,7 +60,10 @@ where
                     if pools.may_exist(sid).await {
                         if let Some(AsBox(_, pool)) = pools.get_state(sid).await {
                             let mut repo = self.schedules.lock().await;
-                            repo.put_schedule(PoolSchedule::from(pool)).await;
+                            let pid = pool.pool_id;
+                            if let Err(_exhausted) = repo.update_schedule(PoolSchedule::from(pool)).await {
+                                repo.clean(pid).await;
+                            }
                             is_success = true;
                         }
                     }
