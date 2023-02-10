@@ -270,7 +270,10 @@ impl Pool {
         } else {
             ((self.conf.epoch_num + 1) as u64 - (self.budget_rem.amount / epoch_alloc) - 1) as u32
         };
-        let epochs_remain = self.conf.epoch_num - epoch_ix;
+        let epochs_remain = self.conf.epoch_num.saturating_sub(epoch_ix);
+        if epochs_remain == 0 {
+            return Err(PoolOperationError::Permanent(PermanentError::ProgramExhausted))
+        }
         let mut next_pool = self.clone();
         let mut next_bundles = bundles;
         let mut reward_outputs = Vec::new();

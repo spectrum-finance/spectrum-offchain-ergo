@@ -1,14 +1,10 @@
 use std::cell::{Cell, RefCell};
 use std::cmp::max;
-use std::future::Future;
-use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Once;
-use std::task::{Context, Poll};
 use std::time::Duration;
 
 use async_stream::stream;
-use futures::stream::FusedStream;
 use futures::Stream;
 use futures_timer::Delay;
 use log::trace;
@@ -161,12 +157,11 @@ where
     TCache: ChainCache + Unpin + 'a,
 {
     stream! {
-        if let Some(delay) = chain_sync.delay.take() {
-            delay.await;
-        }
-
         loop {
-            if let Some(upgr)= chain_sync.try_upgrade().await {
+            if let Some(delay) = chain_sync.delay.take() {
+                delay.await;
+            }
+            if let Some(upgr) = chain_sync.try_upgrade().await {
                 yield upgr;
             } else {
                 chain_sync.delay
