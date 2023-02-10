@@ -28,6 +28,7 @@ pub trait ScheduleRepo {
     async fn remove(&mut self, tick: Tick);
     /// Defer tick processing until the given timestamp.
     async fn defer(&mut self, tick: Tick, until: i64);
+    /// Eliminate all references to the given pool.
     async fn clean(&mut self, pool_id: PoolId);
 }
 
