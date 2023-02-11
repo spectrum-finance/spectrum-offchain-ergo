@@ -44,6 +44,14 @@ sigma-test-util = "0.3"
 lazy_static = "1.4.0"
 thiserror = "1.0"
 async-std = "1.12"
+# Add openssl-sys as a direct dependency so it can be cross compiled to
+# x86_64-unknown-linux-musl using the "vendored" feature below
+openssl-sys = "*"
+
+[features]
+# Force openssl-sys to staticly link in the openssl library. Necessary when
+# cross compiling to x86_64-unknown-linux-musl.
+vendored = ["openssl-sys/vendored"]
 
 [dev-dependencies]
 ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "62b8dedc0577f01551b6f8be4585f39b028d70f7", features = ["json", "arbitrary"] }
