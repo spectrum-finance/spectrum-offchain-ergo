@@ -67,7 +67,7 @@ pub mod validators;
 #[tokio::main]
 async fn main() {
     let args = AppArgs::parse();
-    let raw_config = std::fs::read_to_string(args.config_yaml_path).expect("Cannot load configuration file");
+    let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
     let config: AppConfig = serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
 
     if let Some(log4rs_path) = args.log4rs_path {
@@ -249,7 +249,7 @@ struct AppConfig<'a> {
 struct AppArgs {
     /// Path to the YAML configuration file.
     #[arg(long, short)]
-    config_yaml_path: String,
+    config_path: String,
     /// Optional path to the log4rs YAML configuration file. NOTE: overrides path specified in config YAML file.
     #[arg(long, short)]
     log4rs_path: Option<String>,
