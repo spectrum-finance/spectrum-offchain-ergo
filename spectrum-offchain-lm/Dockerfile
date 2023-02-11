@@ -20,7 +20,7 @@ RUN adduser \
 
 WORKDIR /app
 
-COPY ../ .
+COPY ./ .
 
 RUN cargo build --target x86_64-unknown-linux-musl --features vendored --release
 
