@@ -39,4 +39,5 @@ COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/spectrum-offch
 # Use an unprivileged user.
 USER app:app
 
-CMD /app/spectrum-offchain-lm --config-path $0 --log4rs-path $1
+ENV RUST_BACKTRACE=1
+ENTRYPOINT ["/app/spectrum-offchain-lm"]
