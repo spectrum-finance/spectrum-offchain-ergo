@@ -27,11 +27,13 @@ pub struct PoolSchedule {
 }
 
 impl PoolSchedule {
+    pub fn program_end(&self) -> u32 {
+        self.program_start + self.epoch_len * self.epoch_num
+    }
     pub fn next_compounding_at(&self) -> Option<u32> {
         let next_epoch_start =
             self.program_start + self.last_completed_epoch_ix * self.epoch_len + self.epoch_len;
-        let program_end = self.program_start + self.epoch_len * self.epoch_num;
-        if next_epoch_start < program_end {
+        if next_epoch_start <= self.program_end() {
             Some(next_epoch_start)
         } else {
             None
@@ -99,7 +101,7 @@ mod tests {
 
     #[test]
     fn schedule_from_pool() {
-        let pool_box: ErgoBox = serde_json::from_str(POOL_JSON).unwrap();
+        let pool_box: ErgoBox = serde_json::from_str(FRESH_POOL_JSON).unwrap();
         let pool = <AsBox<Pool>>::try_from_box(pool_box).unwrap();
         let schedule = PoolSchedule::from(pool.1.clone());
         assert_eq!(pool.1.clone().conf.program_start, schedule.program_start);
@@ -108,7 +110,72 @@ mod tests {
         println!("Schedule: {}", schedule);
     }
 
-    const POOL_JSON: &str = r#"{
+    #[test]
+    fn program_end_matches_last_compounding_height() {
+        let pool_box: ErgoBox = serde_json::from_str(MATURE_POOL_JSON).unwrap();
+        let pool = <AsBox<Pool>>::try_from_box(pool_box).unwrap();
+        let schedule = PoolSchedule::from(pool.1.clone());
+        assert_eq!(Some(pool.1.program_end()), schedule.next_compounding_at())
+    }
+
+    const MATURE_POOL_JSON: &str = r#"{
+        "boxId": "e9c69bb3fcaa56527ba48fb6969a5e31e73b5cd9231b291fa977e5c0d001333e",
+        "transactionId": "dec6f0cd108d248de5dd4317afb3556f557e4dccf89f48fade6108f668035f97",
+        "value": 1250000,
+        "index": 0,
+        "creationHeight": 936662,
+        "ergoTree": "19c0062904000400040204020404040404060406040804080404040204000400040204020601010400040a050005000404040204020e20fc3cdbfd1abc83f4a38ca3fb3dfe417a158b67d63e3c52137fdda4e66ad3956c0400040205000402040204060500050005feffffffffffffffff010502050005000402050005000100d820d601b2a5730000d602db63087201d603db6308a7d604b27203730100d605e4c6a70410d606e4c6a70505d607e4c6a70605d608b27202730200d609b27203730300d60ab27202730400d60bb27203730500d60cb27202730600d60db27203730700d60e8c720d01d60fb27202730800d610b27203730900d6118c721001d6128c720b02d613998c720a027212d6148c720902d615b27205730a00d6169a99a37215730bd617b27205730c00d6189d72167217d61995919e72167217730d9a7218730e7218d61ab27205730f00d61b7e721a05d61c9d7206721bd61d998c720c028c720d02d61e8c721002d61f998c720f02721ed6207310d1ededededed93b272027311007204ededed93e4c672010410720593e4c672010505720693e4c6720106057207928cc77201018cc7a70193c27201c2a7ededed938c7208018c720901938c720a018c720b01938c720c01720e938c720f01721193b172027312959172137313d802d6219c721399721ba273147e721905d622b2a5731500ededed929a997206721472079c7e9995907219721a72199a721a7316731705721c937213f0721d937221f0721fedededed93cbc272227318938602720e7213b2db6308722273190093860272117221b2db63087222731a00e6c67222040893e4c67222050e8c720401958f7213731bededec929a997206721472079c7e9995907219721a72199a721a731c731d05721c92a39a9a72159c721a7217b27205731e0093721df0721392721f95917219721a731f9c721d99721ba273207e721905d804d621e4c672010704d62299721a7221d6237e722205d62499997321721e9c9972127322722395ed917224732391721f7324edededed9072219972197325909972149c7223721c9a721c7207907ef0998c7208027214069a9d9c99997e7214069d9c7e7206067e7222067e721a0672207e721f067e7224067220937213732693721d73277328",
+        "assets": [
+            {
+                "tokenId": "48e744055c9e49b26d1c70eca3c848afc8f50eddf8962a33f3d4b5df3d771ac2",
+                "index": 0,
+                "amount": 1,
+                "name": null,
+                "decimals": null,
+                "type": null
+            },
+            {
+                "tokenId": "00bd762484086cf560d3127eb53f0769d76244d9737636b2699d55c56cd470bf",
+                "index": 1,
+                "amount": 1000003,
+                "name": "EPOS",
+                "decimals": 4,
+                "type": "EIP-004"
+            },
+            {
+                "tokenId": "e7021bda9872a7eb2aa69dd704e6a997dae9d1b40d1ff7a50e426ef78c6f6f87",
+                "index": 2,
+                "amount": 30001,
+                "name": "Ergo_ErgoPOS_LP",
+                "decimals": 0,
+                "type": "EIP-004"
+            },
+            {
+                "tokenId": "81f307da6c294bb9ee1c8789dfeff5b97c2399451e099ab6c9985a55551e41dd",
+                "index": 3,
+                "amount": 9223372036854745807,
+                "name": null,
+                "decimals": null,
+                "type": null
+            },
+            {
+                "tokenId": "b19b810cc4dbc4bfaca74f88bb3797dcd8bab766ab360c275f3bc5b0476a50a9",
+                "index": 4,
+                "amount": 9223372036854745807,
+                "name": null,
+                "decimals": null,
+                "type": null
+            }
+        ],
+        "additionalRegisters": {
+            "R4": "1004f4030aa69872c801",
+            "R5": "05feace204",
+            "R6": "05d00f",
+            "R7": "0408"
+        }
+    }"#;
+
+    const FRESH_POOL_JSON: &str = r#"{
         "boxId": "8c3bf373e5af4095907e22815e445b8b5bb6b16ae4ba387e4507af9f6a887d2d",
         "value": 1250000,
         "ergoTree": "19c0062904000400040204020404040404060406040804080404040204000400040204020601010400040a050005000404040204020e20fc3cdbfd1abc83f4a38ca3fb3dfe417a158b67d63e3c52137fdda4e66ad3956c0400040205000402040204060500050005feffffffffffffffff010502050005000402050005000100d820d601b2a5730000d602db63087201d603db6308a7d604b27203730100d605e4c6a70410d606e4c6a70505d607e4c6a70605d608b27202730200d609b27203730300d60ab27202730400d60bb27203730500d60cb27202730600d60db27203730700d60e8c720d01d60fb27202730800d610b27203730900d6118c721001d6128c720b02d613998c720a027212d6148c720902d615b27205730a00d6169a99a37215730bd617b27205730c00d6189d72167217d61995919e72167217730d9a7218730e7218d61ab27205730f00d61b7e721a05d61c9d7206721bd61d998c720c028c720d02d61e8c721002d61f998c720f02721ed6207310d1ededededed93b272027311007204ededed93e4c672010410720593e4c672010505720693e4c6720106057207928cc77201018cc7a70193c27201c2a7ededed938c7208018c720901938c720a018c720b01938c720c01720e938c720f01721193b172027312959172137313d802d6219c721399721ba273147e721905d622b2a5731500ededed929a997206721472079c7e9995907219721a72199a721a7316731705721c937213f0721d937221f0721fedededed93cbc272227318938602720e7213b2db6308722273190093860272117221b2db63087222731a00e6c67222040893e4c67222050e8c720401958f7213731bededec929a997206721472079c7e9995907219721a72199a721a731c731d05721c92a39a9a72159c721a7217b27205731e0093721df0721392721f95917219721a731f9c721d99721ba273207e721905d804d621e4c672010704d62299721a7221d6237e722205d62499997321721e9c9972127322722395ed917224732391721f7324edededed9072219972197325909972149c7223721c9a721c7207907ef0998c7208027214069a9d9c99997e7214069d9c7e7206067e7222067e721a0672207e721f067e7224067220937213732693721d73277328",

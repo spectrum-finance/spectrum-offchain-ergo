@@ -48,6 +48,7 @@ impl NanoErg {
 }
 
 pub const MIN_SAFE_BOX_VALUE: NanoErg = NanoErg(250_000);
+pub const MIN_SAFE_FAT_BOX_VALUE: NanoErg = NanoErg(300_000);
 pub const DEFAULT_MINER_FEE: NanoErg = NanoErg(1_000_000);
 
 impl From<BoxValue> for NanoErg {
