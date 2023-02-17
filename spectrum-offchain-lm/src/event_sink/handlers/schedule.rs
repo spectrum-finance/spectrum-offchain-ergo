@@ -39,6 +39,15 @@ where
                     if let Some(pool) = Pool::try_from_box(o.clone()) {
                         let mut repo = self.schedules.lock().await;
                         let pid = pool.pool_id;
+
+                        trace!(
+                            target: "offchain_lm",
+                            "LedgerTxEvent::AppliedTx: pool_box_id: {:?}, epoch_ix: {:?}, budget_rem: {:?}",
+                            o.box_id(),
+                            pool.epoch_ix,
+                            pool.budget_rem
+                        );
+
                         if let Err(_exhausted) = repo.update_schedule(PoolSchedule::from(pool)).await {
                             repo.clean(pid).await;
                         }
