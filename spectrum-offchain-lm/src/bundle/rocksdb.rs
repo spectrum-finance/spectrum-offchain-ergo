@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
-use rocksdb::{Direction, IteratorMode};
+use rocksdb::{Direction, IteratorMode, ReadOptions};
 
 use ergo_chain_sync::rocksdb::RocksConfig;
 use spectrum_offchain::{
@@ -67,6 +67,8 @@ impl BundleRepo for BundleRepoRocksDB {
         spawn_blocking(move || {
             let prefix = epoch_index_prefix(pool_id, epoch_ix);
             let mut acc = Vec::new();
+            // Note that restricting the following iterator to only `prefix` leads to dropped
+            // bundles.
             let mut iter = db.iterator(IteratorMode::From(&*prefix, Direction::Forward));
             while let Some(Ok((key_bytes, _))) = iter.next() {
                 if let Some((pid, bundle_id, init_epoch_ix)) = destructure_epoch_index_key(&*key_bytes) {

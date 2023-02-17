@@ -188,6 +188,9 @@ where
                         match self.prover.sign(tx) {
                             Ok(tx) => {
                                 trace!(target: "offchain_lm", "Transaction ID for order [{}] is [{}]", ord.get_self_ref(), tx.id());
+                                for (i, o) in tx.outputs.iter().enumerate() {
+                                    trace!(target: "offchain_lm", "tx_output {}: {:?}", i, o.box_id());
+                                }
                                 if let Err(client_err) = self.network.submit_tx(tx.clone()).await {
                                     warn!("Execution failed while submitting tx due to {}", client_err);
                                     if let Some(missing_indices) = parse_err(&client_err.0) {
