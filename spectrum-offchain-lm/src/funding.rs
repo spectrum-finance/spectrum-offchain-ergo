@@ -4,7 +4,7 @@ use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use log::trace;
 use nonempty::NonEmpty;
-use rocksdb::{Direction, IteratorMode};
+use rocksdb::{Direction, IteratorMode, ReadOptions};
 use serde::Serialize;
 
 use ergo_chain_sync::rocksdb::RocksConfig;
@@ -148,7 +148,9 @@ impl FundingRepo for FundingRepoRocksDB {
         let db = Arc::clone(&self.db);
         spawn_blocking(move || {
             let prefix = bincode::serialize(FUNDING_KEY_PREFIX).unwrap();
-            let mut iter = db.iterator(IteratorMode::From(&*prefix, Direction::Forward));
+            let mut readopts = ReadOptions::default();
+            readopts.set_iterate_range(rocksdb::PrefixRange(prefix.clone()));
+            let mut iter = db.iterator_opt(IteratorMode::From(&*prefix, Direction::Forward), readopts);
             let mut funds = Vec::new();
             let mut acc = NanoErg::from(0);
             while let Some(Ok((key, bytes))) = iter.next() {

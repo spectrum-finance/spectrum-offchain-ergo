@@ -4,7 +4,7 @@ use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use chrono::Utc;
 use log::trace;
-use rocksdb::{Direction, IteratorMode};
+use rocksdb::{Direction, IteratorMode, ReadOptions};
 
 use ergo_chain_sync::rocksdb::RocksConfig;
 use spectrum_offchain::binary::{prefixed_key, raw_prefixed_key};
@@ -100,8 +100,17 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
         spawn_blocking(move || {
             if let Some(next_height) = schedule.next_compounding_at() {
                 let transaction = db.transaction();
+
+                // Note that we will remove the ticks before and after the tick @ `next_height`, to
+                // stop redundant peeking of these other ticks.
+                let prev_height = next_height.saturating_sub(schedule.epoch_len);
+                let after_next_height = next_height + schedule.epoch_len;
+                let prev_tried_tick = tick_key(DEFERRED_TICKS_PREFIX, &pid, &prev_height);
+                let after_next_tried_tick = tick_key(DEFERRED_TICKS_PREFIX, &pid, &after_next_height);
                 let tried_tick = tick_key(DEFERRED_TICKS_PREFIX, &pid, &next_height);
                 let tick = tick_key(TICKS_PREFIX, &pid, &next_height);
+                let prev_tick = tick_key(TICKS_PREFIX, &pid, &prev_height);
+                let after_next_tick = tick_key(TICKS_PREFIX, &pid, &after_next_height);
                 // Write updated schedule only in case we haven't tried to compound it already on this height.
                 if transaction.get(tried_tick).unwrap().is_none()
                     && transaction.get(tick.clone()).unwrap().is_none()
@@ -110,6 +119,10 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                     let schedule_bytes = bincode::serialize(&schedule).unwrap();
                     transaction.put(schedule_key, schedule_bytes).unwrap();
                     transaction.put(tick, vec![]).unwrap();
+                    transaction.delete(prev_tick).unwrap();
+                    transaction.delete(after_next_tick).unwrap();
+                    transaction.delete(prev_tried_tick).unwrap();
+                    transaction.delete(after_next_tried_tick).unwrap();
                 }
                 transaction.commit().unwrap();
                 Ok(())
@@ -124,7 +137,9 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
         let db = Arc::clone(&self.db);
         spawn_blocking(move || {
             let ticks_prefix = bincode::serialize(TICKS_PREFIX).unwrap();
-            let mut ticks = db.iterator(IteratorMode::From(&ticks_prefix, Direction::Forward));
+            let mut readopts = ReadOptions::default();
+            readopts.set_iterate_range(rocksdb::PrefixRange(ticks_prefix.clone()));
+            let mut ticks = db.iterator_opt(IteratorMode::From(&ticks_prefix, Direction::Forward), readopts);
             let mut tick: Option<Tick> = None;
             // First we try to peek closest pending tick.
             while tick.is_none() {
@@ -136,6 +151,9 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                         })
                         .and_then(|bs| bincode::deserialize::<PoolSchedule>(&bs).ok())
                         .and_then(|sc| sc.try_into().ok());
+                    if tick.is_some() {
+                        trace!(target: "schedules", "pending tick chosen: {:?}", tick);
+                    }
                 } else {
                     break;
                 }
@@ -143,8 +161,12 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
             // If there are no pending ticks we check deferred ticks.
             if tick.is_none() {
                 let deferred_ticks_prefix = bincode::serialize(DEFERRED_TICKS_PREFIX).unwrap();
-                let mut deferred_ticks =
-                    db.iterator(IteratorMode::From(&deferred_ticks_prefix, Direction::Forward));
+                let mut readopts = ReadOptions::default();
+                readopts.set_iterate_range(rocksdb::PrefixRange(deferred_ticks_prefix.clone()));
+                let mut deferred_ticks = db.iterator_opt(
+                    IteratorMode::From(&deferred_ticks_prefix, Direction::Forward),
+                    readopts,
+                );
                 let ts_now = Utc::now().timestamp();
                 while tick.is_none() {
                     if let Some((bs, deferred_until)) = deferred_ticks.next().and_then(|res| res.ok()) {
@@ -157,6 +179,9 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                                     })
                                     .and_then(|bs| bincode::deserialize::<PoolSchedule>(&bs).ok())
                                     .and_then(|sc| sc.try_into().ok());
+                                if tick.is_some() {
+                                    trace!(target: "schedules", "deferred tick chosen: {:?}", tick);
+                                }
                             } else {
                                 break;
                             }

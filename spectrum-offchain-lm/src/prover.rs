@@ -23,7 +23,7 @@ pub trait SigmaProver {
     fn sign(&self, tx: TransactionCandidate) -> Result<Transaction, TxSigningError>;
 }
 
-#[derive(Deserialize, Into)]
+#[derive(Deserialize, Into, From)]
 pub struct SeedPhrase(String);
 
 #[derive(Clone, Deserialize, Into, From)]
