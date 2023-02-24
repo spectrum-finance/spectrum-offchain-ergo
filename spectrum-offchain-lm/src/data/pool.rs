@@ -609,7 +609,6 @@ mod tests {
             pool.clone().apply_deposit(deposit.clone(), ctx.clone()).unwrap();
         let redeem = Redeem {
             order_id: OrderId::from(BoxId::from(random_digest())),
-            pool_id: pool.pool_id,
             redeemer_prop: trivial_prop(),
             bundle_key: output.bundle_key,
             expected_lq: deposit.lq,
