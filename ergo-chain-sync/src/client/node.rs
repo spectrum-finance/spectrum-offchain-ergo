@@ -18,8 +18,8 @@ pub enum Error {
     Isahc(isahc::Error),
     #[error("unsuccessful request: {0}")]
     UnsuccessfulRequest(String),
-    #[error("No headers found")]
-    NoHeaders,
+    #[error("No block found")]
+    NoBlock,
 }
 
 #[async_trait(?Send)]
@@ -80,7 +80,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
                 block_transactions,
             })
         } else {
-            Err(Error::NoHeaders)
+            Err(Error::NoBlock)
         }
     }
 }
