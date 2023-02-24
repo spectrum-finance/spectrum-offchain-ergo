@@ -448,7 +448,6 @@ impl From<RawRedeem> for Redeem {
     fn from(rr: RawRedeem) -> Self {
         Self {
             order_id: rr.order_id,
-            pool_id: rr.pool_id,
             redeemer_prop: ErgoTree::sigma_parse_bytes(&*rr.redeemer_prop_bytes).unwrap(),
             bundle_key: TypedAssetAmount::new(rr.bundle_key.0, rr.bundle_key.1),
             expected_lq: TypedAssetAmount::new(rr.expected_lq.0, rr.expected_lq.1),
@@ -749,6 +748,8 @@ mod tests {
     use crate::token_details::TokenDetails;
 
     use super::RedeemProto;
+
+    use super::Redeem;
 
     fn trivial_prop() -> ErgoTree {
         ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap()
