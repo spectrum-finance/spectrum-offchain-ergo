@@ -318,7 +318,7 @@ impl Pool {
             next_pool.budget_rem = next_pool.budget_rem - reward;
             if next_pool.budget_rem.amount == 0 {
                 return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned(
-                    format!("Budget depleted"),
+                    "Budget depleted".into(),
                 )));
             }
         }
@@ -568,7 +568,6 @@ mod tests {
         let (pool2, bundle, _output, rew, _) = pool.clone().apply_deposit(deposit.clone(), ctx).unwrap();
         assert_eq!(bundle.vlq.amount, deposit.lq.amount);
         assert_eq!(bundle.tmp.amount, pool.conf.epoch_num as u64 * deposit_lq.amount);
-        assert_eq!(pool2.reserves_lq, deposit.lq);
         assert_eq!(pool2.reserves_lq - pool.reserves_lq, deposit.lq);
         assert_eq!(pool2.reserves_vlq, pool.reserves_vlq - bundle.vlq);
         assert_eq!(pool2.reserves_tmp, pool.reserves_tmp - bundle.tmp);
@@ -598,7 +597,6 @@ mod tests {
             pool.clone().apply_deposit(deposit.clone(), ctx.clone()).unwrap();
         let redeem = Redeem {
             order_id: OrderId::from(BoxId::from(random_digest())),
-            pool_id: pool.pool_id,
             redeemer_prop: trivial_prop(),
             bundle_key: output.bundle_key,
             expected_lq: deposit.lq,

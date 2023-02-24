@@ -186,7 +186,7 @@ async fn main() {
         schedules,
         bundles,
         &node,
-        20,
+        10, // Note: setting this higher could lead to rejection of compound orders by Ergo Node.
         std::time::Duration::from_secs(60),
         &signal_tip_reached,
     ));

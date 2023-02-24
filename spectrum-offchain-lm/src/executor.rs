@@ -128,7 +128,23 @@ where
         };
         if let Some(ord) = next_ord {
             trace!(target: "offchain_lm", "Order acquired [{:?}]", ord.get_self_ref());
-            let entity_id = ord.get_entity_ref();
+
+            // Note: if we're dealing with a Redeem order, then the PoolId must be obtained from
+            // its associated staking bundle. We cannot call `ord.get_entity_ref()` here; app will
+            // panic!
+            let entity_id = if let Order::Redeem(ref r) = ord {
+                let bundle_repo = self.bundle_repo.lock().await;
+                let bundle_id = BundleId::from(r.1.bundle_key.token_id);
+                trace!(target: "offchain_lm", "Requesting bundle with id [{:?}]", bundle_id);
+                if let Some(b) = bundle_repo.get_last_confirmed(bundle_id).await {
+                    b.0 .1.pool_id
+                } else {
+                    trace!(target: "offchain_lm", "Redeem order #{:?} is out of date", r.1.get_self_ref());
+                    return Err(());
+                }
+            } else {
+                ord.get_entity_ref()
+            };
             if let Some(pool) = resolve_entity_state(entity_id, Arc::clone(&self.pool_repo)).await {
                 trace!(target: "offchain_lm", "Pool for order [{:?}] is [{:?}], pool_state: {:?}", ord.get_self_ref(), pool.get_self_ref(), pool);
                 let conf = pool.1.conf;

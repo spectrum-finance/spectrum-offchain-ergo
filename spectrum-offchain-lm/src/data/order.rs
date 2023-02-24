@@ -1,4 +1,5 @@
 use std::hash::{Hash, Hasher};
+use std::iter;
 
 use ergo_lib::chain::transaction::TxIoVec;
 use ergo_lib::ergo_chain_types::{blake2b256_hash, Digest32};
@@ -15,6 +16,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use serde::{Deserialize, Serialize};
+use sigma_test_util::force_any_val;
 use type_equalities::IsEqual;
 
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
@@ -50,6 +52,7 @@ impl Compound {
                 .stakers
                 .iter()
                 .map(|bid| <Vec<u8>>::from(bid.0))
+                .chain(iter::once(self.epoch_ix.to_be_bytes().to_vec()))
                 .flatten()
                 .collect::<Vec<u8>>(),
         ))
@@ -393,7 +396,6 @@ impl TryFromBox for Deposit {
 #[serde(into = "RawRedeem")]
 pub struct Redeem {
     pub order_id: OrderId,
-    pub pool_id: PoolId,
     pub redeemer_prop: ErgoTree,
     pub bundle_key: TypedAssetAmount<BundleKey>,
     pub expected_lq: TypedAssetAmount<Lq>,
@@ -405,7 +407,6 @@ impl From<RawRedeem> for Redeem {
     fn from(rr: RawRedeem) -> Self {
         Self {
             order_id: rr.order_id,
-            pool_id: rr.pool_id,
             redeemer_prop: ErgoTree::sigma_parse_bytes(&*rr.redeemer_prop_bytes).unwrap(),
             bundle_key: TypedAssetAmount::new(rr.bundle_key.0, rr.bundle_key.1),
             expected_lq: TypedAssetAmount::new(rr.expected_lq.0, rr.expected_lq.1),
@@ -418,7 +419,6 @@ impl From<RawRedeem> for Redeem {
 #[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RawRedeem {
     pub order_id: OrderId,
-    pub pool_id: PoolId,
     pub redeemer_prop_bytes: Vec<u8>,
     pub bundle_key: (TokenId, u64),
     pub expected_lq: (TokenId, u64),
@@ -430,7 +430,6 @@ impl From<Redeem> for RawRedeem {
     fn from(r: Redeem) -> Self {
         Self {
             order_id: r.order_id,
-            pool_id: r.pool_id,
             redeemer_prop_bytes: r.redeemer_prop.sigma_serialize_bytes().unwrap(),
             bundle_key: (r.bundle_key.token_id, r.bundle_key.amount),
             expected_lq: (r.expected_lq.token_id, r.expected_lq.amount),
@@ -443,7 +442,6 @@ impl From<Redeem> for RawRedeem {
 impl Hash for Redeem {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.order_id.hash(state);
-        self.pool_id.hash(state);
         state.write(&*self.redeemer_prop.sigma_serialize_bytes().unwrap());
         self.max_miner_fee.hash(state);
         self.bundle_key.hash(state);
@@ -469,7 +467,8 @@ impl OnChainOrder for Redeem {
     }
 
     fn get_entity_ref(&self) -> Self::TEntityId {
-        self.pool_id
+        // Note that the Redeem box does not contain the PoolId.
+        unreachable!()
     }
 }
 
@@ -513,15 +512,6 @@ impl TryFromBox for Redeem {
         if let Some(ref tokens) = bx.tokens {
             if bx.ergo_tree.template_bytes().ok()? == *REDEEM_TEMPLATE && tokens.len() == 1 {
                 let order_id = OrderId::from(bx.box_id());
-                let pool_id = PoolId::from(TokenId::from(
-                    Digest32::try_from(
-                        bx.get_register(NonMandatoryRegisterId::R4.into())?
-                            .v
-                            .try_extract_into::<Vec<u8>>()
-                            .ok()?,
-                    )
-                    .ok()?,
-                ));
                 let redeemer_prop = ErgoTree::sigma_parse_bytes(
                     &*bx.ergo_tree
                         .get_constant(2)
@@ -568,7 +558,6 @@ impl TryFromBox for Redeem {
                     .ok()?;
                 return Some(Redeem {
                     order_id,
-                    pool_id,
                     redeemer_prop,
                     bundle_key,
                     expected_lq,
@@ -603,7 +592,10 @@ impl OnChainOrder for Order {
     fn get_entity_ref(&self) -> Self::TEntityId {
         match self {
             Order::Deposit(AsBox(_, deposit)) => deposit.pool_id,
-            Order::Redeem(AsBox(_, redeem)) => redeem.pool_id,
+            Order::Redeem(AsBox(_, _)) => {
+                // Note that the Redeem box does not contain the PoolId.
+                unreachable!()
+            }
             Order::Compound(compound) => compound.pool_id,
         }
     }
@@ -658,6 +650,8 @@ mod tests {
     use crate::data::AsBox;
     use crate::executor::RunOrder;
     use crate::prover::{SigmaProver, Wallet};
+
+    use super::Redeem;
 
     fn trivial_prop() -> ErgoTree {
         ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap()
@@ -726,6 +720,31 @@ mod tests {
         let signed_tx = prover.sign(res.unwrap().0);
 
         assert!(signed_tx.is_ok());
+    }
+
+    #[test]
+    fn test_redeem_from_box() {
+        let redeem_json = r#"
+        {
+            "boxId" : "3b764c3ccce4d5b8815d78221288a9b72679f02e1342cc731668f59d8751e1c6",
+            "value" : 2500000,
+            "ergoTree" : "19b6020a040208cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0e240008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0e2004928901c08363208a29e334af73cd428f3d92d3cce8e379bcd0aee6231a421d05968ef8e9df0104000e691005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a5730405000500058092f401d801d601b2a5730000eb027301d1eded93c27201730293860273037304b2db6308720173050090b0ada5d90102639593c272027306c1720273077308d90102599a8c7202018c7202027309",
+            "assets" : [
+              {
+                "tokenId" : "8830d8d6f5501156bfd1e1a59e9399199f7c4afb941899c685fe809da23fd954",
+                "amount" : 9223372036854775806
+              }
+            ],
+            "creationHeight" : 944473,
+            "additionalRegisters" : {
+              
+            },
+            "transactionId" : "014b195d069ce7510335a28b8ab51d98847829bf58da8aa14ccf54526853e149",
+            "index" : 0
+          }
+        "#;
+        let redeem_box: ErgoBox = serde_json::from_str(redeem_json).unwrap();
+        let _ = Redeem::try_from_box(redeem_box).unwrap();
     }
 
     #[test]
