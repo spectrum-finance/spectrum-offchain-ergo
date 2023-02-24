@@ -231,12 +231,14 @@ where
 impl<TOrd, TStore> BacklogService<TOrd, TStore>
 where
     TOrd: OnChainOrder + Weighted + Hash + Eq,
+    TOrd::TOrderId: Debug,
     TStore: BacklogStore<TOrd>,
 {
     pub async fn new<TOrd0: IsEqual<TOrd>>(store: TStore, conf: BacklogConfig) -> Self {
         let mut pending_pq = PriorityQueue::new();
         for ord in store.find_orders(|_| true).await {
             let wt = ord.order.weight();
+            trace!(target: "backlog", "Restored order: {:?}", ord.order.get_self_ref());
             pending_pq.push(ord.into(), wt);
         }
         Self {
@@ -296,6 +298,7 @@ where
 impl<TOrd, TStore> Backlog<TOrd> for BacklogService<TOrd, TStore>
 where
     TStore: BacklogStore<TOrd>,
+    TOrd::TOrderId: Debug,
     TOrd: OnChainOrder + Weighted + Hash + Eq + Clone,
 {
     async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
