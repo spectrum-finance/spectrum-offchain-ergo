@@ -18,7 +18,7 @@ use spectrum_offchain::box_resolver::resolve_entity_state;
 use spectrum_offchain::data::unique_entity::{Predicted, Traced};
 use spectrum_offchain::data::{Has, OnChainEntity, OnChainOrder};
 use spectrum_offchain::executor::{
-    generate_invalidations, parse_err, Executor, Invalidation, OrderType, RunOrderError,
+    generate_invalidations, parse_err, Executor, Invalidation, NodeSubmitTxError, OrderType, RunOrderError,
 };
 use spectrum_offchain::network::ErgoNetwork;
 use spectrum_offchain::transaction::TransactionCandidate;
@@ -209,55 +209,61 @@ where
                                 }
                                 if let Err(client_err) = self.network.submit_tx(tx.clone()).await {
                                     warn!("Execution failed while submitting tx due to {}", client_err);
-                                    if let Some(missing_indices) = parse_err(&client_err.0) {
-                                        let invalidations =
-                                            generate_invalidations(order_type, missing_indices);
+                                    match parse_err(&client_err.0) {
+                                        NodeSubmitTxError::MissingInputs(missing_indices) => {
+                                            let invalidations =
+                                                generate_invalidations(order_type, missing_indices);
 
-                                        for i in invalidations {
-                                            match i {
-                                                Invalidation::Pool => {
-                                                    self.pool_repo
-                                                        .lock()
-                                                        .await
-                                                        .invalidate(
-                                                            pool.get_self_state_ref(),
-                                                            pool.get_self_ref(),
-                                                        )
-                                                        .await;
-                                                }
-
-                                                Invalidation::Funding => {
-                                                    assert_eq!(order_type, OrderType::Compound);
-                                                    self.funding_repo
-                                                        .lock()
-                                                        .await
-                                                        .remove(FundingId::from(
-                                                            tx.inputs.get(1).unwrap().box_id,
-                                                        ))
-                                                        .await;
-                                                }
-
-                                                Invalidation::Order => {
-                                                    self.backlog
-                                                        .lock()
-                                                        .await
-                                                        .remove(ord.get_self_ref())
-                                                        .await;
-                                                }
-
-                                                Invalidation::StakingBundles(bundles_ix) => {
-                                                    for ix in bundles_ix {
-                                                        self.bundle_repo
+                                            for i in invalidations {
+                                                match i {
+                                                    Invalidation::Pool => {
+                                                        self.pool_repo
                                                             .lock()
                                                             .await
-                                                            .invalidate(BundleStateId::from(
-                                                                tx.inputs.get(ix).unwrap().box_id,
+                                                            .invalidate(
+                                                                pool.get_self_state_ref(),
+                                                                pool.get_self_ref(),
+                                                            )
+                                                            .await;
+                                                    }
+
+                                                    Invalidation::Funding => {
+                                                        assert_eq!(order_type, OrderType::Compound);
+                                                        self.funding_repo
+                                                            .lock()
+                                                            .await
+                                                            .remove(FundingId::from(
+                                                                tx.inputs.get(1).unwrap().box_id,
                                                             ))
                                                             .await;
+                                                    }
+
+                                                    Invalidation::Order => {
+                                                        self.backlog
+                                                            .lock()
+                                                            .await
+                                                            .remove(ord.get_self_ref())
+                                                            .await;
+                                                    }
+
+                                                    Invalidation::StakingBundles(bundles_ix) => {
+                                                        for ix in bundles_ix {
+                                                            self.bundle_repo
+                                                                .lock()
+                                                                .await
+                                                                .invalidate(BundleStateId::from(
+                                                                    tx.inputs.get(ix).unwrap().box_id,
+                                                                ))
+                                                                .await;
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
+                                        NodeSubmitTxError::DoubleSpend => {
+                                            self.backlog.lock().await.suspend(ord).await;
+                                        }
+                                        NodeSubmitTxError::Unhandled => (),
                                     }
                                 // Return order to backlog
                                 } else {

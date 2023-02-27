@@ -208,27 +208,41 @@ pub fn generate_invalidations(
 
 pub type MissingIndex = i32;
 
-pub fn parse_err(err: &str) -> Option<Vec<MissingIndex>> {
+pub fn parse_err(err: &str) -> NodeSubmitTxError {
     let prefix = "Missing inputs: ";
     if err.starts_with(prefix) {
-        return Some(
+        return NodeSubmitTxError::MissingInputs(
             err.strip_prefix(prefix)
                 .unwrap()
                 .split(',')
                 .map(|s| s.parse::<i32>().unwrap())
                 .collect(),
         );
+    } else if err.contains("Double spending attempt") {
+        return NodeSubmitTxError::DoubleSpend;
     }
 
-    None
+    NodeSubmitTxError::Unhandled
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum NodeSubmitTxError {
+    MissingInputs(Vec<MissingIndex>),
+    DoubleSpend,
+    Unhandled,
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::executor::NodeSubmitTxError;
+
     use super::parse_err;
 
     #[test]
     fn test_missing_indices() {
-        assert_eq!(parse_err("Missing inputs: 3,4,6").unwrap(), vec![3_i32, 4, 6]);
+        assert_eq!(
+            parse_err("Missing inputs: 3,4,6"),
+            NodeSubmitTxError::MissingInputs(vec![3_i32, 4, 6])
+        );
     }
 }
