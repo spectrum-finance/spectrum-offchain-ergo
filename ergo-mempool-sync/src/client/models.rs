@@ -1,4 +1,4 @@
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ApiInfo {
-    pub fullHeight: u32
+    pub full_height: u32
 }

@@ -1,16 +1,26 @@
-use ergo_chain_sync::client::model::FullBlock;
 use ergo_lib::chain::transaction::Transaction;
 use async_trait::async_trait;
-use ergo_lib::ergo_chain_types::{BlockId, Header};
 use isahc::{AsyncReadResponseExt, HttpClient};
 use ergo_chain_sync::client::types::{Url, with_path};
+use derive_more::From;
+use thiserror::Error;
 
 use crate::client::models::ApiInfo;
 
+#[derive(Error, From, Debug)]
+pub enum Error {
+    #[error("json decoding: {0}")]
+    Json(serde_json::Error),
+    #[error("isahc: {0}")]
+    Isahc(isahc::Error),
+    #[error("unsuccessful request: {0}")]
+    UnsuccessfulRequest(String)
+}
+
 #[async_trait::async_trait(? Send)]
 pub trait ErgoNetwork {
-    async fn fetch_mempool(&self, offset: usize, limit: usize) -> Vec<Transaction>;
-    async fn get_best_height(&self) -> u32;
+    async fn fetch_mempool(&self, offset: usize, limit: usize) -> Result<Vec<Transaction>, Error>;
+    async fn get_best_height(&self) -> Result<u32, Error>;
 }
 
 #[derive(Clone)]
@@ -27,29 +37,37 @@ impl ErgoMempoolHttpClient {
 
 #[async_trait(? Send)]
 impl ErgoNetwork for ErgoMempoolHttpClient {
-    async fn get_best_height(&self) -> u32 {
-        self
+    async fn get_best_height(&self) -> Result<u32, Error> {
+        let genesis_height = ApiInfo { full_height: 0 };
+        let mut response = self
             .client
             .get_async(with_path(&self.base_url, &format!("/info")))
-            .await
-            .ok().unwrap()
-            .json::<ApiInfo>()
-            .await
-            .ok().unwrap()
-            .fullHeight
+            .await?;
+        let height = if response.status().is_success() {
+            response.json::<ApiInfo>().await.unwrap_or(genesis_height).full_height
+        } else {
+            return Err(Error::UnsuccessfulRequest(
+                "expected 200 from /info".into())
+            );
+        };
+        Ok(height)
     }
 
-    async fn fetch_mempool(&self, offset: usize, limit: usize) -> Vec<Transaction> {
-        self
+    async fn fetch_mempool(&self, offset: usize, limit: usize) -> Result<Vec<Transaction>, Error> {
+        let mut response = self
             .client
             .get_async(with_path(
                 &self.base_url,
-                &format!("/transactions/unconfirmed?offset={:?}&limit={:?}", offset, limit)
+                &format!("/transactions/unconfirmed?offset={:?}&limit={:?}", offset, limit),
             ))
-            .await
-            .ok().unwrap()
-            .json::<Vec<Transaction>>()
-            .await
-            .ok().unwrap()
+            .await?;
+        let transactions = if response.status().is_success() {
+            response.json::<Vec<Transaction>>().await?
+        } else {
+            return Err(Error::UnsuccessfulRequest(
+                "expected 200 from /transactions/unconfirmed?offset=_&limit=_".into())
+            );
+        };
+        Ok(transactions)
     }
 }
