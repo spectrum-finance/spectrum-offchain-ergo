@@ -49,17 +49,20 @@ pub struct Wallet {
 
 impl Wallet {
     pub fn try_from_seed(seed: SeedPhrase) -> Option<(Self, Address)> {
-        ExtSecretKey::derive_master(Mnemonic::to_seed(&*<String>::from(seed), ""))
-            .map(|sk| {
-                let SecretKey::DlogSecretKey(dpi) = sk.secret_key();
+        if let Ok(sk) = ExtSecretKey::derive_master(Mnemonic::to_seed(&*<String>::from(seed), "")) {
+            if let SecretKey::DlogSecretKey(dpi) = sk.secret_key() {
                 let addr = Address::P2Pk(sk.public_image());
                 let wallet = Self {
                     secrets: vec![PrivateInput::DlogProverInput(dpi)],
                     ergo_state_context: force_any_val(),
                 };
-                (wallet, addr)
-            })
-            .ok()
+                Some((wallet, addr))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
     pub fn trivial(secrets: Vec<WalletSecret>) -> Self {
         Self {
