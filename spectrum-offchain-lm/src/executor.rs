@@ -6,6 +6,7 @@ use crate::data::FundingId;
 use async_trait::async_trait;
 use chrono::Utc;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
+use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use futures::{stream, StreamExt};
 use itertools::{EitherOrBoth, Itertools};
@@ -146,12 +147,44 @@ where
                 let ctx = self.make_context(pool.box_id()).await;
                 info!("Running against {} with {}", pool, ctx);
                 let run_result = match (ord.clone(), bundles.first().cloned()) {
-                    (Order::Deposit(deposit), _) => deposit
-                        .try_run(pool.clone(), (), ctx)
-                        .map(|(tx, next_pool, bundle)| {
-                            (tx, next_pool, vec![bundle], None, OrderType::Deposit)
-                        })
-                        .map_err(|err| err.map(Order::Deposit)),
+                    (Order::Deposit(deposit), _) => {
+                        // Try to get token names from node
+                        let pool_id_bytes = <Vec<u8>>::from(TokenId::from(pool.1.pool_id));
+                        let pool_id_encoding = base16::encode_lower(&pool_id_bytes);
+                        let token_details = {
+                            let reward_token_name = self
+                                .network
+                                .get_token_minting_info(pool.1.budget_rem.token_id)
+                                .await;
+                            let liquidity_token_name =
+                                self.network.get_token_minting_info(deposit.1.lq.token_id).await;
+                            if let (Ok(Some(reward_name)), Ok(Some(lq_name))) =
+                                (reward_token_name, liquidity_token_name)
+                            {
+                                (format!("{}_{}_YF", reward_name.name, lq_name.name),
+                                 format!(
+                                     "The representation of your share in the {}/{} (pool id: {}) yield farming pool on the Spectrum Finance platform.",
+                                     reward_name.name,
+                                     lq_name.name,
+                                     pool_id_encoding,
+                                 )
+                                )
+                            } else {
+                                (String::from("Spectrum YF staking bundle"), 
+                                 format!(
+                                     "The representation of your share in the yield farming pool (pool id: {}) on the Spectrum Finance platform.",
+                                     pool_id_encoding,
+                                 )
+                                )
+                            }
+                        };
+                        deposit
+                            .try_run(pool.clone(), token_details, ctx)
+                            .map(|(tx, next_pool, bundle)| {
+                                (tx, next_pool, vec![bundle], None, OrderType::Deposit)
+                            })
+                            .map_err(|err| err.map(Order::Deposit))
+                    }
                     (Order::Redeem(redeem), Some(bundle)) => redeem
                         .try_run(pool.clone(), bundle, ctx)
                         .map(|(tx, next_pool, _)| (tx, next_pool, Vec::new(), None, OrderType::Redeem))

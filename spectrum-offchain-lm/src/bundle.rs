@@ -347,9 +347,16 @@ mod tests {
             let redeemer_prop = "0008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec";
             let tree = ErgoTree::sigma_parse_bytes(&base16::decode(redeemer_prop).unwrap()).unwrap();
             let sigma_prop = SigmaProp::from(ProveDlog::try_from(tree).unwrap());
-            builder.set_register_value(NonMandatoryRegisterId::R4, Constant::from(sigma_prop));
-
-            builder.set_register_value(NonMandatoryRegisterId::R5, Constant::from(TokenId::from(pool_id)));
+            builder.set_register_value(
+                NonMandatoryRegisterId::R4,
+                Constant::from(String::from("").as_bytes().to_vec()),
+            );
+            builder.set_register_value(
+                NonMandatoryRegisterId::R5,
+                Constant::from(String::from("").as_bytes().to_vec()),
+            );
+            builder.set_register_value(NonMandatoryRegisterId::R6, Constant::from(sigma_prop));
+            builder.set_register_value(NonMandatoryRegisterId::R7, Constant::from(TokenId::from(pool_id)));
 
             let vlq = Token {
                 token_id: gen_from_rnd_digest_32::<TokenId>(),
