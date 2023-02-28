@@ -1,18 +1,27 @@
-use std::cell::{RefCell, RefMut};
+use std::cell::{Cell, RefCell, RefMut};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::future::Future;
+
+
 use std::pin::Pin;
 use std::rc::Rc;
-use std::task::{Context, Poll};
+
+
+use std::time::Duration;
+
+use futures_timer::Delay;
+use log::trace;
 
 use ergo_lib::chain::transaction::{Transaction, TxId};
-use futures::stream::FusedStream;
-use futures::Stream;
+use futures::stream::{select};
+use futures::{Stream, StreamExt};
 use log::info;
-use wasm_timer::Delay;
+use async_stream::stream;
+
+use futures::future::{ready};
 
 use ergo_chain_sync::model::Block;
-use ergo_chain_sync::{ChainUpgrade, InitChainSync};
+use ergo_chain_sync::{ChainSync, ChainUpgrade, InitChainSync};
+
 
 use crate::client::node::{ErgoNetwork};
 
@@ -25,11 +34,11 @@ pub enum MempoolUpdate {
     /// Tx was discarded.
     TxWithdrawn(Transaction),
     /// Tx was confirmed.
-    TxConfirmed(Transaction)
+    TxConfirmed(Transaction),
 }
 
 #[derive(Debug, Clone)]
-struct SyncState {
+pub struct SyncState {
     latest_blocks: VecDeque<HashSet<TxId>>,
     mempool_projection: HashMap<TxId, Transaction>,
     pending_updates: VecDeque<MempoolUpdate>,
@@ -62,27 +71,29 @@ impl SyncState {
 }
 
 pub struct MempoolSyncConf {
-    pub sync_interval: Delay,
+    pub sync_interval: u64,
 }
 
 #[pin_project::pin_project]
-pub struct MempoolSync<'a, TClient, TChainSync> {
+pub struct MempoolSync<'a, TClient> {
     conf: MempoolSyncConf,
     client: &'a TClient,
     #[pin]
-    chain_sync: TChainSync,
+    chain_sync: Pin<Box<dyn Stream<Item=ChainUpgrade> + 'a>>,
     state: Rc<RefCell<SyncState>>,
+    #[pin]
+    delay: Cell<Option<Delay>>,
 }
 
-impl<'a, TClient, TChainSync> MempoolSync<'a, TClient, TChainSync>
+impl<'a, TClient> MempoolSync<'a, TClient>
     where
-        TClient: ErgoNetwork,
+        TClient: ErgoNetwork
 {
-    pub async fn init<TChainSyncMaker: InitChainSync<TChainSync>>(
+    pub async fn init<TChainSyncClient: 'a, TCache, TChainSyncMaker: InitChainSync<'a, ChainSync<'a, TChainSyncClient, TCache>>>(
         conf: MempoolSyncConf,
         client: &'a TClient,
         chain_sync_maker: TChainSyncMaker,
-    ) -> MempoolSync<'a, TClient, TChainSync> {
+    ) -> MempoolSync<'a, TClient> {
         let chain_tip_height = client.get_best_height().await;
         let start_at = match chain_tip_height {
             Ok(height) => {
@@ -97,12 +108,15 @@ impl<'a, TClient, TChainSync> MempoolSync<'a, TClient, TChainSync>
                 0
             }
         };
-        let chain_sync = chain_sync_maker.init(start_at as u32, None).await;
+        let chain_sync =
+            chain_sync_maker
+                .init(start_at as u32, None).await;
         Self {
             conf,
             client,
             chain_sync,
             state: Rc::new(RefCell::new(SyncState::empty())),
+            delay: Cell::new(None),
         }
     }
 }
@@ -156,49 +170,75 @@ async fn sync<'a, TClient: ErgoNetwork>(client: &TClient, mut state: RefMut<'a, 
     }
 }
 
-impl<'a, TClient, TChainSync> Stream for MempoolSync<'a, TClient, TChainSync>
-    where
-        TClient: ErgoNetwork,
-        TChainSync: Stream<Item=ChainUpgrade> + Unpin,
-{
-    type Item = MempoolUpdate;
+pub enum Combined {
+    Mempool(MempoolUpdate),
+    Empty,
+}
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
-        let client: &TClient = this.client;
-        if Future::poll(Pin::new(&mut this.conf.sync_interval), cx).is_ready() {
-            let mut state = this.state.borrow_mut();
-            // Sync chain tail
-            loop {
-                match Stream::poll_next(this.chain_sync.as_mut(), cx) {
-                    Poll::Ready(Some(ChainUpgrade::RollForward(blk))) => state.push_block(blk),
-                    Poll::Ready(Some(ChainUpgrade::RollBackward(_))) => state.pop_block(),
-                    Poll::Ready(None) => {}
-                    Poll::Pending => break,
-                }
+pub fn mempool_sync_stream_combined<'a, TClient>(
+    mempool_sync: MempoolSync<'a, TClient>
+) -> impl Stream<Item=Combined> + 'a
+    where
+        TClient: ErgoNetwork + Unpin,
+{
+    select(
+        chain_sync_for_mempool_sync_stream(
+            mempool_sync.chain_sync,
+            mempool_sync.state.clone(),
+        ),
+        mempool_sync_stream(
+            mempool_sync.state.clone(),
+            mempool_sync.client,
+            mempool_sync.delay,
+            mempool_sync.conf,
+        ),
+    )
+}
+
+pub fn mempool_sync_stream<'a, TClient>(
+    state_rc: Rc<RefCell<SyncState>>,
+    client: &'a TClient,
+    delay: Cell<Option<Delay>>,
+    conf: MempoolSyncConf,
+) -> impl Stream<Item=Combined> + 'a
+    where
+        TClient: ErgoNetwork + Unpin
+{
+    stream! {
+        loop {
+            let state = state_rc.borrow_mut();
+            let client: &TClient = client;
+            if let Some(delay) = delay.take() {
+                delay.await;
             }
-            let mut sync_fut = Box::pin(sync(client, state));
-            // Drive sync to completion
-            loop {
-                match sync_fut.as_mut().poll(cx) {
-                    Poll::Ready(_) => break,
-                    Poll::Pending => continue,
-                }
+            sync(client, state).await;
+            if let Some(upgr) = state_rc.borrow_mut().pending_updates.pop_front() {
+                yield Combined::Mempool(upgr);
+            } else {
+                delay.set(Some(Delay::new(Duration::from_secs(conf.sync_interval))))
             }
         }
-        if let Some(upgr) = this.state.borrow_mut().pending_updates.pop_front() {
-            return Poll::Ready(Some(upgr));
-        }
-        Poll::Pending
     }
 }
 
-impl<'a, TClient, TChainSync> FusedStream for MempoolSync<'a, TClient, TChainSync>
+pub fn chain_sync_for_mempool_sync_stream<'a, S>(
+    upstream: S,
+    state_rc: Rc<RefCell<SyncState>>,
+) -> impl Stream<Item=Combined> + 'a
     where
-        MempoolSync<'a, TClient, TChainSync>: Stream,
+        S: Stream<Item=ChainUpgrade> + 'a
 {
-    /// MempoolSync stream is never terminated.
-    fn is_terminated(&self) -> bool {
-        false
-    }
+    upstream.then(move |event| {
+        let mut state = state_rc.borrow_mut();
+        match event {
+            ChainUpgrade::RollForward(blk) => {
+                state.push_block(blk)
+            }
+            ChainUpgrade::RollBackward(_) => {
+                state.pop_block()
+            }
+        };
+
+        ready(Combined::Empty)
+    })
 }

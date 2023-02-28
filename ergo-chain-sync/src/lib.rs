@@ -1,5 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::cmp::max;
+use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Once;
 use std::time::Duration;
@@ -40,9 +41,9 @@ impl SyncState {
     }
 }
 
-#[async_trait::async_trait(?Send)]
-pub trait InitChainSync<TChainSync> {
-    async fn init(self, starting_height: u32, tip_reached_signal: Option<&'static Once>) -> TChainSync;
+#[async_trait::async_trait(? Send)]
+pub trait InitChainSync<'a, TChainSync> {
+    async fn init(self, starting_height: u32, tip_reached_signal: Option<&'static Once>) -> Pin<Box<dyn Stream<Item=ChainUpgrade> + 'a>>;
 }
 
 pub struct ChainSyncNonInit<'a, TClient, TCache> {
@@ -56,19 +57,25 @@ impl<'a, TClient, TCache> ChainSyncNonInit<'a, TClient, TCache> {
     }
 }
 
-#[async_trait::async_trait(?Send)]
-impl<'a, TClient, TCache> InitChainSync<ChainSync<'a, TClient, TCache>>
-    for ChainSyncNonInit<'a, TClient, TCache>
-where
-    TClient: ErgoNetwork,
-    TCache: ChainCache,
+#[async_trait::async_trait(? Send)]
+impl<'a, TClient, TCache> InitChainSync<'a, ChainSync<'a, TClient, TCache>>
+for ChainSyncNonInit<'a, TClient, TCache>
+    where
+        TClient: ErgoNetwork + Unpin,
+        TCache: ChainCache + Unpin+ 'a,
 {
     async fn init(
         self,
         starting_height: u32,
         tip_reached_signal: Option<&'a Once>,
-    ) -> ChainSync<'a, TClient, TCache> {
-        ChainSync::init(starting_height, self.client, self.cache, tip_reached_signal).await
+    ) -> Pin<Box<dyn Stream<Item=ChainUpgrade> + 'a>> {
+        Box::pin(chain_sync_stream(
+            ChainSync::init(starting_height,
+                            self.client,
+                            self.cache,
+                            tip_reached_signal).await
+        )
+        )
     }
 }
 
@@ -84,9 +91,9 @@ pub struct ChainSync<'a, TClient, TCache> {
 }
 
 impl<'a, TClient, TCache> ChainSync<'a, TClient, TCache>
-where
-    TClient: ErgoNetwork,
-    TCache: ChainCache,
+    where
+        TClient: ErgoNetwork,
+        TCache: ChainCache,
 {
     pub async fn init(
         starting_height: u32,
@@ -151,10 +158,10 @@ const THROTTLE_SECS: u64 = 1;
 
 pub fn chain_sync_stream<'a, TClient, TCache>(
     chain_sync: ChainSync<'a, TClient, TCache>,
-) -> impl Stream<Item = ChainUpgrade> + 'a
-where
-    TClient: ErgoNetwork + Unpin,
-    TCache: ChainCache + Unpin + 'a,
+) -> impl Stream<Item=ChainUpgrade> + 'a
+    where
+        TClient: ErgoNetwork + Unpin,
+        TCache: ChainCache + Unpin + 'a,
 {
     stream! {
         loop {
