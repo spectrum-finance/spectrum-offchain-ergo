@@ -209,11 +209,14 @@ pub fn generate_invalidations(
 pub type MissingIndex = i32;
 
 pub fn parse_err(err: &str) -> NodeSubmitTxError {
-    let prefix = "Missing inputs: ";
-    if err.starts_with(prefix) {
+    // Such an error can appear for example as:
+    // [Malformed transaction: Every input of the transaction should be in UTXO... Missing inputs: 0, 1, 2]
+    let error_description = "Missing inputs: ";
+    if err.contains(error_description) {
+        let s = err.split(error_description).last().unwrap();
+        trace!(target: "offchain_lm", "parse_err: Missing inputs {}", s);
         return NodeSubmitTxError::MissingInputs(
-            err.strip_prefix(prefix)
-                .unwrap()
+            s[..s.len() - 1] // Don't consider the trailing ']' character
                 .split(',')
                 .map(|s| s.parse::<i32>().unwrap())
                 .collect(),

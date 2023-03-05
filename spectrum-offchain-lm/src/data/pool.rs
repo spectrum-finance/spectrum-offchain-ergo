@@ -179,13 +179,15 @@ impl Pool {
             tmp: Some(release_tmp),
             redeemer_prop: deposit.redeemer_prop.clone(),
             erg_value: MIN_SAFE_FAT_BOX_VALUE,
-            token_name,
-            token_desc,
+            token_name: token_name.clone(),
+            token_desc: token_desc.clone(),
         };
         let user_output = DepositOutput {
             bundle_key: bundle_key_for_user,
             redeemer_prop: deposit.redeemer_prop,
-            erg_value: MIN_SAFE_BOX_VALUE,
+            erg_value: MIN_SAFE_FAT_BOX_VALUE,
+            token_name,
+            token_desc,
         };
         let miner_output = MinerOutput {
             erg_value: DEFAULT_MINER_FEE,
