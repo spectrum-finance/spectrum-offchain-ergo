@@ -174,7 +174,7 @@ impl Pool {
             bundle_key_id: bundle_key_for_user.to_asset(),
             pool_id: next_pool.pool_id,
             vlq: release_vlq,
-            tmp: release_tmp,
+            tmp: Some(release_tmp),
             redeemer_prop: deposit.redeemer_prop.clone(),
             erg_value: MIN_SAFE_FAT_BOX_VALUE,
         };
@@ -224,7 +224,9 @@ impl Pool {
         let mut next_pool = self;
         next_pool.reserves_lq = next_pool.reserves_lq - release_lq;
         next_pool.reserves_vlq = next_pool.reserves_vlq + bundle.vlq;
-        next_pool.reserves_tmp = next_pool.reserves_tmp + bundle.tmp;
+        if let Some(tmp) = bundle.tmp {
+            next_pool.reserves_tmp = next_pool.reserves_tmp + tmp;
+        }
         let user_output = RedeemOutput {
             lq: release_lq,
             redeemer_prop: redeem.redeemer_prop,
@@ -278,7 +280,11 @@ impl Pool {
         let mut reward_outputs = Vec::new();
         let mut accumulated_cost = NanoErg::from(0u64);
         for mut bundle in &mut next_bundles {
-            let epochs_burned = (bundle.tmp.amount / bundle.vlq.amount).saturating_sub(epochs_remain as u64);
+            let epochs_burned = if let Some(tmp) = bundle.tmp {
+                (tmp.amount / bundle.vlq.amount).saturating_sub(epochs_remain as u64)
+            } else {
+                0
+            };
             trace!(target: "pool", "Bundle: [{}], epochs_remain: [{}], epochs_burned: [{}], budget_remaining: {}, epoch_complete: {}, conf: {:?}", 
                    bundle.state_id, epochs_remain, epochs_burned, next_pool.budget_rem.amount,
                    next_pool.epoch_completed(),
@@ -309,13 +315,16 @@ impl Pool {
                 redeemer_prop: bundle.redeemer_prop.clone(),
                 erg_value: MIN_SAFE_BOX_VALUE,
             };
-            let charged_tmp_amt = bundle.tmp.amount - epochs_remain as u64 * bundle.vlq.amount;
-            let charged_tmp = TypedAssetAmount::new(bundle.tmp.token_id, charged_tmp_amt);
-            accumulated_cost = accumulated_cost + reward_output.erg_value;
-            reward_outputs.push(reward_output);
-            bundle.tmp = bundle.tmp - charged_tmp;
-            next_pool.reserves_tmp = next_pool.reserves_tmp + charged_tmp;
             next_pool.budget_rem = next_pool.budget_rem - reward;
+            if let Some(tmp) = bundle.tmp {
+                let charged_tmp_amt = tmp.amount - epochs_remain as u64 * bundle.vlq.amount;
+                let charged_tmp = TypedAssetAmount::new(tmp.token_id, charged_tmp_amt);
+                accumulated_cost = accumulated_cost + reward_output.erg_value;
+                bundle.tmp = Some(tmp - charged_tmp);
+                next_pool.reserves_tmp = next_pool.reserves_tmp + charged_tmp;
+            }
+
+            reward_outputs.push(reward_output);
             if next_pool.budget_rem.amount == 0 {
                 return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned(
                     "Budget depleted".into(),
@@ -567,10 +576,13 @@ mod tests {
         };
         let (pool2, bundle, _output, rew, _) = pool.clone().apply_deposit(deposit.clone(), ctx).unwrap();
         assert_eq!(bundle.vlq.amount, deposit.lq.amount);
-        assert_eq!(bundle.tmp.amount, pool.conf.epoch_num as u64 * deposit_lq.amount);
+        assert_eq!(
+            bundle.tmp.unwrap().amount,
+            pool.conf.epoch_num as u64 * deposit_lq.amount
+        );
         assert_eq!(pool2.reserves_lq - pool.reserves_lq, deposit.lq);
         assert_eq!(pool2.reserves_vlq, pool.reserves_vlq - bundle.vlq);
-        assert_eq!(pool2.reserves_tmp, pool.reserves_tmp - bundle.tmp);
+        assert_eq!(pool2.reserves_tmp, pool.reserves_tmp - bundle.tmp.unwrap());
     }
 
     #[test]
@@ -694,8 +706,14 @@ mod tests {
                 .abs_diff(rewards[0].reward.amount * deposit_disproportion)
                 <= 1
         );
-        assert_eq!(bundles[0].tmp, bundle_a.tmp - bundle_a.vlq.coerce());
-        assert_eq!(bundles[1].tmp, bundle_b.tmp - bundle_b.vlq.coerce());
+        assert_eq!(
+            bundles[0].tmp.unwrap(),
+            bundle_a.tmp.unwrap() - bundle_a.vlq.coerce()
+        );
+        assert_eq!(
+            bundles[1].tmp.unwrap(),
+            bundle_b.tmp.unwrap() - bundle_b.vlq.coerce()
+        );
     }
 
     #[test]

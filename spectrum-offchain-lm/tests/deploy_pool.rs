@@ -431,7 +431,10 @@ fn deploy_pool_chain_transaction(
         bundle_key_id: TypedAsset::new(bundle_key_id),
         pool_id: PoolId::from(pool_nft.token_id),
         vlq: TypedAssetAmount::new(vlq_tokens.token_id, lq_token_amount),
-        tmp: TypedAssetAmount::new(tmp_tokens.token_id, lq_token_amount * num_epochs_to_delegate),
+        tmp: Some(TypedAssetAmount::new(
+            tmp_tokens.token_id,
+            lq_token_amount * num_epochs_to_delegate,
+        )),
         redeemer_prop,
         erg_value: erg_value_per_box.into(),
     };

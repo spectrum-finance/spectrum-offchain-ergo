@@ -27,7 +27,7 @@ pub struct StakingBundleProto {
     pub bundle_key_id: TypedAsset<BundleKey>,
     pub pool_id: PoolId,
     pub vlq: TypedAssetAmount<VirtLq>,
-    pub tmp: TypedAssetAmount<Tmp>,
+    pub tmp: Option<TypedAssetAmount<Tmp>>,
     pub redeemer_prop: SigmaProp,
     pub erg_value: NanoErg,
 }
@@ -52,8 +52,12 @@ impl IntoBoxCandidate for StakingBundleProto {
             token_id: self.bundle_key_id.token_id,
             amount: TokenAmount::try_from(BUNDLE_KEY_AMOUNT).unwrap(),
         };
-        let tokens = BoxTokens::from_vec(if let Ok(tmp) = Token::try_from(self.tmp) {
-            vec![Token::try_from(self.vlq).unwrap(), tmp, bundle_key]
+        let tokens = BoxTokens::from_vec(if let Some(tmp) = self.tmp {
+            vec![
+                Token::try_from(self.vlq).unwrap(),
+                Token::try_from(tmp).unwrap(),
+                bundle_key,
+            ]
         } else {
             vec![Token::try_from(self.vlq).unwrap(), bundle_key]
         })
@@ -88,7 +92,7 @@ pub struct StakingBundle {
     pub state_id: BundleStateId,
     pub pool_id: PoolId,
     pub vlq: TypedAssetAmount<VirtLq>,
-    pub tmp: TypedAssetAmount<Tmp>,
+    pub tmp: Option<TypedAssetAmount<Tmp>>,
     pub redeemer_prop: SigmaProp,
     pub erg_value: NanoErg,
 }
@@ -99,7 +103,7 @@ struct StakingBundleWithErgoTreeBytes {
     state_id: BundleStateId,
     pool_id: PoolId,
     vlq: TypedAssetAmount<VirtLq>,
-    tmp: TypedAssetAmount<Tmp>,
+    tmp: Option<TypedAssetAmount<Tmp>>,
     /// Sigma-serialized byte representation of `ErgoTree`
     redeemer_prop_bytes: Vec<u8>,
     erg_value: NanoErg,
@@ -210,15 +214,14 @@ impl TryFromBox for StakingBundle {
                 );
                 let vlq = tokens.get(0)?.clone();
                 let (tmp, bundle_key) = if tokens.len() == 3 {
-                    let tmp = TypedAssetAmount::from_token(tokens.get(1)?.clone());
+                    let tmp = Some(TypedAssetAmount::from_token(tokens.get(1)?.clone()));
                     let bundle_key = tokens.get(2)?.clone();
                     (tmp, bundle_key)
                 } else {
                     let bundle_key = tokens.get(1)?.clone();
 
-                    // No TMP tokens and we don't have the TokenId on hand, just generate a dummy
-                    // value.
-                    let tmp = TypedAssetAmount::new(force_any_val::<TokenId>(), 0);
+                    // No TMP tokens.
+                    let tmp = None;
                     (tmp, bundle_key)
                 };
                 return Some(StakingBundle {
@@ -244,8 +247,9 @@ pub struct IndexedBundle<B> {
 
 impl IndexedBundle<StakingBundle> {
     pub fn new(bundle: StakingBundle, conf: ProgramConfig) -> Self {
+        let tmp_amount = if let Some(t) = bundle.tmp { t.amount } else { 0 };
         Self {
-            lower_epoch_ix: conf.epoch_num - (bundle.tmp.amount / bundle.vlq.amount) as u32 + 1,
+            lower_epoch_ix: conf.epoch_num - (tmp_amount / bundle.vlq.amount) as u32 + 1,
             bundle,
         }
     }
