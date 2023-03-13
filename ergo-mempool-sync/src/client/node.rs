@@ -1,8 +1,8 @@
-use ergo_lib::chain::transaction::Transaction;
 use async_trait::async_trait;
-use isahc::{AsyncReadResponseExt, HttpClient};
-use ergo_chain_sync::client::types::{Url, with_path};
 use derive_more::From;
+use ergo_chain_sync::client::types::{with_path, Url};
+use ergo_lib::chain::transaction::Transaction;
+use isahc::{AsyncReadResponseExt, HttpClient};
 use thiserror::Error;
 
 use crate::client::models::ApiInfo;
@@ -14,7 +14,7 @@ pub enum Error {
     #[error("isahc: {0}")]
     Isahc(isahc::Error),
     #[error("unsuccessful request: {0}")]
-    UnsuccessfulRequest(String)
+    UnsuccessfulRequest(String),
 }
 
 #[async_trait::async_trait(? Send)]
@@ -44,11 +44,13 @@ impl ErgoNetwork for ErgoMempoolHttpClient {
             .get_async(with_path(&self.base_url, &format!("/info")))
             .await?;
         let height = if response.status().is_success() {
-            response.json::<ApiInfo>().await.unwrap_or(genesis_height).full_height
+            response
+                .json::<ApiInfo>()
+                .await
+                .unwrap_or(genesis_height)
+                .full_height
         } else {
-            return Err(Error::UnsuccessfulRequest(
-                "expected 200 from /info".into())
-            );
+            return Err(Error::UnsuccessfulRequest("expected 200 from /info".into()));
         };
         Ok(height)
     }
@@ -65,8 +67,8 @@ impl ErgoNetwork for ErgoMempoolHttpClient {
             response.json::<Vec<Transaction>>().await?
         } else {
             return Err(Error::UnsuccessfulRequest(
-                "expected 200 from /transactions/unconfirmed?offset=_&limit=_".into())
-            );
+                "expected 200 from /transactions/unconfirmed?offset=_&limit=_".into(),
+            ));
         };
         Ok(transactions)
     }

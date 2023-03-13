@@ -1,29 +1,26 @@
 use std::cell::{Cell, RefCell, RefMut};
 use std::collections::{HashMap, HashSet, VecDeque};
 
-
 use std::pin::Pin;
 use std::rc::Rc;
-
 
 use std::time::Duration;
 
 use futures_timer::Delay;
 use log::trace;
 
+use async_stream::stream;
 use ergo_lib::chain::transaction::{Transaction, TxId};
-use futures::stream::{select};
+use futures::stream::select;
 use futures::{Stream, StreamExt};
 use log::info;
-use async_stream::stream;
 
-use futures::future::{ready};
+use futures::future::ready;
 
 use ergo_chain_sync::model::Block;
 use ergo_chain_sync::{ChainSync, ChainUpgrade, InitChainSync};
 
-
-use crate::client::node::{ErgoNetwork};
+use crate::client::node::ErgoNetwork;
 
 pub mod client;
 
@@ -79,26 +76,28 @@ pub struct MempoolSync<'a, TClient> {
     conf: MempoolSyncConf,
     client: &'a TClient,
     #[pin]
-    chain_sync: Pin<Box<dyn Stream<Item=ChainUpgrade> + 'a>>,
+    chain_sync: Pin<Box<dyn Stream<Item = ChainUpgrade> + 'a>>,
     state: Rc<RefCell<SyncState>>,
     #[pin]
     delay: Cell<Option<Delay>>,
 }
 
 impl<'a, TClient> MempoolSync<'a, TClient>
-    where
-        TClient: ErgoNetwork
+where
+    TClient: ErgoNetwork,
 {
-    pub async fn init<TChainSyncClient: 'a, TCache, TChainSyncMaker: InitChainSync<'a, ChainSync<'a, TChainSyncClient, TCache>>>(
+    pub async fn init<
+        TChainSyncClient: 'a,
+        TCache,
+        TChainSyncMaker: InitChainSync<'a, ChainSync<'a, TChainSyncClient, TCache>>,
+    >(
         conf: MempoolSyncConf,
         client: &'a TClient,
         chain_sync_maker: TChainSyncMaker,
     ) -> MempoolSync<'a, TClient> {
         let chain_tip_height = client.get_best_height().await;
         let start_at = match chain_tip_height {
-            Ok(height) => {
-                height as usize - KEEP_LAST_BLOCKS
-            }
+            Ok(height) => height as usize - KEEP_LAST_BLOCKS,
             Err(error) => {
                 info!(
                     target: "mempool_sync",
@@ -108,9 +107,7 @@ impl<'a, TClient> MempoolSync<'a, TClient>
                 0
             }
         };
-        let chain_sync =
-            chain_sync_maker
-                .init(start_at as u32, None).await;
+        let chain_sync = chain_sync_maker.init(start_at as u32, None).await;
         Self {
             conf,
             client,
@@ -176,16 +173,13 @@ pub enum Combined {
 }
 
 pub fn mempool_sync_stream_combined<'a, TClient>(
-    mempool_sync: MempoolSync<'a, TClient>
-) -> impl Stream<Item=Combined> + 'a
-    where
-        TClient: ErgoNetwork + Unpin,
+    mempool_sync: MempoolSync<'a, TClient>,
+) -> impl Stream<Item = Combined> + 'a
+where
+    TClient: ErgoNetwork + Unpin,
 {
     select(
-        chain_sync_for_mempool_sync_stream(
-            mempool_sync.chain_sync,
-            mempool_sync.state.clone(),
-        ),
+        chain_sync_for_mempool_sync_stream(mempool_sync.chain_sync, mempool_sync.state.clone()),
         mempool_sync_stream(
             mempool_sync.state.clone(),
             mempool_sync.client,
@@ -200,9 +194,9 @@ pub fn mempool_sync_stream<'a, TClient>(
     client: &'a TClient,
     delay: Cell<Option<Delay>>,
     conf: MempoolSyncConf,
-) -> impl Stream<Item=Combined> + 'a
-    where
-        TClient: ErgoNetwork + Unpin
+) -> impl Stream<Item = Combined> + 'a
+where
+    TClient: ErgoNetwork + Unpin,
 {
     stream! {
         loop {
@@ -224,19 +218,15 @@ pub fn mempool_sync_stream<'a, TClient>(
 pub fn chain_sync_for_mempool_sync_stream<'a, S>(
     upstream: S,
     state_rc: Rc<RefCell<SyncState>>,
-) -> impl Stream<Item=Combined> + 'a
-    where
-        S: Stream<Item=ChainUpgrade> + 'a
+) -> impl Stream<Item = Combined> + 'a
+where
+    S: Stream<Item = ChainUpgrade> + 'a,
 {
     upstream.then(move |event| {
         let mut state = state_rc.borrow_mut();
         match event {
-            ChainUpgrade::RollForward(blk) => {
-                state.push_block(blk)
-            }
-            ChainUpgrade::RollBackward(_) => {
-                state.pop_block()
-            }
+            ChainUpgrade::RollForward(blk) => state.push_block(blk),
+            ChainUpgrade::RollBackward(_) => state.pop_block(),
         };
 
         ready(Combined::Empty)
