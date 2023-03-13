@@ -1,7 +1,7 @@
-use crate::data::OnChainOrder;
+use super::OnChainOrderId;
 
 #[derive(Debug, Hash, Clone, Eq, PartialEq)]
-pub enum OrderUpdate<TOrd: OnChainOrder> {
+pub enum OrderUpdate<TOrd: OnChainOrderId> {
     NewOrder(PendingOrder<TOrd>),
     OrderEliminated(TOrd::TOrderId),
 }

@@ -5,7 +5,7 @@ use ergo_lib::chain::transaction::TxIoVec;
 use ergo_lib::ergo_chain_types::{blake2b256_hash, Digest32};
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
 use ergo_lib::ergotree_ir::chain::ergo_box::box_value::BoxValue;
-use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
+use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
 use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
@@ -16,12 +16,11 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use serde::{Deserialize, Serialize};
-use sigma_test_util::force_any_val;
 use type_equalities::IsEqual;
 
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
 use spectrum_offchain::data::unique_entity::Predicted;
-use spectrum_offchain::data::{Has, OnChainOrder};
+use spectrum_offchain::data::{Has, OnChainEntityId, OnChainOrderId};
 use spectrum_offchain::domain::TypedAssetAmount;
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 use spectrum_offchain::executor::RunOrderError;
@@ -74,16 +73,11 @@ impl ProduceExtra for Compound {
     );
 }
 
-impl OnChainOrder for Compound {
+impl OnChainOrderId for Compound {
     type TOrderId = OrderId;
-    type TEntityId = PoolId;
 
     fn get_self_ref(&self) -> Self::TOrderId {
         self.order_id()
-    }
-
-    fn get_entity_ref(&self) -> Self::TEntityId {
-        self.pool_id
     }
 }
 
@@ -257,16 +251,11 @@ impl ProduceExtra for Deposit {
     type TExtraOut = Predicted<AsBox<StakingBundle>>;
 }
 
-impl OnChainOrder for Deposit {
+impl OnChainOrderId for Deposit {
     type TOrderId = OrderId;
-    type TEntityId = PoolId;
 
     fn get_self_ref(&self) -> Self::TOrderId {
         self.order_id
-    }
-
-    fn get_entity_ref(&self) -> Self::TEntityId {
-        self.pool_id
     }
 }
 
@@ -396,6 +385,7 @@ impl TryFromBox for Deposit {
 #[serde(into = "RawRedeem")]
 pub struct Redeem {
     pub order_id: OrderId,
+    pub pool_id: PoolId,
     pub redeemer_prop: ErgoTree,
     pub bundle_key: TypedAssetAmount<BundleKey>,
     pub expected_lq: TypedAssetAmount<Lq>,
@@ -403,10 +393,50 @@ pub struct Redeem {
     pub erg_value: NanoErg,
 }
 
+/// Contains all information that can be extracted from a `Redeem` box. It's missing the pool Id
+/// since that can only be obtained by inspecting an associated staking bundle.
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(from = "RawRedeemProto")]
+#[serde(into = "RawRedeemProto")]
+pub struct RedeemProto {
+    pub order_id: OrderId,
+    pub redeemer_prop: ErgoTree,
+    pub bundle_key: TypedAssetAmount<BundleKey>,
+    pub expected_lq: TypedAssetAmount<Lq>,
+    pub max_miner_fee: i64,
+    pub erg_value: NanoErg,
+}
+
+impl RedeemProto {
+    pub fn finalize(self, pool_id: PoolId) -> Redeem {
+        Redeem {
+            order_id: self.order_id,
+            pool_id,
+            redeemer_prop: self.redeemer_prop,
+            bundle_key: self.bundle_key,
+            expected_lq: self.expected_lq,
+            max_miner_fee: self.max_miner_fee,
+            erg_value: self.erg_value,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+pub struct RawRedeem {
+    pub order_id: OrderId,
+    pub pool_id: PoolId,
+    pub redeemer_prop_bytes: Vec<u8>,
+    pub bundle_key: (TokenId, u64),
+    pub expected_lq: (TokenId, u64),
+    pub max_miner_fee: i64,
+    pub erg_value: u64,
+}
+
 impl From<RawRedeem> for Redeem {
     fn from(rr: RawRedeem) -> Self {
         Self {
             order_id: rr.order_id,
+            pool_id: rr.pool_id,
             redeemer_prop: ErgoTree::sigma_parse_bytes(&*rr.redeemer_prop_bytes).unwrap(),
             bundle_key: TypedAssetAmount::new(rr.bundle_key.0, rr.bundle_key.1),
             expected_lq: TypedAssetAmount::new(rr.expected_lq.0, rr.expected_lq.1),
@@ -416,8 +446,22 @@ impl From<RawRedeem> for Redeem {
     }
 }
 
+impl From<Redeem> for RawRedeem {
+    fn from(r: Redeem) -> Self {
+        Self {
+            order_id: r.order_id,
+            pool_id: r.pool_id,
+            redeemer_prop_bytes: r.redeemer_prop.sigma_serialize_bytes().unwrap(),
+            bundle_key: (r.bundle_key.token_id, r.bundle_key.amount),
+            expected_lq: (r.expected_lq.token_id, r.expected_lq.amount),
+            max_miner_fee: r.max_miner_fee,
+            erg_value: r.erg_value.into(),
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
-pub struct RawRedeem {
+pub struct RawRedeemProto {
     pub order_id: OrderId,
     pub redeemer_prop_bytes: Vec<u8>,
     pub bundle_key: (TokenId, u64),
@@ -426,8 +470,8 @@ pub struct RawRedeem {
     pub erg_value: u64,
 }
 
-impl From<Redeem> for RawRedeem {
-    fn from(r: Redeem) -> Self {
+impl From<RedeemProto> for RawRedeemProto {
+    fn from(r: RedeemProto) -> Self {
         Self {
             order_id: r.order_id,
             redeemer_prop_bytes: r.redeemer_prop.sigma_serialize_bytes().unwrap(),
@@ -435,6 +479,19 @@ impl From<Redeem> for RawRedeem {
             expected_lq: (r.expected_lq.token_id, r.expected_lq.amount),
             max_miner_fee: r.max_miner_fee,
             erg_value: r.erg_value.into(),
+        }
+    }
+}
+
+impl From<RawRedeemProto> for RedeemProto {
+    fn from(rr: RawRedeemProto) -> Self {
+        Self {
+            order_id: rr.order_id,
+            redeemer_prop: ErgoTree::sigma_parse_bytes(&*rr.redeemer_prop_bytes).unwrap(),
+            bundle_key: TypedAssetAmount::new(rr.bundle_key.0, rr.bundle_key.1),
+            expected_lq: TypedAssetAmount::new(rr.expected_lq.0, rr.expected_lq.1),
+            max_miner_fee: rr.max_miner_fee,
+            erg_value: NanoErg::from(rr.erg_value),
         }
     }
 }
@@ -458,17 +515,26 @@ impl ProduceExtra for Redeem {
     type TExtraOut = ();
 }
 
-impl OnChainOrder for Redeem {
+impl OnChainOrderId for RedeemProto {
     type TOrderId = OrderId;
-    type TEntityId = PoolId;
 
     fn get_self_ref(&self) -> Self::TOrderId {
         self.order_id
     }
+}
 
+impl OnChainEntityId for Redeem {
+    type TEntityId = PoolId;
     fn get_entity_ref(&self) -> Self::TEntityId {
-        // Note that the Redeem box does not contain the PoolId.
-        unreachable!()
+        self.pool_id
+    }
+}
+
+impl OnChainOrderId for Redeem {
+    type TOrderId = OrderId;
+
+    fn get_self_ref(&self) -> Self::TOrderId {
+        self.order_id
     }
 }
 
@@ -507,8 +573,8 @@ impl RunOrder for AsBox<Redeem> {
     }
 }
 
-impl TryFromBox for Redeem {
-    fn try_from_box(bx: ErgoBox) -> Option<Redeem> {
+impl TryFromBox for RedeemProto {
+    fn try_from_box(bx: ErgoBox) -> Option<RedeemProto> {
         if let Some(ref tokens) = bx.tokens {
             if bx.ergo_tree.template_bytes().ok()? == *REDEEM_TEMPLATE && tokens.len() == 1 {
                 let order_id = OrderId::from(bx.box_id());
@@ -556,7 +622,7 @@ impl TryFromBox for Redeem {
                     .v
                     .try_extract_into::<i64>()
                     .ok()?;
-                return Some(Redeem {
+                return Some(RedeemProto {
                     order_id,
                     redeemer_prop,
                     bundle_key,
@@ -570,6 +636,26 @@ impl TryFromBox for Redeem {
     }
 }
 
+/// This type exists to wrap over `RedeemProto`.
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+pub enum OrderProto {
+    Deposit(AsBox<Deposit>),
+    Redeem(AsBox<RedeemProto>),
+    Compound(Compound),
+}
+
+impl OnChainOrderId for OrderProto {
+    type TOrderId = OrderId;
+
+    fn get_self_ref(&self) -> Self::TOrderId {
+        match self {
+            OrderProto::Deposit(AsBox(_, deposit)) => deposit.order_id,
+            OrderProto::Redeem(AsBox(_, redeem)) => redeem.order_id,
+            OrderProto::Compound(compound) => compound.order_id(),
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Clone, Hash, Serialize, Deserialize)]
 pub enum Order {
     Deposit(AsBox<Deposit>),
@@ -577,9 +663,8 @@ pub enum Order {
     Compound(Compound),
 }
 
-impl OnChainOrder for Order {
+impl OnChainOrderId for Order {
     type TOrderId = OrderId;
-    type TEntityId = PoolId;
 
     fn get_self_ref(&self) -> Self::TOrderId {
         match self {
@@ -588,14 +673,15 @@ impl OnChainOrder for Order {
             Order::Compound(compound) => compound.order_id(),
         }
     }
+}
+
+impl OnChainEntityId for Order {
+    type TEntityId = PoolId;
 
     fn get_entity_ref(&self) -> Self::TEntityId {
         match self {
             Order::Deposit(AsBox(_, deposit)) => deposit.pool_id,
-            Order::Redeem(AsBox(_, _)) => {
-                // Note that the Redeem box does not contain the PoolId.
-                unreachable!()
-            }
+            Order::Redeem(AsBox(_, redeem)) => redeem.pool_id,
             Order::Compound(compound) => compound.pool_id,
         }
     }
@@ -611,11 +697,11 @@ impl Has<Vec<BundleId>> for Order {
     }
 }
 
-impl TryFromBox for Order {
-    fn try_from_box(bx: ErgoBox) -> Option<Order> {
+impl TryFromBox for OrderProto {
+    fn try_from_box(bx: ErgoBox) -> Option<OrderProto> {
         Deposit::try_from_box(bx.clone())
-            .map(|d| Order::Deposit(AsBox(bx.clone(), d)))
-            .or_else(|| Redeem::try_from_box(bx.clone()).map(|r| Order::Redeem(AsBox(bx, r))))
+            .map(|d| OrderProto::Deposit(AsBox(bx.clone(), d)))
+            .or_else(|| RedeemProto::try_from_box(bx.clone()).map(|r| OrderProto::Redeem(AsBox(bx, r))))
     }
 }
 
@@ -645,13 +731,13 @@ mod tests {
     use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 
     use crate::data::context::ExecutionContext;
-    use crate::data::order::{Deposit, Order};
+    use crate::data::order::{Deposit, OrderProto};
     use crate::data::pool::Pool;
     use crate::data::AsBox;
     use crate::executor::RunOrder;
     use crate::prover::{SigmaProver, Wallet};
 
-    use super::Redeem;
+    use super::RedeemProto;
 
     fn trivial_prop() -> ErgoTree {
         ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap()
@@ -675,7 +761,7 @@ mod tests {
             "index": 0
         }"#;
         let bx: ErgoBox = serde_json::from_str(sample_json).unwrap();
-        let res = Order::try_from_box(bx);
+        let res = OrderProto::try_from_box(bx);
         println!("{:?}", res);
         assert!(res.is_some())
     }
@@ -744,7 +830,7 @@ mod tests {
           }
         "#;
         let redeem_box: ErgoBox = serde_json::from_str(redeem_json).unwrap();
-        let _ = Redeem::try_from_box(redeem_box).unwrap();
+        let _ = RedeemProto::try_from_box(redeem_box).unwrap();
     }
 
     #[test]

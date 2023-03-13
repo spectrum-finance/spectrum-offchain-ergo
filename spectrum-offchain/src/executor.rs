@@ -14,7 +14,7 @@ use crate::backlog::Backlog;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::resolve_entity_state;
 use crate::data::unique_entity::{Predicted, Traced};
-use crate::data::{OnChainEntity, OnChainOrder};
+use crate::data::{OnChainEntity, OnChainEntityId, OnChainOrderId};
 use crate::network::ErgoNetwork;
 use crate::transaction::{TransactionCandidate, UnsignedTransactionOps};
 
@@ -39,7 +39,7 @@ impl<O> RunOrderError<O> {
     }
 }
 
-pub trait RunOrder<TEntity, TCtx>: OnChainOrder + Sized {
+pub trait RunOrder<TEntity, TCtx>: Sized {
     /// Try to run the given `TOrd` against the given `TEntity`.
     /// Returns transaction and the next state of the persistent entity in the case of success.
     /// Returns `RunOrderError<TOrd>` otherwise.
@@ -71,8 +71,8 @@ pub struct OrderExecutor<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity> {
 impl<'a, TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity> Executor
     for OrderExecutor<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity>
 where
-    TOrd: OnChainOrder + RunOrder<TEntity, TCtx> + Clone + Display,
-    TOrd::TOrderId: Clone,
+    TOrd: OnChainOrderId + OnChainEntityId + RunOrder<TEntity, TCtx> + Clone + Display,
+    <TOrd as OnChainOrderId>::TOrderId: Clone,
     TEntity: OnChainEntity + Clone,
     TEntity::TEntityId: Copy,
     TOrd::TEntityId: IsEqual<TEntity::TEntityId>,
@@ -111,7 +111,7 @@ where
                     }
                     Err(RunOrderError::Fatal(err, ord)) => {
                         warn!("Order dropped due to fatal error {}", err);
-                        self.backlog.remove(ord.get_self_ref()).await;
+                        self.backlog.remove(OnChainOrderId::get_self_ref(&ord)).await;
                     }
                 }
                 return Ok(());

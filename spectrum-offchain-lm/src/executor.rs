@@ -16,7 +16,7 @@ use spectrum_offchain::backlog::Backlog;
 use spectrum_offchain::box_resolver::persistence::EntityRepo;
 use spectrum_offchain::box_resolver::resolve_entity_state;
 use spectrum_offchain::data::unique_entity::{Predicted, Traced};
-use spectrum_offchain::data::{Has, OnChainEntity, OnChainOrder};
+use spectrum_offchain::data::{Has, OnChainEntity, OnChainEntityId, OnChainOrderId};
 use spectrum_offchain::executor::{
     generate_invalidations, parse_err, Executor, Invalidation, NodeSubmitTxError, OrderType, RunOrderError,
 };
@@ -41,7 +41,7 @@ pub trait ProduceExtra {
     type TExtraOut;
 }
 
-pub trait RunOrder: OnChainOrder + ConsumeExtra + ProduceExtra + Sized {
+pub trait RunOrder: ConsumeExtra + ProduceExtra + Sized {
     /// Try to run the given `Order` against the given `Pool`.
     /// Returns transaction, next state of the pool and optionally staking bundle in the case of success.
     /// Returns `RunOrderError<TOrd>` otherwise.
@@ -129,22 +129,8 @@ where
         if let Some(ord) = next_ord {
             trace!(target: "offchain_lm", "Order acquired [{:?}]", ord.get_self_ref());
 
-            // Note: if we're dealing with a Redeem order, then the PoolId must be obtained from
-            // its associated staking bundle. We cannot call `ord.get_entity_ref()` here; app will
-            // panic!
-            let entity_id = if let Order::Redeem(ref r) = ord {
-                let bundle_repo = self.bundle_repo.lock().await;
-                let bundle_id = BundleId::from(r.1.bundle_key.token_id);
-                trace!(target: "offchain_lm", "Requesting bundle with id [{:?}]", bundle_id);
-                if let Some(b) = bundle_repo.get_last_confirmed(bundle_id).await {
-                    b.0 .1.pool_id
-                } else {
-                    trace!(target: "offchain_lm", "Redeem order #{:?} is out of date", r.1.get_self_ref());
-                    return Err(());
-                }
-            } else {
-                ord.get_entity_ref()
-            };
+            let entity_id = ord.get_entity_ref();
+
             if let Some(pool) = resolve_entity_state(entity_id, Arc::clone(&self.pool_repo)).await {
                 trace!(target: "offchain_lm", "Pool for order [{:?}] is [{:?}], pool_state: {:?}", ord.get_self_ref(), pool.get_self_ref(), pool);
                 let conf = pool.1.conf;
@@ -194,7 +180,7 @@ where
                         ord.clone(),
                     )),
                     (Order::Redeem(redeem), None) => {
-                        error!("Bunle not found for Redeem [{:?}]", redeem.get_self_ref());
+                        error!("Bunle not found for Redeem [{:?}]", redeem.get_self_ref(),);
                         return Err(());
                     }
                 };

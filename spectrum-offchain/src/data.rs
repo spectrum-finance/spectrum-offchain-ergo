@@ -9,11 +9,14 @@ pub trait Has<T> {
     fn get<U: IsEqual<T>>(&self) -> T;
 }
 
-pub trait OnChainOrder {
+pub trait OnChainOrderId {
     type TOrderId: Eq + Hash;
-    type TEntityId: Eq + Hash;
 
     fn get_self_ref(&self) -> Self::TOrderId;
+}
+
+pub trait OnChainEntityId {
+    type TEntityId: Eq + Hash;
 
     fn get_entity_ref(&self) -> Self::TEntityId;
 }

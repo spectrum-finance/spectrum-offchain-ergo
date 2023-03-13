@@ -6,13 +6,13 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::backlog::data::BacklogOrder;
-use crate::data::OnChainOrder;
+use crate::data::OnChainOrderId;
 use ergo_chain_sync::rocksdb::RocksConfig;
 
 #[async_trait(?Send)]
 pub trait BacklogStore<TOrd>
 where
-    TOrd: OnChainOrder,
+    TOrd: OnChainOrderId,
 {
     async fn put(&mut self, ord: BacklogOrder<TOrd>);
     async fn exists(&self, ord_id: TOrd::TOrderId) -> bool;
@@ -38,7 +38,7 @@ impl BacklogStoreRocksDB {
 #[async_trait(?Send)]
 impl<TOrd> BacklogStore<TOrd> for BacklogStoreRocksDB
 where
-    TOrd: OnChainOrder + Serialize + DeserializeOwned + Send + 'static,
+    TOrd: OnChainOrderId + Serialize + DeserializeOwned + Send + 'static,
     TOrd::TOrderId: Serialize + DeserializeOwned + Send,
 {
     async fn put(&mut self, ord: BacklogOrder<TOrd>) {
