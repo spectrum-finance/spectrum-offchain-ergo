@@ -8,14 +8,15 @@ use std::task::{Context, Poll};
 use ergo_lib::chain::transaction::{Transaction, TxId};
 use futures::stream::FusedStream;
 use futures::Stream;
+use log::info;
 use wasm_timer::Delay;
 
 use ergo_chain_sync::model::Block;
 use ergo_chain_sync::{ChainUpgrade, InitChainSync};
 
-use crate::client::node::ErgoNetwork;
+use crate::client::node::{ErgoNetwork};
 
-mod client;
+pub mod client;
 
 #[derive(Debug, Clone)]
 pub enum MempoolUpdate {
@@ -61,29 +62,41 @@ impl SyncState {
 }
 
 pub struct MempoolSyncConf {
-    sync_interval: Delay,
+    pub sync_interval: Delay,
 }
 
 #[pin_project::pin_project]
-pub struct MempoolSync<TClient, TChainSync> {
+pub struct MempoolSync<'a, TClient, TChainSync> {
     conf: MempoolSyncConf,
-    client: TClient,
+    client: &'a TClient,
     #[pin]
     chain_sync: TChainSync,
     state: Rc<RefCell<SyncState>>,
 }
 
-impl<TClient, TChainSync> MempoolSync<TClient, TChainSync>
-where
-    TClient: ErgoNetwork,
+impl<'a, TClient, TChainSync> MempoolSync<'a, TClient, TChainSync>
+    where
+        TClient: ErgoNetwork,
 {
     pub async fn init<TChainSyncMaker: InitChainSync<TChainSync>>(
         conf: MempoolSyncConf,
-        client: TClient,
+        client: &'a TClient,
         chain_sync_maker: TChainSyncMaker,
-    ) -> Self {
+    ) -> MempoolSync<'a, TClient, TChainSync> {
         let chain_tip_height = client.get_best_height().await;
-        let start_at = chain_tip_height as usize - KEEP_LAST_BLOCKS;
+        let start_at = match chain_tip_height {
+            Ok(height) => {
+                height as usize - KEEP_LAST_BLOCKS
+            }
+            Err(error) => {
+                info!(
+                    target: "mempool_sync",
+                    "# Failed to request best height: {}",
+                    error,
+                );
+                0
+            }
+        };
         let chain_sync = chain_sync_maker.init(start_at as u32, None).await;
         Self {
             conf,
@@ -101,13 +114,24 @@ async fn sync<'a, TClient: ErgoNetwork>(client: &TClient, mut state: RefMut<'a, 
     let mut pool: Vec<Transaction> = Vec::new();
     let mut offset = 0;
     loop {
-        let mut txs = client.fetch_mempool(offset, TXS_PER_REQUEST).await;
-        let num_txs = txs.len();
-        pool.append(&mut txs);
-        if num_txs < TXS_PER_REQUEST {
-            break;
+        let txs = client.fetch_mempool(offset, TXS_PER_REQUEST).await;
+        match txs {
+            Ok(mut mempool_txs) => {
+                let num_txs = mempool_txs.len();
+                pool.append(mempool_txs.as_mut());
+                if num_txs < TXS_PER_REQUEST {
+                    break;
+                }
+                offset += num_txs
+            }
+            Err(error) => {
+                info!(
+                    target: "mempool_sync",
+                    "# Failed to request next mempool transactions: {}",
+                    error,
+                );
+            }
         }
-        offset += num_txs;
     }
     let new_pool_ids = pool.iter().map(|tx| tx.id()).collect::<HashSet<_>>();
     let old_pool_ids = state.mempool_projection.keys().cloned().collect::<HashSet<_>>();
@@ -132,15 +156,16 @@ async fn sync<'a, TClient: ErgoNetwork>(client: &TClient, mut state: RefMut<'a, 
     }
 }
 
-impl<TClient, TChainSync> Stream for MempoolSync<TClient, TChainSync>
-where
-    TClient: ErgoNetwork,
-    TChainSync: Stream<Item = ChainUpgrade> + Unpin,
+impl<'a, TClient, TChainSync> Stream for MempoolSync<'a, TClient, TChainSync>
+    where
+        TClient: ErgoNetwork,
+        TChainSync: Stream<Item=ChainUpgrade> + Unpin,
 {
     type Item = MempoolUpdate;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
+        let client: &TClient = this.client;
         if Future::poll(Pin::new(&mut this.conf.sync_interval), cx).is_ready() {
             let mut state = this.state.borrow_mut();
             // Sync chain tail
@@ -152,7 +177,7 @@ where
                     Poll::Pending => break,
                 }
             }
-            let mut sync_fut = Box::pin(sync(this.client, state));
+            let mut sync_fut = Box::pin(sync(client, state));
             // Drive sync to completion
             loop {
                 match sync_fut.as_mut().poll(cx) {
@@ -168,9 +193,9 @@ where
     }
 }
 
-impl<TClient, TChainSync> FusedStream for MempoolSync<TClient, TChainSync>
-where
-    MempoolSync<TClient, TChainSync>: Stream,
+impl<'a, TClient, TChainSync> FusedStream for MempoolSync<'a, TClient, TChainSync>
+    where
+        MempoolSync<'a, TClient, TChainSync>: Stream,
 {
     /// MempoolSync stream is never terminated.
     fn is_terminated(&self) -> bool {

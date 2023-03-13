@@ -23,7 +23,9 @@ use crate::data::miner::MinerOutput;
 use crate::data::order::{Deposit, Redeem};
 use crate::data::redeemer::{DepositOutput, RedeemOutput, RewardOutput};
 use crate::data::{AsBox, PoolId, PoolStateId};
-use crate::ergo::{NanoErg, DEFAULT_MINER_FEE, MAX_VALUE, MIN_SAFE_BOX_VALUE, UNIT_VALUE, MIN_SAFE_FAT_BOX_VALUE};
+use crate::ergo::{
+    NanoErg, DEFAULT_MINER_FEE, MAX_VALUE, MIN_SAFE_BOX_VALUE, MIN_SAFE_FAT_BOX_VALUE, UNIT_VALUE,
+};
 use crate::validators::POOL_VALIDATOR;
 
 pub const INIT_EPOCH_IX: u32 = 1;
@@ -497,7 +499,7 @@ mod tests {
         Pool {
             pool_id: PoolId::from(TokenId::from(random_digest())),
             budget_rem: TypedAssetAmount::new(TokenId::from(random_digest()), program_budget),
-            reserves_lq: TypedAssetAmount::new(TokenId::from(random_digest()), 0),
+            reserves_lq: TypedAssetAmount::new(TokenId::from(random_digest()), 1),
             reserves_vlq: TypedAssetAmount::new(TokenId::from(random_digest()), MAX_VALUE),
             reserves_tmp: TypedAssetAmount::new(TokenId::from(random_digest()), MAX_VALUE),
             epoch_ix: None,

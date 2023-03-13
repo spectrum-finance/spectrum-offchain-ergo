@@ -483,7 +483,9 @@ fn test_deploy_pool_chain_tx() {
     let secret_key = SecretKey::random_dlog();
     let address = secret_key.get_address_from_public_image();
 
-    let SecretKey::DlogSecretKey(dpi) = secret_key.clone();
+    let SecretKey::DlogSecretKey(dpi) = secret_key.clone() else {
+        unreachable!();
+    };
     let wallet = WalletSecret::from(dpi);
     let value = BoxValue::try_from(10000000000000_u64).unwrap();
     let tx_fee = BoxValue::from(DEFAULT_MINER_FEE);
