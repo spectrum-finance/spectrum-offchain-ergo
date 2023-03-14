@@ -14,11 +14,11 @@ use crate::{
 };
 
 /// Convert stream of `OrderUpdate<OrderProto, OrderId>>` to stream of
-/// `OrderUpdate<OrderProto, OrderId>>` for backlog stream.
+/// `Option<OrderUpdate<OrderProto, OrderId>>>` for backlog stream.
 pub fn convert_order_proto<'a, S, TBundles>(
     bundle_repo: Arc<Mutex<TBundles>>,
     upstream: S,
-) -> impl Stream<Item = OrderUpdate<Order, OrderId>> + 'a
+) -> impl Stream<Item = Option<OrderUpdate<Order, OrderId>>> + 'a
 where
     S: Stream<Item = OrderUpdate<OrderProto, OrderId>> + 'a,
     TBundles: BundleRepo + 'a,
@@ -26,7 +26,7 @@ where
     upstream.then(move |upd| {
         let bundle_repo = bundle_repo.clone();
         async move {
-            match upd {
+            Some(match upd {
                 OrderUpdate::NewOrder(pending_order) => {
                     let order = match pending_order.order {
                         OrderProto::Deposit(d) => Order::Deposit(d),
@@ -34,7 +34,9 @@ where
                             let bundle_repo = bundle_repo.lock().await;
                             let bundle_id = BundleId::from(r.1.bundle_key.token_id);
                             trace!(target: "offchain_lm", "Requesting bundle with id [{:?}]", bundle_id);
-                            let bundle = bundle_repo.get_last_confirmed(bundle_id).await.unwrap();
+                            let Some(bundle) = bundle_repo.get_last_confirmed(bundle_id).await else {
+                                return None;
+                            };
                             let pool_id = bundle.0 .1.pool_id;
                             let redeem = r.1.finalize(pool_id);
                             Order::Redeem(AsBox(r.0, redeem))
@@ -48,7 +50,7 @@ where
                     OrderUpdate::NewOrder(pending_order)
                 }
                 OrderUpdate::OrderEliminated(elim_oid) => OrderUpdate::OrderEliminated(elim_oid),
-            }
+            })
         }
     })
 }
