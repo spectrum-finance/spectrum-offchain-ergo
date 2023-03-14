@@ -13,7 +13,7 @@ use serde::ser::SerializeTupleStruct;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use type_equalities::IsEqual;
 
-use spectrum_offchain::data::{Has, OnChainEntity, OnChainOrderId};
+use spectrum_offchain::data::{Has, OnChainEntity, OnChainOrder};
 use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 
 use crate::executor::{ConsumeExtra, ProduceExtra};
@@ -287,15 +287,6 @@ impl<T> AsBox<T> {
     }
 }
 
-impl<T, K> Has<K> for AsBox<T>
-where
-    T: Has<K>,
-{
-    fn get<U: IsEqual<K>>(&self) -> K {
-        self.1.get::<K>()
-    }
-}
-
 impl<T> TryFromBox for AsBox<T>
 where
     T: TryFromBox,
@@ -321,14 +312,19 @@ where
     }
 }
 
-impl<T> OnChainOrderId for AsBox<T>
+impl<T> OnChainOrder for AsBox<T>
 where
-    T: OnChainOrderId,
+    T: OnChainOrder,
 {
     type TOrderId = T::TOrderId;
+    type TEntityId = T::TEntityId;
 
     fn get_self_ref(&self) -> Self::TOrderId {
         self.1.get_self_ref()
+    }
+
+    fn get_entity_ref(&self) -> Self::TEntityId {
+        self.1.get_entity_ref()
     }
 }
 

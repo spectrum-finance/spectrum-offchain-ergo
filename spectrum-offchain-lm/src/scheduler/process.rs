@@ -4,7 +4,7 @@ use std::time::Duration;
 use chrono::Utc;
 use futures::{Stream, StreamExt};
 use log::info;
-use spectrum_offchain::data::OnChainOrderId;
+use spectrum_offchain::data::OnChainOrder;
 use stream_throttle::{ThrottlePool, ThrottleRate, ThrottledStream};
 use tokio::sync::Mutex;
 

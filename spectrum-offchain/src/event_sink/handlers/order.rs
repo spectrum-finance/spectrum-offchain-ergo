@@ -12,7 +12,7 @@ use ergo_mempool_sync::MempoolUpdate;
 
 use crate::backlog::Backlog;
 use crate::data::order::{OrderUpdate, PendingOrder};
-use crate::data::{OnChainEntityId, OnChainOrderId};
+use crate::data::{Has, OnChainOrder};
 use crate::event_sink::handlers::types::TryFromBox;
 use crate::event_sink::types::EventHandler;
 use crate::event_source::data::LedgerTxEvent;
@@ -41,9 +41,9 @@ impl<TSink, TOrd, TOrdProto, TBacklog> OrderUpdatesHandler<TSink, TOrd, TOrdProt
 impl<TSink, TOrd, TOrdProto, TBacklog> EventHandler<LedgerTxEvent>
     for OrderUpdatesHandler<TSink, TOrd, TOrdProto, TBacklog>
 where
-    TSink: Sink<OrderUpdate<TOrdProto>> + Unpin,
-    TOrdProto: OnChainOrderId + TryFromBox,
-    TOrd: OnChainOrderId<TOrderId = <TOrdProto as OnChainOrderId>::TOrderId> + OnChainEntityId,
+    TSink: Sink<OrderUpdate<TOrdProto, TOrd::TOrderId>> + Unpin,
+    TOrd: OnChainOrder,
+    TOrdProto: Has<TOrd::TOrderId> + TryFromBox,
     TOrd::TOrderId: From<BoxId> + Copy,
     TBacklog: Backlog<TOrd>,
 {
@@ -86,7 +86,9 @@ where
                         is_success = true;
                         let _ = self
                             .topic
-                            .feed(OrderUpdate::OrderEliminated(order.get_self_ref()))
+                            .feed(OrderUpdate::OrderEliminated(
+                                <TOrdProto as Has<TOrd::TOrderId>>::get::<TOrd::TOrderId>(&order),
+                            ))
                             .await;
                     }
                 }
@@ -106,8 +108,8 @@ where
 impl<TSink, TOrd, TOrdProto, TBacklog> EventHandler<MempoolUpdate>
     for OrderUpdatesHandler<TSink, TOrd, TOrdProto, TBacklog>
 where
-    TSink: Sink<OrderUpdate<TOrd>> + Unpin,
-    TOrd: OnChainOrderId + TryFromBox,
+    TSink: Sink<OrderUpdate<TOrd, TOrd::TOrderId>> + Unpin,
+    TOrd: OnChainOrder + TryFromBox,
     TOrd::TOrderId: From<BoxId> + Copy,
     TBacklog: Backlog<TOrd>,
 {

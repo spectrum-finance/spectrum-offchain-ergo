@@ -20,7 +20,7 @@ use type_equalities::IsEqual;
 
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
 use spectrum_offchain::data::unique_entity::Predicted;
-use spectrum_offchain::data::{Has, OnChainEntityId, OnChainOrderId};
+use spectrum_offchain::data::{Has, OnChainOrder};
 use spectrum_offchain::domain::TypedAssetAmount;
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
 use spectrum_offchain::executor::RunOrderError;
@@ -73,11 +73,16 @@ impl ProduceExtra for Compound {
     );
 }
 
-impl OnChainOrderId for Compound {
+impl OnChainOrder for Compound {
     type TOrderId = OrderId;
+    type TEntityId = PoolId;
 
     fn get_self_ref(&self) -> Self::TOrderId {
         self.order_id()
+    }
+
+    fn get_entity_ref(&self) -> Self::TEntityId {
+        self.pool_id
     }
 }
 
@@ -251,11 +256,16 @@ impl ProduceExtra for Deposit {
     type TExtraOut = Predicted<AsBox<StakingBundle>>;
 }
 
-impl OnChainOrderId for Deposit {
+impl OnChainOrder for Deposit {
     type TOrderId = OrderId;
+    type TEntityId = PoolId;
 
     fn get_self_ref(&self) -> Self::TOrderId {
         self.order_id
+    }
+
+    fn get_entity_ref(&self) -> Self::TEntityId {
+        self.pool_id
     }
 }
 
@@ -515,26 +525,23 @@ impl ProduceExtra for Redeem {
     type TExtraOut = ();
 }
 
-impl OnChainOrderId for RedeemProto {
-    type TOrderId = OrderId;
-
-    fn get_self_ref(&self) -> Self::TOrderId {
+impl Has<OrderId> for RedeemProto {
+    fn get<U: IsEqual<OrderId>>(&self) -> OrderId {
         self.order_id
     }
 }
 
-impl OnChainEntityId for Redeem {
+impl OnChainOrder for Redeem {
+    type TOrderId = OrderId;
+
     type TEntityId = PoolId;
+
+    fn get_self_ref(&self) -> Self::TOrderId {
+        self.order_id
+    }
+
     fn get_entity_ref(&self) -> Self::TEntityId {
         self.pool_id
-    }
-}
-
-impl OnChainOrderId for Redeem {
-    type TOrderId = OrderId;
-
-    fn get_self_ref(&self) -> Self::TOrderId {
-        self.order_id
     }
 }
 
@@ -644,10 +651,8 @@ pub enum OrderProto {
     Compound(Compound),
 }
 
-impl OnChainOrderId for OrderProto {
-    type TOrderId = OrderId;
-
-    fn get_self_ref(&self) -> Self::TOrderId {
+impl Has<OrderId> for OrderProto {
+    fn get<U: IsEqual<OrderId>>(&self) -> OrderId {
         match self {
             OrderProto::Deposit(AsBox(_, deposit)) => deposit.order_id,
             OrderProto::Redeem(AsBox(_, redeem)) => redeem.order_id,
@@ -663,8 +668,9 @@ pub enum Order {
     Compound(Compound),
 }
 
-impl OnChainOrderId for Order {
+impl OnChainOrder for Order {
     type TOrderId = OrderId;
+    type TEntityId = PoolId;
 
     fn get_self_ref(&self) -> Self::TOrderId {
         match self {
@@ -673,10 +679,6 @@ impl OnChainOrderId for Order {
             Order::Compound(compound) => compound.order_id(),
         }
     }
-}
-
-impl OnChainEntityId for Order {
-    type TEntityId = PoolId;
 
     fn get_entity_ref(&self) -> Self::TEntityId {
         match self {

@@ -12,7 +12,7 @@ use crate::{
     bundle::BundleRepo,
     data::{
         order::{Order, OrderProto},
-        AsBox, BundleId,
+        AsBox, BundleId, OrderId,
     },
 };
 
@@ -23,7 +23,7 @@ pub fn backlog_stream<'a, S, TBacklog, TBundles>(
     upstream: S,
 ) -> impl Stream<Item = ()> + 'a
 where
-    S: Stream<Item = OrderUpdate<OrderProto>> + 'a,
+    S: Stream<Item = OrderUpdate<OrderProto, OrderId>> + 'a,
     TBacklog: Backlog<Order> + 'a,
     TBundles: BundleRepo + 'a,
 {

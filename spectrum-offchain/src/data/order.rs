@@ -1,9 +1,9 @@
-use super::OnChainOrderId;
+use super::{Has, OnChainOrder};
 
 #[derive(Debug, Hash, Clone, Eq, PartialEq)]
-pub enum OrderUpdate<TOrd: OnChainOrderId> {
+pub enum OrderUpdate<TOrd: Has<TOrderId>, TOrderId> {
     NewOrder(PendingOrder<TOrd>),
-    OrderEliminated(TOrd::TOrderId),
+    OrderEliminated(TOrderId),
 }
 
 #[derive(Debug, Hash, Clone, Eq, PartialEq)]

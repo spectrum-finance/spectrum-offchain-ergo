@@ -37,9 +37,12 @@ use crate::bundle::rocksdb::BundleRepoRocksDB;
 use crate::bundle::BundleRepoTracing;
 use crate::data::bundle::IndexedStakingBundle;
 use crate::data::funding::{ExecutorWallet, FundingUpdate};
-use crate::data::order::{Order, OrderProto};
 use crate::data::pool::Pool;
 use crate::data::AsBox;
+use crate::data::{
+    order::{Order, OrderProto},
+    OrderId,
+};
 use crate::event_sink::handlers::bundle::ConfirmedBundleUpdateHadler;
 use crate::event_sink::handlers::funding::ConfirmedFundingHadler;
 use crate::event_sink::handlers::program::ConfirmedProgramUpdateHandler;
@@ -156,7 +159,7 @@ async fn main() {
     let bundle_update_stream = boxed(bundle_update_stream(bundle_recv, Arc::clone(&bundles)));
 
     // orders
-    let (order_snd, order_recv) = mpsc::unbounded::<OrderUpdate<OrderProto>>();
+    let (order_snd, order_recv) = mpsc::unbounded::<OrderUpdate<OrderProto, OrderId>>();
     let order_han = OrderUpdatesHandler::<_, Order, OrderProto, _>::new(
         order_snd,
         Arc::clone(&backlog),

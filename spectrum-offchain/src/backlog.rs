@@ -15,7 +15,7 @@ use type_equalities::IsEqual;
 use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
 use crate::backlog::persistence::BacklogStore;
 use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
-use crate::data::OnChainOrderId;
+use crate::data::OnChainOrder;
 
 pub mod data;
 pub mod persistence;
@@ -25,7 +25,7 @@ pub mod persistence;
 #[async_trait(?Send)]
 pub trait Backlog<TOrd>
 where
-    TOrd: OnChainOrderId,
+    TOrd: OnChainOrder,
 {
     /// Add new pending order to backlog.
     async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
@@ -73,7 +73,7 @@ impl<B> BacklogTracing<B> {
 #[async_trait(?Send)]
 impl<TOrd, B> Backlog<TOrd> for BacklogTracing<B>
 where
-    TOrd: OnChainOrderId + Debug + Clone,
+    TOrd: OnChainOrder + Debug + Clone,
     TOrd::TOrderId: Debug + Clone,
     B: Backlog<TOrd>,
 {
@@ -165,7 +165,7 @@ struct WeightedOrder<TOrderId> {
 
 impl<TOrd> From<BacklogOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrderId,
+    TOrd: OnChainOrder,
 {
     fn from(bo: BacklogOrder<TOrd>) -> Self {
         Self {
@@ -177,7 +177,7 @@ where
 
 impl<TOrd> From<PendingOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrderId,
+    TOrd: OnChainOrder,
 {
     fn from(po: PendingOrder<TOrd>) -> Self {
         Self {
@@ -189,7 +189,7 @@ where
 
 impl<TOrd> From<ProgressingOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrderId,
+    TOrd: OnChainOrder,
 {
     fn from(po: ProgressingOrder<TOrd>) -> Self {
         Self {
@@ -201,7 +201,7 @@ where
 
 impl<TOrd> From<SuspendedOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrderId,
+    TOrd: OnChainOrder,
 {
     fn from(so: SuspendedOrder<TOrd>) -> Self {
         Self {
@@ -213,7 +213,7 @@ where
 
 pub struct BacklogService<TOrd, TStore>
 where
-    TOrd: OnChainOrderId + Hash + Eq,
+    TOrd: OnChainOrder + Hash + Eq,
 {
     store: TStore,
     conf: BacklogConfig,
@@ -229,7 +229,7 @@ where
 
 impl<TOrd, TStore> BacklogService<TOrd, TStore>
 where
-    TOrd: OnChainOrderId + Weighted + Hash + Eq,
+    TOrd: OnChainOrder + Weighted + Hash + Eq,
     TOrd::TOrderId: Debug,
     TStore: BacklogStore<TOrd>,
 {
@@ -275,7 +275,7 @@ async fn try_pop_max_order<TOrd, TStore>(
     pq: &mut PriorityQueue<WeightedOrder<TOrd::TOrderId>, OrderWeight>,
 ) -> Option<TOrd>
 where
-    TOrd: OnChainOrderId + Weighted + Hash + Eq,
+    TOrd: OnChainOrder + Weighted + Hash + Eq,
     TStore: BacklogStore<TOrd>,
 {
     while let Some((ord, _)) = pq.pop() {
@@ -298,7 +298,7 @@ impl<TOrd, TStore> Backlog<TOrd> for BacklogService<TOrd, TStore>
 where
     TStore: BacklogStore<TOrd>,
     TOrd::TOrderId: Debug,
-    TOrd: OnChainOrderId + Weighted + Hash + Eq + Clone,
+    TOrd: OnChainOrder + Weighted + Hash + Eq + Clone,
 {
     async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
     where
@@ -414,7 +414,7 @@ mod tests {
     use crate::backlog::persistence::{BacklogStore, BacklogStoreRocksDB};
     use crate::backlog::{Backlog, BacklogConfig, BacklogService};
     use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
-    use crate::data::{Has, OnChainOrderId};
+    use crate::data::{Has, OnChainOrder};
 
     #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
     struct MockOrderId(i64);
@@ -452,23 +452,9 @@ mod tests {
         }
     }
 
-    impl Has<MockOrderId> for MockOrder {
-        fn get<U: IsEqual<MockOrderId>>(&self) -> MockOrderId {
-            self.order_id
-        }
-    }
-
     impl Weighted for MockOrder {
         fn weight(&self) -> OrderWeight {
             self.weight
-        }
-    }
-
-    impl OnChainOrderId for MockOrder {
-        type TOrderId = MockOrderId;
-
-        fn get_self_ref(&self) -> Self::TOrderId {
-            self.order_id
         }
     }
 
@@ -482,6 +468,18 @@ mod tests {
                 inner: HashMap::new(),
             }
         }
+    }
+
+    impl OnChainOrder for MockOrder {
+        type TOrderId = MockOrderId;
+
+        type TEntityId = ();
+
+        fn get_self_ref(&self) -> Self::TOrderId {
+            self.order_id
+        }
+
+        fn get_entity_ref(&self) -> Self::TEntityId {}
     }
 
     #[async_trait(?Send)]

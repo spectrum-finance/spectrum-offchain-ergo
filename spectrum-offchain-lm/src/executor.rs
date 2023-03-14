@@ -16,7 +16,7 @@ use spectrum_offchain::backlog::Backlog;
 use spectrum_offchain::box_resolver::persistence::EntityRepo;
 use spectrum_offchain::box_resolver::resolve_entity_state;
 use spectrum_offchain::data::unique_entity::{Predicted, Traced};
-use spectrum_offchain::data::{Has, OnChainEntity, OnChainEntityId, OnChainOrderId};
+use spectrum_offchain::data::{Has, OnChainEntity, OnChainOrder};
 use spectrum_offchain::executor::{
     generate_invalidations, parse_err, Executor, Invalidation, NodeSubmitTxError, OrderType, RunOrderError,
 };
