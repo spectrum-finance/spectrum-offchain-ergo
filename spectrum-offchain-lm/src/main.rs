@@ -169,7 +169,7 @@ async fn main() {
 
     let backlog_stream = boxed(backlog_stream(
         Arc::clone(&backlog),
-        convert_order_proto(bundles.clone(), order_recv),
+        convert_order_proto(bundles.clone(), order_recv).filter_map(|o| async move { o }),
     ));
     // funding
     let (funding_snd, funding_recv) = mpsc::unbounded::<Confirmed<FundingUpdate>>();
