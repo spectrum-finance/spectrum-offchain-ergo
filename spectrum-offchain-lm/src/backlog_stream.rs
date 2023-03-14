@@ -41,8 +41,8 @@ where
                             let bundle_repo = bundle_repo.lock().await;
                             let bundle_id = BundleId::from(r.1.bundle_key.token_id);
                             trace!(target: "offchain_lm", "Requesting bundle with id [{:?}]", bundle_id);
-                            let b = bundle_repo.get_last_confirmed(bundle_id).await.unwrap();
-                            let pool_id = b.0 .1.pool_id;
+                            let bundle = bundle_repo.get_last_confirmed(bundle_id).await.unwrap();
+                            let pool_id = bundle.0 .1.pool_id;
                             let redeem = r.1.finalize(pool_id);
                             Order::Redeem(AsBox(r.0, redeem))
                         }
