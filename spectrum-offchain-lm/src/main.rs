@@ -3,6 +3,7 @@ use std::sync::{Arc, Once};
 use clap::{arg, Parser};
 use ergo_lib::ergotree_ir::chain::address::{AddressEncoder, NetworkPrefix};
 use futures::channel::mpsc;
+use futures::future::ready;
 use futures::stream::select_all;
 use futures::StreamExt;
 use isahc::{prelude::*, HttpClient};
@@ -169,7 +170,7 @@ async fn main() {
 
     let backlog_stream = boxed(backlog_stream(
         Arc::clone(&backlog),
-        convert_order_proto(bundles.clone(), order_recv).filter_map(|o| async move { o }),
+        convert_order_proto(bundles.clone(), order_recv).filter_map(ready),
     ));
     // funding
     let (funding_snd, funding_recv) = mpsc::unbounded::<Confirmed<FundingUpdate>>();
