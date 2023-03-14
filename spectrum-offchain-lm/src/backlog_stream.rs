@@ -2,10 +2,7 @@ use std::sync::Arc;
 
 use futures::{Stream, StreamExt};
 use log::trace;
-use spectrum_offchain::{
-    backlog::Backlog,
-    data::order::{OrderUpdate, PendingOrder},
-};
+use spectrum_offchain::data::order::{OrderUpdate, PendingOrder};
 use tokio::sync::Mutex;
 
 use crate::{
@@ -16,23 +13,19 @@ use crate::{
     },
 };
 
-/// Create backlog stream that drives processing of order events.
-pub fn backlog_stream<'a, S, TBacklog, TBundles>(
-    backlog: Arc<Mutex<TBacklog>>,
+/// Convert stream of `OrderUpdate<OrderProto, OrderId>>` to stream of
+/// `OrderUpdate<OrderProto, OrderId>>` for backlog stream.
+pub fn convert_order_proto<'a, S, TBundles>(
     bundle_repo: Arc<Mutex<TBundles>>,
     upstream: S,
-) -> impl Stream<Item = ()> + 'a
+) -> impl Stream<Item = OrderUpdate<Order, OrderId>> + 'a
 where
     S: Stream<Item = OrderUpdate<OrderProto, OrderId>> + 'a,
-    TBacklog: Backlog<Order> + 'a,
     TBundles: BundleRepo + 'a,
 {
-    trace!(target: "offchain_lm", "Watching for Backlog events..");
     upstream.then(move |upd| {
-        let backlog = Arc::clone(&backlog);
         let bundle_repo = bundle_repo.clone();
         async move {
-            let mut backlog = backlog.lock().await;
             match upd {
                 OrderUpdate::NewOrder(pending_order) => {
                     let order = match pending_order.order {
@@ -52,9 +45,9 @@ where
                         order,
                         timestamp: pending_order.timestamp,
                     };
-                    backlog.put(pending_order).await;
+                    OrderUpdate::NewOrder(pending_order)
                 }
-                OrderUpdate::OrderEliminated(elim_oid) => backlog.remove(elim_oid).await,
+                OrderUpdate::OrderEliminated(elim_oid) => OrderUpdate::OrderEliminated(elim_oid),
             }
         }
     })

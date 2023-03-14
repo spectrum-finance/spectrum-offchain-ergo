@@ -16,6 +16,7 @@ use ergo_chain_sync::client::types::Url;
 use ergo_chain_sync::rocksdb::RocksConfig;
 use ergo_chain_sync::{chain_sync_stream, ChainSync};
 use spectrum_offchain::backlog::persistence::BacklogStoreRocksDB;
+use spectrum_offchain::backlog::process::backlog_stream;
 use spectrum_offchain::backlog::{BacklogConfig, BacklogService, BacklogTracing};
 use spectrum_offchain::box_resolver::persistence::EntityRepoTracing;
 use spectrum_offchain::box_resolver::process::entity_tracking_stream;
@@ -31,7 +32,7 @@ use spectrum_offchain::event_source::event_source_ledger;
 use spectrum_offchain::executor::executor_stream;
 use spectrum_offchain::streaming::boxed;
 
-use crate::backlog_stream::backlog_stream;
+use crate::backlog_stream::convert_order_proto;
 use crate::bundle::process::bundle_update_stream;
 use crate::bundle::rocksdb::BundleRepoRocksDB;
 use crate::bundle::BundleRepoTracing;
@@ -166,7 +167,10 @@ async fn main() {
         config.backlog_config.order_lifespan,
     );
 
-    let backlog_stream = boxed(backlog_stream(Arc::clone(&backlog), bundles.clone(), order_recv));
+    let backlog_stream = boxed(backlog_stream(
+        Arc::clone(&backlog),
+        convert_order_proto(bundles.clone(), order_recv),
+    ));
     // funding
     let (funding_snd, funding_recv) = mpsc::unbounded::<Confirmed<FundingUpdate>>();
     let funding_han = ConfirmedFundingHadler {
