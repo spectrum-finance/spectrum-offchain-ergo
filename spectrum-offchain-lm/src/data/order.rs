@@ -35,6 +35,7 @@ use crate::data::pool::{Pool, PoolOperationError};
 use crate::data::{AsBox, BundleId, BundleStateId, FundingId, OrderId, PoolId};
 use crate::ergo::NanoErg;
 use crate::executor::{ConsumeExtra, ProduceExtra, RunOrder};
+use crate::token_details::TokenDetails;
 use crate::validators::{BUNDLE_VALIDATOR, DEPOSIT_TEMPLATE, REDEEM_TEMPLATE};
 
 #[derive(Debug, Eq, PartialEq, Clone, Hash, Serialize, Deserialize)]
@@ -250,7 +251,7 @@ impl Hash for Deposit {
 }
 
 impl ConsumeExtra for Deposit {
-    type TExtraIn = (String, String);
+    type TExtraIn = TokenDetails;
 }
 
 impl ProduceExtra for Deposit {
@@ -274,7 +275,7 @@ impl RunOrder for AsBox<Deposit> {
     fn try_run(
         self,
         AsBox(pool_in, pool): AsBox<Pool>,
-        token_details: (String, String),
+        token_details: TokenDetails,
         ctx: ExecutionContext,
     ) -> Result<
         (
@@ -285,8 +286,7 @@ impl RunOrder for AsBox<Deposit> {
         RunOrderError<Self>,
     > {
         let AsBox(self_in, self_order) = self.clone();
-        let (token_name, token_desc) = token_details;
-        match pool.apply_deposit(self_order, token_name, token_desc, ctx.clone()) {
+        match pool.apply_deposit(self_order, token_details, ctx.clone()) {
             Ok((next_pool, bundle_proto, user_out, executor_out, miner_out)) => {
                 let inputs = TxIoVec::from_vec(
                     vec![pool_in, self_in]
@@ -747,6 +747,7 @@ mod tests {
     use crate::data::AsBox;
     use crate::executor::RunOrder;
     use crate::prover::{SigmaProver, Wallet};
+    use crate::token_details::TokenDetails;
 
     use super::RedeemProto;
 
@@ -840,7 +841,10 @@ mod tests {
             executor_prop: trivial_prop(),
         };
 
-        let token_details = (String::from(""), String::from(""));
+        let token_details = TokenDetails {
+            name: String::from(""),
+            description: String::from(""),
+        };
         let res = deposit.clone().try_run(pool, token_details, ec);
 
         println!("{:?}", res);

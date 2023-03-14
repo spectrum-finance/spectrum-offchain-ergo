@@ -26,6 +26,7 @@ use crate::data::{AsBox, PoolId, PoolStateId};
 use crate::ergo::{
     NanoErg, DEFAULT_MINER_FEE, MAX_VALUE, MIN_SAFE_BOX_VALUE, MIN_SAFE_FAT_BOX_VALUE, UNIT_VALUE,
 };
+use crate::token_details::{self, TokenDetails};
 use crate::validators::POOL_VALIDATOR;
 
 pub const INIT_EPOCH_IX: u32 = 1;
@@ -136,8 +137,7 @@ impl Pool {
     pub fn apply_deposit(
         self,
         deposit: Deposit,
-        token_name: String,
-        token_desc: String,
+        token_details: TokenDetails,
         ctx: ExecutionContext,
     ) -> Result<
         (
@@ -149,6 +149,10 @@ impl Pool {
         ),
         PoolOperationError,
     > {
+        let TokenDetails {
+            name: token_name,
+            description: token_desc,
+        } = token_details;
         if self.num_epochs_remain(ctx.height) < 1 {
             return Err(PoolOperationError::Permanent(PermanentError::ProgramExhausted));
         }
@@ -516,6 +520,7 @@ mod tests {
     use crate::data::pool::{Pool, ProgramConfig};
     use crate::data::{BundleStateId, FundingId, OrderId, PoolId};
     use crate::ergo::{NanoErg, MAX_VALUE};
+    use crate::token_details::TokenDetails;
     use crate::validators::BUNDLE_VALIDATOR;
 
     fn make_pool(epoch_len: u32, epoch_num: u32, program_start: u32, program_budget: u64) -> Pool {
@@ -580,11 +585,13 @@ mod tests {
             mintable_token_id: TokenId::from(random_digest()),
             executor_prop: trivial_prop(),
         };
-        let token_name = String::from("");
-        let token_desc = String::from("");
+        let token_details = TokenDetails {
+            name: String::from(""),
+            description: String::from(""),
+        };
         let (pool2, bundle, _output, rew, _) = pool
             .clone()
-            .apply_deposit(deposit.clone(), token_name, token_desc, ctx)
+            .apply_deposit(deposit.clone(), token_details, ctx)
             .unwrap();
         assert_eq!(bundle.vlq.amount, deposit.lq.amount);
         assert_eq!(
@@ -616,11 +623,13 @@ mod tests {
             mintable_token_id: TokenId::from(random_digest()),
             executor_prop: trivial_prop(),
         };
-        let token_name = String::from("");
-        let token_desc = String::from("");
+        let token_details = TokenDetails {
+            name: String::from(""),
+            description: String::from(""),
+        };
         let (pool2, bundle, output, rew, _) = pool
             .clone()
-            .apply_deposit(deposit.clone(), token_name, token_desc, ctx.clone())
+            .apply_deposit(deposit.clone(), token_details, ctx.clone())
             .unwrap();
         let redeem = Redeem {
             order_id: OrderId::from(BoxId::from(random_digest())),
@@ -684,20 +693,17 @@ mod tests {
             mintable_token_id: TokenId::from(random_digest()),
             executor_prop: trivial_prop(),
         };
-        let token_name = String::from("");
-        let token_desc = String::from("");
+        let token_details = TokenDetails {
+            name: String::from(""),
+            description: String::from(""),
+        };
         let (pool_2, bundle_a, _output_a, rew, _) = pool
             .clone()
-            .apply_deposit(
-                deposit_a.clone(),
-                token_name.clone(),
-                token_desc.clone(),
-                ctx_1.clone(),
-            )
+            .apply_deposit(deposit_a.clone(), token_details, ctx_1.clone())
             .unwrap();
         let (pool_3, bundle_b, _output_b, rew, _) = pool_2
             .clone()
-            .apply_deposit(deposit_b.clone(), token_name, token_desc, ctx_1)
+            .apply_deposit(deposit_b.clone(), token_details, ctx_1)
             .unwrap();
         let funding = nonempty![DistributionFunding {
             id: FundingId::from(BoxId::from(random_digest())),

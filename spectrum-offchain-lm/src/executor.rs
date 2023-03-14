@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::data::bundle::IndexedBundle;
 use crate::data::FundingId;
+use crate::token_details::get_token_details;
 use async_trait::async_trait;
 use chrono::Utc;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
@@ -151,33 +152,40 @@ where
                         // Try to get token names from node
                         let pool_id_bytes = <Vec<u8>>::from(TokenId::from(pool.1.pool_id));
                         let pool_id_encoding = base16::encode_lower(&pool_id_bytes);
-                        let token_details = {
-                            let reward_token_name = self
-                                .network
-                                .get_token_minting_info(pool.1.budget_rem.token_id)
-                                .await;
-                            let liquidity_token_name =
-                                self.network.get_token_minting_info(deposit.1.lq.token_id).await;
-                            if let (Ok(Some(reward_name)), Ok(Some(lq_name))) =
-                                (reward_token_name, liquidity_token_name)
-                            {
-                                (format!("{}_{}_YF", reward_name.name, lq_name.name),
-                                 format!(
-                                     "The representation of your share in the {}/{} (pool id: {}) yield farming pool on the Spectrum Finance platform.",
-                                     reward_name.name,
-                                     lq_name.name,
-                                     pool_id_encoding,
-                                 )
-                                )
-                            } else {
-                                (String::from("Spectrum YF staking bundle"), 
-                                 format!(
-                                     "The representation of your share in the yield farming pool (pool id: {}) on the Spectrum Finance platform.",
-                                     pool_id_encoding,
-                                 )
-                                )
-                            }
-                        };
+                        let token_details = get_token_details(
+                            pool.1.pool_id,
+                            pool.1.budget_rem.token_id,
+                            deposit.1.lq.token_id,
+                            self.network,
+                        )
+                        .await;
+                        //{
+                        //    let reward_token_name = self
+                        //        .network
+                        //        .get_token_minting_info(pool.1.budget_rem.token_id)
+                        //        .await;
+                        //    let liquidity_token_name =
+                        //        self.network.get_token_minting_info(deposit.1.lq.token_id).await;
+                        //    if let (Ok(Some(reward_name)), Ok(Some(lq_name))) =
+                        //        (reward_token_name, liquidity_token_name)
+                        //    {
+                        //        (format!("{}_{}_YF", reward_name.name, lq_name.name),
+                        //         format!(
+                        //             "The representation of your share in the {}/{} (pool id: {}) yield farming pool on the Spectrum Finance platform.",
+                        //             reward_name.name,
+                        //             lq_name.name,
+                        //             pool_id_encoding,
+                        //         )
+                        //        )
+                        //    } else {
+                        //        (String::from("Spectrum YF staking bundle"),
+                        //         format!(
+                        //             "The representation of your share in the yield farming pool (pool id: {}) on the Spectrum Finance platform.",
+                        //             pool_id_encoding,
+                        //         )
+                        //        )
+                        //    }
+                        //};
                         deposit
                             .try_run(pool.clone(), token_details, ctx)
                             .map(|(tx, next_pool, bundle)| {
