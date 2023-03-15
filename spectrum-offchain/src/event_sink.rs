@@ -1,9 +1,7 @@
-use std::fmt::Debug;
 use std::sync::Arc;
 
 use futures::stream::StreamExt;
 use futures::Stream;
-use log::trace;
 use tokio::sync::Mutex;
 
 use crate::event_sink::types::{DefaultEventHandler, EventHandler};
@@ -30,7 +28,6 @@ where
             let mut unhandled_ev = Some(ev.clone());
             let mut hans_guard = hans.lock().await;
             for (i, han) in hans_guard.iter_mut().enumerate() {
-                trace!(target: "offchain_lm", "try_handle #{}", i);
                 let maybe_unhandled_ev = han.try_handle(ev.clone()).await;
                 if unhandled_ev.is_some() {
                     unhandled_ev = maybe_unhandled_ev;
