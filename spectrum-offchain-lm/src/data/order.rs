@@ -397,6 +397,7 @@ impl TryFromBox for Deposit {
 #[serde(into = "RawRedeem")]
 pub struct Redeem {
     pub order_id: OrderId,
+    pub pool_id: PoolId,
     pub redeemer_prop: ErgoTree,
     pub bundle_key: TypedAssetAmount<BundleKey>,
     pub expected_lq: TypedAssetAmount<Lq>,
@@ -435,6 +436,7 @@ impl RedeemProto {
 #[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RawRedeem {
     pub order_id: OrderId,
+    pub pool_id: PoolId,
     pub redeemer_prop_bytes: Vec<u8>,
     pub bundle_key: (TokenId, u64),
     pub expected_lq: (TokenId, u64),
@@ -460,6 +462,7 @@ impl From<Redeem> for RawRedeem {
     fn from(r: Redeem) -> Self {
         Self {
             order_id: r.order_id,
+            pool_id: r.pool_id,
             redeemer_prop_bytes: r.redeemer_prop.sigma_serialize_bytes().unwrap(),
             bundle_key: (r.bundle_key.token_id, r.bundle_key.amount),
             expected_lq: (r.expected_lq.token_id, r.expected_lq.amount),
