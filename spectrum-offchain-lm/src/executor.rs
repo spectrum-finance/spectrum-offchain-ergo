@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::sync::Arc;
 
 use crate::data::bundle::IndexedBundle;
-use crate::data::FundingId;
+use crate::data::{FundingId, OrderId, PoolStateId};
 use crate::token_details::get_token_details;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -12,6 +12,7 @@ use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use futures::{stream, StreamExt};
 use itertools::{EitherOrBoth, Itertools};
 use log::{error, info, trace, warn};
+use spectrum_offchain::data::order::PendingOrder;
 use tokio::sync::Mutex;
 
 use spectrum_offchain::backlog::Backlog;
@@ -217,13 +218,43 @@ where
                                             for i in invalidations {
                                                 match i {
                                                     Invalidation::Pool => {
-                                                        self.pool_repo
+                                                        // Here the TX is rejected by the node
+                                                        // because of an invalid pool box. We
+                                                        // should return the order to the backlog
+                                                        // and wait for updated pool box.
+                                                        let pred = {
+                                                            self.pool_repo
+                                                                .lock()
+                                                                .await
+                                                                .get_prediction_predecessor(
+                                                                    PoolStateId::from(
+                                                                        tx.inputs.get(0).unwrap().box_id,
+                                                                    ),
+                                                                )
+                                                                .await
+                                                                .unwrap()
+                                                        };
+                                                        let ord_id = OrderId::from(BoxId::from(pred));
+                                                        let prev_order = self
+                                                            .backlog
                                                             .lock()
                                                             .await
-                                                            .invalidate(
-                                                                pool.get_self_state_ref(),
-                                                                pool.get_self_ref(),
-                                                            )
+                                                            .find_orders(move |ord| {
+                                                                ord.get_self_ref() == ord_id
+                                                            })
+                                                            .await
+                                                            .first()
+                                                            .unwrap()
+                                                            .clone();
+
+                                                        let timestamp = Utc::now().timestamp();
+                                                        self.backlog
+                                                            .lock()
+                                                            .await
+                                                            .put(PendingOrder {
+                                                                order: prev_order,
+                                                                timestamp,
+                                                            })
                                                             .await;
                                                     }
 
@@ -265,8 +296,19 @@ where
                                         }
                                         NodeSubmitTxError::Unhandled => (),
                                     }
-                                // Return order to backlog
                                 } else {
+                                    // Return order to backlog in case the order doesn't get
+                                    // confirmed on-chain.
+                                    {
+                                        self.backlog
+                                            .lock()
+                                            .await
+                                            .put(PendingOrder {
+                                                order: ord,
+                                                timestamp: Utc::now().timestamp(),
+                                            })
+                                            .await;
+                                    }
                                     self.pool_repo
                                         .lock()
                                         .await

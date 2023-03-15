@@ -1,9 +1,10 @@
 use std::fmt::Debug;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use futures::stream::StreamExt;
 use futures::Stream;
 use log::trace;
+use tokio::sync::Mutex;
 
 use crate::event_sink::types::{DefaultEventHandler, EventHandler};
 
@@ -27,15 +28,16 @@ where
         let def_han = def_handler_arc.clone();
         async move {
             let mut unhandled_ev = Some(ev.clone());
-            let mut hans_guard = hans.lock().unwrap();
-            for han in hans_guard.iter_mut() {
+            let mut hans_guard = hans.lock().await;
+            for (i, han) in hans_guard.iter_mut().enumerate() {
+                trace!(target: "offchain_lm", "try_handle #{}", i);
                 let maybe_unhandled_ev = han.try_handle(ev.clone()).await;
                 if unhandled_ev.is_some() {
                     unhandled_ev = maybe_unhandled_ev;
                 }
             }
             if let Some(unhandled_ev) = unhandled_ev {
-                let mut def_han_guard = def_han.lock().unwrap();
+                let mut def_han_guard = def_han.lock().await;
                 def_han_guard.handle(unhandled_ev).await;
             }
         }

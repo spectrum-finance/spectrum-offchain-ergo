@@ -63,9 +63,9 @@ where
             }
             LedgerTxEvent::UnappliedTx(tx) => {
                 let mut is_success = false;
-                let pools = self.pools.lock().await;
                 for i in &tx.inputs {
                     let sid = PoolStateId::from(i.box_id);
+                    let pools = self.pools.lock().await;
                     if pools.may_exist(sid).await {
                         if let Some(AsBox(_, pool)) = pools.get_state(sid).await {
                             let mut repo = self.schedules.lock().await;

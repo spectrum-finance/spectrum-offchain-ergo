@@ -633,6 +633,7 @@ mod tests {
             .unwrap();
         let redeem = Redeem {
             order_id: OrderId::from(BoxId::from(random_digest())),
+            pool_id: pool2.pool_id,
             redeemer_prop: trivial_prop(),
             bundle_key: output.bundle_key,
             expected_lq: deposit.lq,
@@ -699,7 +700,7 @@ mod tests {
         };
         let (pool_2, bundle_a, _output_a, rew, _) = pool
             .clone()
-            .apply_deposit(deposit_a.clone(), token_details, ctx_1.clone())
+            .apply_deposit(deposit_a.clone(), token_details.clone(), ctx_1.clone())
             .unwrap();
         let (pool_3, bundle_b, _output_b, rew, _) = pool_2
             .clone()
