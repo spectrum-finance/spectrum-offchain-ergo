@@ -543,8 +543,7 @@ impl OnChainOrder for Redeem {
     }
 
     fn get_entity_ref(&self) -> Self::TEntityId {
-        // Note that the Redeem box does not contain the PoolId.
-        unreachable!()
+        self.pool_id
     }
 }
 
@@ -686,10 +685,7 @@ impl OnChainOrder for Order {
     fn get_entity_ref(&self) -> Self::TEntityId {
         match self {
             Order::Deposit(AsBox(_, deposit)) => deposit.pool_id,
-            Order::Redeem(AsBox(_, _)) => {
-                // Note that the Redeem box does not contain the PoolId.
-                unreachable!()
-            }
+            Order::Redeem(AsBox(_, redeem)) => redeem.pool_id,
             Order::Compound(compound) => compound.pool_id,
         }
     }
