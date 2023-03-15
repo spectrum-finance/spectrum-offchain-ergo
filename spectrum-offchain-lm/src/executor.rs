@@ -159,33 +159,6 @@ where
                             self.network,
                         )
                         .await;
-                        //{
-                        //    let reward_token_name = self
-                        //        .network
-                        //        .get_token_minting_info(pool.1.budget_rem.token_id)
-                        //        .await;
-                        //    let liquidity_token_name =
-                        //        self.network.get_token_minting_info(deposit.1.lq.token_id).await;
-                        //    if let (Ok(Some(reward_name)), Ok(Some(lq_name))) =
-                        //        (reward_token_name, liquidity_token_name)
-                        //    {
-                        //        (format!("{}_{}_YF", reward_name.name, lq_name.name),
-                        //         format!(
-                        //             "The representation of your share in the {}/{} (pool id: {}) yield farming pool on the Spectrum Finance platform.",
-                        //             reward_name.name,
-                        //             lq_name.name,
-                        //             pool_id_encoding,
-                        //         )
-                        //        )
-                        //    } else {
-                        //        (String::from("Spectrum YF staking bundle"),
-                        //         format!(
-                        //             "The representation of your share in the yield farming pool (pool id: {}) on the Spectrum Finance platform.",
-                        //             pool_id_encoding,
-                        //         )
-                        //        )
-                        //    }
-                        //};
                         deposit
                             .try_run(pool.clone(), token_details, ctx)
                             .map(|(tx, next_pool, bundle)| {
