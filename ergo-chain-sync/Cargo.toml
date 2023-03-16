@@ -32,4 +32,6 @@ thiserror = "1"
 
 [dev-dependencies]
 async-std = {version = "1.12.0", features = ["attributes"] }
-sigma-test-util = "0.3"
+ergo-lib = { version = "0.23", features = ["json", "arbitrary"] }
+sigma-test-util = { git = "https://github.com/ergoplatform/sigma-rust", rev = "62b8dedc0577f01551b6f8be4585f39b028d70f7" }
+rand = "0.8.5"

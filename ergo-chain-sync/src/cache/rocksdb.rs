@@ -7,8 +7,8 @@ use ergo_lib::{
     ergo_chain_types::BlockId,
     ergotree_ir::serialization::SigmaSerializable,
 };
-use rocksdb::WriteBatchWithTransaction;
 
+use crate::constants::ERGO_MAX_ROLLBACK_DEPTH;
 use crate::model::{Block, BlockRecord};
 use crate::rocksdb::RocksConfig;
 
@@ -40,6 +40,7 @@ impl ChainCacheRocksDB {
     pub fn new(conf: RocksConfig) -> Self {
         Self {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(conf.db_path).unwrap()),
+            max_rollback_depth: ERGO_MAX_ROLLBACK_DEPTH,
         }
     }
 }
@@ -164,7 +165,6 @@ impl ChainCache for ChainCacheRocksDB {
             db_tx.commit().unwrap();
         })
         .await
-        .unwrap();
     }
 
     async fn exists(&mut self, block_id: BlockId) -> bool {
@@ -175,7 +175,6 @@ impl ChainCache for ChainCacheRocksDB {
                 .is_some()
         })
         .await
-        .unwrap()
     }
 
     async fn get_best_block(&mut self) -> Option<BlockRecord> {
@@ -188,7 +187,6 @@ impl ChainCache for ChainCacheRocksDB {
             }
         })
         .await
-        .unwrap()
     }
 
     async fn take_best_block(&mut self) -> Option<Block> {
@@ -293,6 +291,7 @@ const TRANSACTION_POSTFIX: &str = ":t";
 mod tests {
     use std::sync::Arc;
 
+    use async_std::task::spawn_blocking;
     use chrono::Utc;
     use ergo_lib::{
         chain::transaction::Transaction,
@@ -300,7 +299,6 @@ mod tests {
     };
     use rand::RngCore;
     use sigma_test_util::force_any_val;
-    use tokio::task::spawn_blocking;
 
     use crate::{
         cache::{
@@ -345,8 +343,7 @@ mod tests {
                 .unwrap()
                 .is_none());
         })
-        .await
-        .unwrap();
+        .await;
     }
 
     #[tokio::test]
