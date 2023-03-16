@@ -360,9 +360,7 @@ where
     where
         TOrd::TOrderId: 'a,
     {
-        self.pending_pq.iter().any(|w| w.0.order_id == ord_id)
-            || self.suspended_pq.iter().any(|w| w.0.order_id == ord_id)
-            || self.revisit_queue.iter().any(|w| w.order_id == ord_id)
+        self.store.exists(ord_id).await
     }
 
     async fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
