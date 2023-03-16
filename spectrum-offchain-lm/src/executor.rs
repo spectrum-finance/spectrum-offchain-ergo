@@ -3,9 +3,11 @@ use std::sync::Arc;
 
 use crate::data::bundle::IndexedBundle;
 use crate::data::FundingId;
+use crate::token_details::get_token_details;
 use async_trait::async_trait;
 use chrono::Utc;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
+use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use futures::{stream, StreamExt};
 use itertools::{EitherOrBoth, Itertools};
@@ -146,12 +148,24 @@ where
                 let ctx = self.make_context(pool.box_id()).await;
                 info!("Running against {} with {}", pool, ctx);
                 let run_result = match (ord.clone(), bundles.first().cloned()) {
-                    (Order::Deposit(deposit), _) => deposit
-                        .try_run(pool.clone(), (), ctx)
-                        .map(|(tx, next_pool, bundle)| {
-                            (tx, next_pool, vec![bundle], None, OrderType::Deposit)
-                        })
-                        .map_err(|err| err.map(Order::Deposit)),
+                    (Order::Deposit(deposit), _) => {
+                        // Try to get token names from node
+                        let pool_id_bytes = <Vec<u8>>::from(TokenId::from(pool.1.pool_id));
+                        let pool_id_encoding = base16::encode_lower(&pool_id_bytes);
+                        let token_details = get_token_details(
+                            pool.1.pool_id,
+                            pool.1.budget_rem.token_id,
+                            deposit.1.lq.token_id,
+                            self.network,
+                        )
+                        .await;
+                        deposit
+                            .try_run(pool.clone(), token_details, ctx)
+                            .map(|(tx, next_pool, bundle)| {
+                                (tx, next_pool, vec![bundle], None, OrderType::Deposit)
+                            })
+                            .map_err(|err| err.map(Order::Deposit))
+                    }
                     (Order::Redeem(redeem), Some(bundle)) => redeem
                         .try_run(pool.clone(), bundle, ctx)
                         .map(|(tx, next_pool, _)| (tx, next_pool, Vec::new(), None, OrderType::Redeem))
