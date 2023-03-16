@@ -1,6 +1,6 @@
 node_addr: http://213.239.193.208:9053
-http_client_timeout_duration_secs: 5
-chain_sync_starting_height: 920000
+http_client_timeout_duration_secs: 50
+chain_sync_starting_height: 944400
 backlog_config:
   order_lifespan: 8640000
   order_exec_time: 86400

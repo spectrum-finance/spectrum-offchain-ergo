@@ -1,12 +1,12 @@
 pub mod backlog;
+pub mod binary;
 pub mod box_resolver;
+pub mod combinators;
 pub mod data;
 pub mod domain;
 pub mod event_sink;
 pub mod event_source;
 pub mod executor;
 pub mod network;
-pub mod transaction;
-pub mod binary;
-pub mod combinators;
 pub mod streaming;
+pub mod transaction;

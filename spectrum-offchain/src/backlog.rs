@@ -453,27 +453,10 @@ mod tests {
         }
     }
 
-    impl Has<MockOrderId> for MockOrder {
-        fn get<U: IsEqual<MockOrderId>>(&self) -> MockOrderId {
-            self.order_id
-        }
-    }
-
     impl Weighted for MockOrder {
         fn weight(&self) -> OrderWeight {
             self.weight
         }
-    }
-
-    impl OnChainOrder for MockOrder {
-        type TOrderId = MockOrderId;
-        type TEntityId = ();
-
-        fn get_self_ref(&self) -> Self::TOrderId {
-            self.order_id
-        }
-
-        fn get_entity_ref(&self) -> Self::TEntityId {}
     }
 
     struct MockBacklogStore {
@@ -486,6 +469,18 @@ mod tests {
                 inner: HashMap::new(),
             }
         }
+    }
+
+    impl OnChainOrder for MockOrder {
+        type TOrderId = MockOrderId;
+
+        type TEntityId = ();
+
+        fn get_self_ref(&self) -> Self::TOrderId {
+            self.order_id
+        }
+
+        fn get_entity_ref(&self) -> Self::TEntityId {}
     }
 
     #[async_trait(?Send)]

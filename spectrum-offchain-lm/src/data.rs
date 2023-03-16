@@ -287,15 +287,6 @@ impl<T> AsBox<T> {
     }
 }
 
-impl<T, K> Has<K> for AsBox<T>
-where
-    T: Has<K>,
-{
-    fn get<U: IsEqual<K>>(&self) -> K {
-        self.1.get::<K>()
-    }
-}
-
 impl<T> TryFromBox for AsBox<T>
 where
     T: TryFromBox,

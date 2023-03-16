@@ -10,6 +10,7 @@ use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
 use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{ProveDlog, SigmaProp};
 use serde::{Deserialize, Serialize};
 
+use sigma_test_util::force_any_val;
 use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::domain::{TypedAsset, TypedAssetAmount};
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
@@ -26,7 +27,7 @@ pub struct StakingBundleProto {
     pub bundle_key_id: TypedAsset<BundleKey>,
     pub pool_id: PoolId,
     pub vlq: TypedAssetAmount<VirtLq>,
-    pub tmp: TypedAssetAmount<Tmp>,
+    pub tmp: Option<TypedAssetAmount<Tmp>>,
     pub redeemer_prop: SigmaProp,
     pub erg_value: NanoErg,
 }
@@ -51,8 +52,12 @@ impl IntoBoxCandidate for StakingBundleProto {
             token_id: self.bundle_key_id.token_id,
             amount: TokenAmount::try_from(BUNDLE_KEY_AMOUNT).unwrap(),
         };
-        let tokens = BoxTokens::from_vec(if let Ok(tmp) = Token::try_from(self.tmp) {
-            vec![Token::try_from(self.vlq).unwrap(), tmp, bundle_key]
+        let tokens = BoxTokens::from_vec(if let Some(tmp) = self.tmp {
+            vec![
+                Token::try_from(self.vlq).unwrap(),
+                Token::try_from(tmp).unwrap(),
+                bundle_key,
+            ]
         } else {
             vec![Token::try_from(self.vlq).unwrap(), bundle_key]
         })
@@ -87,7 +92,7 @@ pub struct StakingBundle {
     pub state_id: BundleStateId,
     pub pool_id: PoolId,
     pub vlq: TypedAssetAmount<VirtLq>,
-    pub tmp: TypedAssetAmount<Tmp>,
+    pub tmp: Option<TypedAssetAmount<Tmp>>,
     pub redeemer_prop: SigmaProp,
     pub erg_value: NanoErg,
 }
@@ -98,7 +103,7 @@ struct StakingBundleWithErgoTreeBytes {
     state_id: BundleStateId,
     pool_id: PoolId,
     vlq: TypedAssetAmount<VirtLq>,
-    tmp: TypedAssetAmount<Tmp>,
+    tmp: Option<TypedAssetAmount<Tmp>>,
     /// Sigma-serialized byte representation of `ErgoTree`
     redeemer_prop_bytes: Vec<u8>,
     erg_value: NanoErg,
@@ -187,7 +192,12 @@ impl IntoBoxCandidate for StakingBundle {
 impl TryFromBox for StakingBundle {
     fn try_from_box(bx: ErgoBox) -> Option<StakingBundle> {
         if let Some(ref tokens) = bx.tokens {
-            if tokens.len() == 3 && bx.ergo_tree == *BUNDLE_VALIDATOR {
+            // NOTE: the staking bundle normally contains 3 tokens, but after the final compounding
+            // all the TMP tokens of the bundle are consumed. The resulting box representing the
+            // staking bundle doesn't actually conform to the requirements of its contract since
+            // it will only contain the VLQ tokens and the bundle id. It's fine though since
+            // only the Redeem order will ever interact with this box.
+            if (tokens.len() == 3 || tokens.len() == 2) && bx.ergo_tree == *BUNDLE_VALIDATOR {
                 let redeemer_prop = bx
                     .get_register(NonMandatoryRegisterId::R4.into())?
                     .v
@@ -203,14 +213,23 @@ impl TryFromBox for StakingBundle {
                     .ok()?,
                 );
                 let vlq = tokens.get(0)?.clone();
-                let tmp = tokens.get(1)?.clone();
-                let bundle_key = tokens.get(2)?.clone();
+                let (tmp, bundle_key) = if tokens.len() == 3 {
+                    let tmp = Some(TypedAssetAmount::from_token(tokens.get(1)?.clone()));
+                    let bundle_key = tokens.get(2)?.clone();
+                    (tmp, bundle_key)
+                } else {
+                    let bundle_key = tokens.get(1)?.clone();
+
+                    // No TMP tokens.
+                    let tmp = None;
+                    (tmp, bundle_key)
+                };
                 return Some(StakingBundle {
                     bundle_key_id: TypedAsset::new(bundle_key.token_id),
                     state_id: BundleStateId::from(bx.box_id()),
                     pool_id: PoolId::from(pool_id),
                     vlq: TypedAssetAmount::from_token(vlq),
-                    tmp: TypedAssetAmount::from_token(tmp),
+                    tmp,
                     redeemer_prop,
                     erg_value: NanoErg::from(bx.value),
                 });
@@ -228,8 +247,9 @@ pub struct IndexedBundle<B> {
 
 impl IndexedBundle<StakingBundle> {
     pub fn new(bundle: StakingBundle, conf: ProgramConfig) -> Self {
+        let tmp_amount = if let Some(t) = bundle.tmp { t.amount } else { 0 };
         Self {
-            lower_epoch_ix: conf.epoch_num - (bundle.tmp.amount / bundle.vlq.amount) as u32 + 1,
+            lower_epoch_ix: conf.epoch_num - (tmp_amount / bundle.vlq.amount) as u32 + 1,
             bundle,
         }
     }
