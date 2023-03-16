@@ -99,10 +99,9 @@ async fn main() {
     let backlog_store = BacklogStoreRocksDB::new(RocksConfig {
         db_path: config.backlog_store_db_path.into(),
     });
-    let backlog = Arc::new(Mutex::new(BacklogTracing::wrap(BacklogService::new::<Order>(
-        backlog_store,
-        config.backlog_config.clone(),
-    ))));
+    let backlog = Arc::new(Mutex::new(BacklogTracing::wrap(
+        BacklogService::new::<Order>(backlog_store, config.backlog_config.clone()).await,
+    )));
     let pools = Arc::new(Mutex::new(EntityRepoTracing::wrap(EntityRepoRocksDB::new(
         RocksConfig {
             db_path: config.entity_repo_db_path.into(),

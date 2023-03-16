@@ -1,6 +1,7 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
+use crate::data::bundle::IndexedBundle;
 use crate::data::FundingId;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -23,7 +24,6 @@ use spectrum_offchain::network::ErgoNetwork;
 use spectrum_offchain::transaction::TransactionCandidate;
 
 use crate::bundle::{resolve_bundle_state, BundleRepo};
-use crate::data::bundle::IndexedBundle;
 use crate::data::context::ExecutionContext;
 use crate::data::order::Order;
 use crate::data::pool::Pool;
@@ -318,6 +318,7 @@ where
                 return Ok(());
             } else {
                 warn!(target: "offchain_lm", "No pool is found for order [{:?}]", ord.get_self_ref());
+                self.backlog.lock().await.remove(ord.get_self_ref()).await;
             }
         }
         Err(())
