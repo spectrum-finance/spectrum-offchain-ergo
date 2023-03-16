@@ -8,6 +8,7 @@ use std::task::{Context, Poll};
 use ergo_lib::chain::transaction::{Transaction, TxId};
 use futures::stream::FusedStream;
 use futures::Stream;
+use futures::StreamExt;
 use log::info;
 use wasm_timer::Delay;
 
@@ -152,6 +153,17 @@ async fn sync<'a, TClient: ErgoNetwork>(client: &TClient, mut state: RefMut<'a, 
         state.mempool_projection.insert(tx.id(), tx.clone());
         state.pending_updates.push_back(MempoolUpdate::TxAccepted(tx));
     }
+}
+
+/// Cast MempoolSync to impl Stream for convenience and consistency with other stream constructors.
+pub fn mempool_stream<'a, TClient, TChainSync>(
+    ms: MempoolSync<'a, TClient, TChainSync>,
+) -> impl Stream<Item = MempoolUpdate> + 'a
+where
+    TClient: ErgoNetwork,
+    TChainSync: Stream<Item = ChainUpgrade> + Unpin + 'a,
+{
+    ms
 }
 
 impl<'a, TClient, TChainSync> Stream for MempoolSync<'a, TClient, TChainSync>
