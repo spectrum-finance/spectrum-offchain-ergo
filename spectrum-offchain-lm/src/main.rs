@@ -3,6 +3,7 @@ use std::sync::{Arc, Once};
 use clap::{arg, Parser};
 use ergo_lib::ergotree_ir::chain::address::{AddressEncoder, NetworkPrefix};
 use futures::channel::mpsc;
+use futures::future::ready;
 use futures::stream::select_all;
 use futures::StreamExt;
 use isahc::{prelude::*, HttpClient};
@@ -32,14 +33,18 @@ use spectrum_offchain::event_source::event_source_ledger;
 use spectrum_offchain::executor::executor_stream;
 use spectrum_offchain::streaming::boxed;
 
+use crate::backlog_stream::convert_order_proto;
 use crate::bundle::process::bundle_update_stream;
 use crate::bundle::rocksdb::BundleRepoRocksDB;
 use crate::bundle::BundleRepoTracing;
 use crate::data::bundle::IndexedStakingBundle;
 use crate::data::funding::{ExecutorWallet, FundingUpdate};
-use crate::data::order::Order;
 use crate::data::pool::Pool;
 use crate::data::AsBox;
+use crate::data::{
+    order::{Order, OrderProto},
+    OrderId,
+};
 use crate::event_sink::handlers::bundle::ConfirmedBundleUpdateHadler;
 use crate::event_sink::handlers::funding::ConfirmedFundingHadler;
 use crate::event_sink::handlers::program::ConfirmedProgramUpdateHandler;
@@ -52,6 +57,7 @@ use crate::prover::{SeedPhrase, Wallet};
 use crate::scheduler::process::distribution_stream;
 use crate::scheduler::{ScheduleRepoRocksDB, ScheduleRepoTracing};
 
+pub mod backlog_stream;
 pub mod bundle;
 pub mod data;
 pub mod ergo;
@@ -62,6 +68,7 @@ pub mod program;
 pub mod prover;
 pub mod scheduler;
 mod sink;
+mod token_details;
 pub mod validators;
 
 #[tokio::main]
@@ -99,10 +106,9 @@ async fn main() {
     let backlog_store = BacklogStoreRocksDB::new(RocksConfig {
         db_path: config.backlog_store_db_path.into(),
     });
-    let backlog = Arc::new(Mutex::new(BacklogTracing::wrap(BacklogService::new::<Order>(
-        backlog_store,
-        config.backlog_config.clone(),
-    ))));
+    let backlog = Arc::new(Mutex::new(BacklogTracing::wrap(
+        BacklogService::new::<Order>(backlog_store, config.backlog_config.clone()).await,
+    )));
     let pools = Arc::new(Mutex::new(EntityRepoTracing::wrap(EntityRepoRocksDB::new(
         RocksConfig {
             db_path: config.entity_repo_db_path.into(),
@@ -146,15 +152,6 @@ async fn main() {
     let pool_han = ConfirmedUpdateHandler::<_, AsBox<Pool>, _>::new(pool_snd, Arc::clone(&pools));
     let pool_update_stream = boxed(entity_tracking_stream(pool_recv, Arc::clone(&pools)));
 
-    // orders
-    let (order_snd, order_recv) = mpsc::unbounded::<OrderUpdate<Order>>();
-    let order_han = OrderUpdatesHandler::<_, Order, _>::new(
-        order_snd,
-        Arc::clone(&backlog),
-        config.backlog_config.order_lifespan,
-    );
-    let backlog_stream = boxed(backlog_stream(Arc::clone(&backlog), order_recv));
-
     // bundles
     let (bundle_snd, bundle_recv) = mpsc::unbounded::<Confirmed<StateUpdate<AsBox<IndexedStakingBundle>>>>();
     let bundle_han = ConfirmedBundleUpdateHadler {
@@ -164,6 +161,18 @@ async fn main() {
     };
     let bundle_update_stream = boxed(bundle_update_stream(bundle_recv, Arc::clone(&bundles)));
 
+    // orders
+    let (order_snd, order_recv) = mpsc::unbounded::<OrderUpdate<OrderProto, OrderId>>();
+    let order_han = OrderUpdatesHandler::<_, Order, OrderProto, _>::new(
+        order_snd,
+        Arc::clone(&backlog),
+        config.backlog_config.order_lifespan,
+    );
+
+    let backlog_stream = boxed(backlog_stream(
+        Arc::clone(&backlog),
+        convert_order_proto(bundles.clone(), order_recv).filter_map(ready),
+    ));
     // funding
     let (funding_snd, funding_recv) = mpsc::unbounded::<Confirmed<FundingUpdate>>();
     let funding_han = ConfirmedFundingHadler {
@@ -187,7 +196,7 @@ async fn main() {
         schedules,
         bundles,
         &node,
-        20,
+        10, // Note: setting this higher could lead to rejection of compound orders by Ergo Node.
         std::time::Duration::from_secs(60),
         &signal_tip_reached,
     ));

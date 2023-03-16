@@ -14,7 +14,7 @@ use wasm_timer::Delay;
 use ergo_chain_sync::model::Block;
 use ergo_chain_sync::{ChainUpgrade, InitChainSync};
 
-use crate::client::node::{ErgoNetwork};
+use crate::client::node::ErgoNetwork;
 
 pub mod client;
 
@@ -25,7 +25,7 @@ pub enum MempoolUpdate {
     /// Tx was discarded.
     TxWithdrawn(Transaction),
     /// Tx was confirmed.
-    TxConfirmed(Transaction)
+    TxConfirmed(Transaction),
 }
 
 #[derive(Debug, Clone)]
@@ -75,8 +75,8 @@ pub struct MempoolSync<'a, TClient, TChainSync> {
 }
 
 impl<'a, TClient, TChainSync> MempoolSync<'a, TClient, TChainSync>
-    where
-        TClient: ErgoNetwork,
+where
+    TClient: ErgoNetwork,
 {
     pub async fn init<TChainSyncMaker: InitChainSync<TChainSync>>(
         conf: MempoolSyncConf,
@@ -85,9 +85,7 @@ impl<'a, TClient, TChainSync> MempoolSync<'a, TClient, TChainSync>
     ) -> MempoolSync<'a, TClient, TChainSync> {
         let chain_tip_height = client.get_best_height().await;
         let start_at = match chain_tip_height {
-            Ok(height) => {
-                height as usize - KEEP_LAST_BLOCKS
-            }
+            Ok(height) => height as usize - KEEP_LAST_BLOCKS,
             Err(error) => {
                 info!(
                     target: "mempool_sync",
@@ -157,9 +155,9 @@ async fn sync<'a, TClient: ErgoNetwork>(client: &TClient, mut state: RefMut<'a, 
 }
 
 impl<'a, TClient, TChainSync> Stream for MempoolSync<'a, TClient, TChainSync>
-    where
-        TClient: ErgoNetwork,
-        TChainSync: Stream<Item=ChainUpgrade> + Unpin,
+where
+    TClient: ErgoNetwork,
+    TChainSync: Stream<Item = ChainUpgrade> + Unpin,
 {
     type Item = MempoolUpdate;
 
@@ -194,8 +192,8 @@ impl<'a, TClient, TChainSync> Stream for MempoolSync<'a, TClient, TChainSync>
 }
 
 impl<'a, TClient, TChainSync> FusedStream for MempoolSync<'a, TClient, TChainSync>
-    where
-        MempoolSync<'a, TClient, TChainSync>: Stream,
+where
+    MempoolSync<'a, TClient, TChainSync>: Stream,
 {
     /// MempoolSync stream is never terminated.
     fn is_terminated(&self) -> bool {

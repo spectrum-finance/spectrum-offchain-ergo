@@ -1,5 +1,8 @@
-use ergo_lib::ergotree_ir::chain::ergo_box::{BoxTokens, ErgoBoxCandidate, NonMandatoryRegisters};
+use ergo_lib::ergotree_ir::chain::ergo_box::{
+    BoxTokens, ErgoBoxCandidate, NonMandatoryRegisters, RegisterValue,
+};
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
+use ergo_lib::ergotree_ir::mir::constant::Constant;
 use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::SigmaProp;
 
 use spectrum_offchain::domain::TypedAssetAmount;
@@ -32,6 +35,8 @@ pub struct DepositOutput {
     pub bundle_key: TypedAssetAmount<BundleKey>,
     pub redeemer_prop: SigmaProp,
     pub erg_value: NanoErg,
+    pub token_name: String,
+    pub token_desc: String,
 }
 
 impl IntoBoxCandidate for DepositOutput {
@@ -40,7 +45,11 @@ impl IntoBoxCandidate for DepositOutput {
             value: self.erg_value.into(),
             ergo_tree: ErgoTree::new(DEFAULT_P2PK_HEADER.clone(), &self.redeemer_prop.into()).unwrap(),
             tokens: Some(BoxTokens::from([self.bundle_key.try_into().unwrap()])),
-            additional_registers: NonMandatoryRegisters::empty(),
+            additional_registers: NonMandatoryRegisters::try_from(vec![
+                RegisterValue::Parsed(Constant::from(self.token_name.as_bytes().to_vec())),
+                RegisterValue::Parsed(Constant::from(self.token_desc.as_bytes().to_vec())),
+            ])
+            .unwrap(),
             creation_height: height,
         }
     }

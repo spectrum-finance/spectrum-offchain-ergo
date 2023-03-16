@@ -12,34 +12,38 @@ use ergo_mempool_sync::MempoolUpdate;
 
 use crate::backlog::Backlog;
 use crate::data::order::{OrderUpdate, PendingOrder};
-use crate::data::OnChainOrder;
+use crate::data::{Has, OnChainOrder};
 use crate::event_sink::handlers::types::TryFromBox;
 use crate::event_sink::types::EventHandler;
 use crate::event_source::data::LedgerTxEvent;
 
-pub struct OrderUpdatesHandler<TSink, TOrd, TBacklog> {
+pub struct OrderUpdatesHandler<TSink, TOrd, TOrdProto, TBacklog> {
     pub topic: TSink,
     pub backlog: Arc<Mutex<TBacklog>>,
     pub order_lifespan: Duration,
     pub pd: PhantomData<TOrd>,
+    pub pd_proto: PhantomData<TOrdProto>,
 }
 
-impl<TSink, TOrd, TBacklog> OrderUpdatesHandler<TSink, TOrd, TBacklog> {
+impl<TSink, TOrd, TOrdProto, TBacklog> OrderUpdatesHandler<TSink, TOrd, TOrdProto, TBacklog> {
     pub fn new(topic: TSink, backlog: Arc<Mutex<TBacklog>>, order_lifespan: Duration) -> Self {
         Self {
             topic,
             backlog,
             order_lifespan,
             pd: Default::default(),
+            pd_proto: Default::default(),
         }
     }
 }
 
 #[async_trait(?Send)]
-impl<TSink, TOrd, TBacklog> EventHandler<LedgerTxEvent> for OrderUpdatesHandler<TSink, TOrd, TBacklog>
+impl<TSink, TOrd, TOrdProto, TBacklog> EventHandler<LedgerTxEvent>
+    for OrderUpdatesHandler<TSink, TOrd, TOrdProto, TBacklog>
 where
-    TSink: Sink<OrderUpdate<TOrd>> + Unpin,
-    TOrd: OnChainOrder + TryFromBox,
+    TSink: Sink<OrderUpdate<TOrdProto, TOrd::TOrderId>> + Unpin,
+    TOrd: OnChainOrder,
+    TOrdProto: Has<TOrd::TOrderId> + TryFromBox,
     TOrd::TOrderId: From<BoxId> + Copy,
     TBacklog: Backlog<TOrd>,
 {
@@ -57,7 +61,7 @@ where
                 let ts_now = Utc::now().timestamp();
                 if ts_now - timestamp <= self.order_lifespan.num_milliseconds() {
                     for bx in &tx.outputs {
-                        if let Some(order) = TOrd::try_from_box(bx.clone()) {
+                        if let Some(order) = TOrdProto::try_from_box(bx.clone()) {
                             is_success = true;
                             let _ = self
                                 .topic
@@ -78,11 +82,13 @@ where
             LedgerTxEvent::UnappliedTx(tx) => {
                 let mut is_success = false;
                 for bx in &tx.outputs {
-                    if let Some(order) = TOrd::try_from_box(bx.clone()) {
+                    if let Some(order) = TOrdProto::try_from_box(bx.clone()) {
                         is_success = true;
                         let _ = self
                             .topic
-                            .feed(OrderUpdate::OrderEliminated(order.get_self_ref()))
+                            .feed(OrderUpdate::OrderEliminated(
+                                <TOrdProto as Has<TOrd::TOrderId>>::get::<TOrd::TOrderId>(&order),
+                            ))
                             .await;
                     }
                 }
@@ -99,9 +105,10 @@ where
 }
 
 #[async_trait(?Send)]
-impl<TSink, TOrd, TBacklog> EventHandler<MempoolUpdate> for OrderUpdatesHandler<TSink, TOrd, TBacklog>
+impl<TSink, TOrd, TOrdProto, TBacklog> EventHandler<MempoolUpdate>
+    for OrderUpdatesHandler<TSink, TOrd, TOrdProto, TBacklog>
 where
-    TSink: Sink<OrderUpdate<TOrd>> + Unpin,
+    TSink: Sink<OrderUpdate<TOrd, TOrd::TOrderId>> + Unpin,
     TOrd: OnChainOrder + TryFromBox,
     TOrd::TOrderId: From<BoxId> + Copy,
     TBacklog: Backlog<TOrd>,

@@ -66,13 +66,14 @@ impl BundleRepo for BundleRepoRocksDB {
         let db = self.db.clone();
         spawn_blocking(move || {
             let prefix = epoch_index_prefix(pool_id, epoch_ix);
+            let mut readopts = ReadOptions::default();
+            readopts.set_iterate_range(rocksdb::PrefixRange(prefix.clone()));
             let mut acc = Vec::new();
-            // Note that restricting the following iterator to only `prefix` leads to dropped
-            // bundles.
-            let mut iter = db.iterator(IteratorMode::From(&*prefix, Direction::Forward));
+            let mut iter = db.iterator_opt(IteratorMode::From(&prefix, Direction::Forward), readopts);
             while let Some(Ok((key_bytes, _))) = iter.next() {
-                if let Some((pid, bundle_id, init_epoch_ix)) = destructure_epoch_index_key(&*key_bytes) {
-                    if pid == pool_id && init_epoch_ix <= epoch_ix && !acc.contains(&bundle_id) {
+                if let Some((pid, bundle_id, init_epoch_ix)) = destructure_epoch_index_key(&key_bytes) {
+                    assert_eq!(init_epoch_ix, epoch_ix);
+                    if pid == pool_id && !acc.contains(&bundle_id) {
                         acc.push(bundle_id);
                         continue;
                     }
@@ -156,8 +157,8 @@ impl BundleRepo for BundleRepoRocksDB {
             let tx = db.transaction();
             tx.put(state_key, state_bytes).unwrap();
             tx.put(index_key, state_id_bytes).unwrap();
-            tx.delete(prev_epoch_index_key).unwrap();
             tx.put(epoch_index_key, dummy_bytes).unwrap();
+            tx.delete(prev_epoch_index_key).unwrap();
             tx.commit().unwrap();
         })
         .await

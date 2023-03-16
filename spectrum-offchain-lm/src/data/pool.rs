@@ -26,6 +26,7 @@ use crate::data::{AsBox, PoolId, PoolStateId};
 use crate::ergo::{
     NanoErg, DEFAULT_MINER_FEE, MAX_VALUE, MIN_SAFE_BOX_VALUE, MIN_SAFE_FAT_BOX_VALUE, UNIT_VALUE,
 };
+use crate::token_details::{self, TokenDetails};
 use crate::validators::POOL_VALIDATOR;
 
 pub const INIT_EPOCH_IX: u32 = 1;
@@ -136,6 +137,7 @@ impl Pool {
     pub fn apply_deposit(
         self,
         deposit: Deposit,
+        token_details: TokenDetails,
         ctx: ExecutionContext,
     ) -> Result<
         (
@@ -147,6 +149,10 @@ impl Pool {
         ),
         PoolOperationError,
     > {
+        let TokenDetails {
+            name: token_name,
+            description: token_desc,
+        } = token_details;
         if self.num_epochs_remain(ctx.height) < 1 {
             return Err(PoolOperationError::Permanent(PermanentError::ProgramExhausted));
         }
@@ -174,14 +180,18 @@ impl Pool {
             bundle_key_id: bundle_key_for_user.to_asset(),
             pool_id: next_pool.pool_id,
             vlq: release_vlq,
-            tmp: release_tmp,
+            tmp: Some(release_tmp),
             redeemer_prop: deposit.redeemer_prop.clone(),
             erg_value: MIN_SAFE_FAT_BOX_VALUE,
+            token_name: token_name.clone(),
+            token_desc: token_desc.clone(),
         };
         let user_output = DepositOutput {
             bundle_key: bundle_key_for_user,
             redeemer_prop: deposit.redeemer_prop,
-            erg_value: MIN_SAFE_BOX_VALUE,
+            erg_value: MIN_SAFE_FAT_BOX_VALUE,
+            token_name,
+            token_desc,
         };
         let miner_output = MinerOutput {
             erg_value: DEFAULT_MINER_FEE,
@@ -224,7 +234,9 @@ impl Pool {
         let mut next_pool = self;
         next_pool.reserves_lq = next_pool.reserves_lq - release_lq;
         next_pool.reserves_vlq = next_pool.reserves_vlq + bundle.vlq;
-        next_pool.reserves_tmp = next_pool.reserves_tmp + bundle.tmp;
+        if let Some(tmp) = bundle.tmp {
+            next_pool.reserves_tmp = next_pool.reserves_tmp + tmp;
+        }
         let user_output = RedeemOutput {
             lq: release_lq,
             redeemer_prop: redeem.redeemer_prop,
@@ -278,8 +290,15 @@ impl Pool {
         let mut reward_outputs = Vec::new();
         let mut accumulated_cost = NanoErg::from(0u64);
         for mut bundle in &mut next_bundles {
-            let epochs_burned = (bundle.tmp.amount / bundle.vlq.amount).saturating_sub(epochs_remain as u64);
-            trace!(target: "pool", "Bundle: [{}], epochs_remain: [{}], epochs_burned: [{}]", bundle.state_id, epochs_remain, epochs_burned);
+            let epochs_burned = if let Some(tmp) = bundle.tmp {
+                (tmp.amount / bundle.vlq.amount).saturating_sub(epochs_remain as u64)
+            } else {
+                0
+            };
+            trace!(target: "pool", "Bundle: [{}], epochs_remain: [{}], epochs_burned: [{}], budget_remaining: {}, epoch_complete: {}, conf: {:?}", 
+                   bundle.state_id, epochs_remain, epochs_burned, next_pool.budget_rem.amount,
+                   next_pool.epoch_completed(),
+                   next_pool.conf);
             if epochs_burned < 1 {
                 return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned(
                     format!("Already compounded"),
@@ -306,13 +325,21 @@ impl Pool {
                 redeemer_prop: bundle.redeemer_prop.clone(),
                 erg_value: MIN_SAFE_BOX_VALUE,
             };
-            let charged_tmp_amt = bundle.tmp.amount - epochs_remain as u64 * bundle.vlq.amount;
-            let charged_tmp = TypedAssetAmount::new(bundle.tmp.token_id, charged_tmp_amt);
-            accumulated_cost = accumulated_cost + reward_output.erg_value;
-            reward_outputs.push(reward_output);
-            bundle.tmp = bundle.tmp - charged_tmp;
-            next_pool.reserves_tmp = next_pool.reserves_tmp + charged_tmp;
             next_pool.budget_rem = next_pool.budget_rem - reward;
+            if let Some(tmp) = bundle.tmp {
+                let charged_tmp_amt = tmp.amount - epochs_remain as u64 * bundle.vlq.amount;
+                let charged_tmp = TypedAssetAmount::new(tmp.token_id, charged_tmp_amt);
+                accumulated_cost = accumulated_cost + reward_output.erg_value;
+                bundle.tmp = Some(tmp - charged_tmp);
+                next_pool.reserves_tmp = next_pool.reserves_tmp + charged_tmp;
+            }
+
+            reward_outputs.push(reward_output);
+            if next_pool.budget_rem.amount == 0 {
+                return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned(
+                    "Budget depleted".into(),
+                )));
+            }
         }
         next_pool.epoch_ix = Some(epoch_ix);
         let mut miner_output = MinerOutput {
@@ -493,6 +520,7 @@ mod tests {
     use crate::data::pool::{Pool, ProgramConfig};
     use crate::data::{BundleStateId, FundingId, OrderId, PoolId};
     use crate::ergo::{NanoErg, MAX_VALUE};
+    use crate::token_details::TokenDetails;
     use crate::validators::BUNDLE_VALIDATOR;
 
     fn make_pool(epoch_len: u32, epoch_num: u32, program_start: u32, program_budget: u64) -> Pool {
@@ -557,13 +585,22 @@ mod tests {
             mintable_token_id: TokenId::from(random_digest()),
             executor_prop: trivial_prop(),
         };
-        let (pool2, bundle, _output, rew, _) = pool.clone().apply_deposit(deposit.clone(), ctx).unwrap();
+        let token_details = TokenDetails {
+            name: String::from(""),
+            description: String::from(""),
+        };
+        let (pool2, bundle, _output, rew, _) = pool
+            .clone()
+            .apply_deposit(deposit.clone(), token_details, ctx)
+            .unwrap();
         assert_eq!(bundle.vlq.amount, deposit.lq.amount);
-        assert_eq!(bundle.tmp.amount, pool.conf.epoch_num as u64 * deposit_lq.amount);
-        assert_eq!(pool2.reserves_lq, deposit.lq);
+        assert_eq!(
+            bundle.tmp.unwrap().amount,
+            pool.conf.epoch_num as u64 * deposit_lq.amount
+        );
         assert_eq!(pool2.reserves_lq - pool.reserves_lq, deposit.lq);
         assert_eq!(pool2.reserves_vlq, pool.reserves_vlq - bundle.vlq);
-        assert_eq!(pool2.reserves_tmp, pool.reserves_tmp - bundle.tmp);
+        assert_eq!(pool2.reserves_tmp, pool.reserves_tmp - bundle.tmp.unwrap());
     }
 
     #[test]
@@ -586,11 +623,17 @@ mod tests {
             mintable_token_id: TokenId::from(random_digest()),
             executor_prop: trivial_prop(),
         };
-        let (pool2, bundle, output, rew, _) =
-            pool.clone().apply_deposit(deposit.clone(), ctx.clone()).unwrap();
+        let token_details = TokenDetails {
+            name: String::from(""),
+            description: String::from(""),
+        };
+        let (pool2, bundle, output, rew, _) = pool
+            .clone()
+            .apply_deposit(deposit.clone(), token_details, ctx.clone())
+            .unwrap();
         let redeem = Redeem {
             order_id: OrderId::from(BoxId::from(random_digest())),
-            pool_id: pool.pool_id,
+            pool_id: pool2.pool_id,
             redeemer_prop: trivial_prop(),
             bundle_key: output.bundle_key,
             expected_lq: deposit.lq,
@@ -651,12 +694,18 @@ mod tests {
             mintable_token_id: TokenId::from(random_digest()),
             executor_prop: trivial_prop(),
         };
+        let token_details = TokenDetails {
+            name: String::from(""),
+            description: String::from(""),
+        };
         let (pool_2, bundle_a, _output_a, rew, _) = pool
             .clone()
-            .apply_deposit(deposit_a.clone(), ctx_1.clone())
+            .apply_deposit(deposit_a.clone(), token_details.clone(), ctx_1.clone())
             .unwrap();
-        let (pool_3, bundle_b, _output_b, rew, _) =
-            pool_2.clone().apply_deposit(deposit_b.clone(), ctx_1).unwrap();
+        let (pool_3, bundle_b, _output_b, rew, _) = pool_2
+            .clone()
+            .apply_deposit(deposit_b.clone(), token_details, ctx_1)
+            .unwrap();
         let funding = nonempty![DistributionFunding {
             id: FundingId::from(BoxId::from(random_digest())),
             prop: trivial_prop(),
@@ -688,8 +737,14 @@ mod tests {
                 .abs_diff(rewards[0].reward.amount * deposit_disproportion)
                 <= 1
         );
-        assert_eq!(bundles[0].tmp, bundle_a.tmp - bundle_a.vlq.coerce());
-        assert_eq!(bundles[1].tmp, bundle_b.tmp - bundle_b.vlq.coerce());
+        assert_eq!(
+            bundles[0].tmp.unwrap(),
+            bundle_a.tmp.unwrap() - bundle_a.vlq.coerce()
+        );
+        assert_eq!(
+            bundles[1].tmp.unwrap(),
+            bundle_b.tmp.unwrap() - bundle_b.vlq.coerce()
+        );
     }
 
     #[test]
@@ -699,9 +754,9 @@ mod tests {
         assert!(res.is_some())
     }
     const POOL_JSON: &str = r#"{
-        "boxId": "f939833ea2e9102b7527c833ab61af7222ad6b440bc2807a14e826168f864213",
+        "boxId": "2b7a4dc2ed1e8f50b48faeb8c8a978b30fc5a1321dae314c7b3faea7c1040385",
         "value": 1250000,
-        "ergoTree": "19c0062904000400040204020404040404060406040804080404040204000400040204020601010400040a050005000404040204020e20fc3cdbfd1abc83f4a38ca3fb3dfe417a158b67d63e3c52137fdda4e66ad3956c0400040205000402040204060500050005feffffffffffffffff010502050005000402050005000100d820d601b2a5730000d602db63087201d603db6308a7d604b27203730100d605e4c6a70410d606e4c6a70505d607e4c6a70605d608b27202730200d609b27203730300d60ab27202730400d60bb27203730500d60cb27202730600d60db27203730700d60e8c720d01d60fb27202730800d610b27203730900d6118c721001d6128c720b02d613998c720a027212d6148c720902d615b27205730a00d6169a99a37215730bd617b27205730c00d6189d72167217d61995919e72167217730d9a7218730e7218d61ab27205730f00d61b7e721a05d61c9d7206721bd61d998c720c028c720d02d61e8c721002d61f998c720f02721ed6207310d1ededededed93b272027311007204ededed93e4c672010410720593e4c672010505720693e4c6720106057207928cc77201018cc7a70193c27201c2a7ededed938c7208018c720901938c720a018c720b01938c720c01720e938c720f01721193b172027312959172137313d802d6219c721399721ba273147e721905d622b2a5731500ededed929a997206721472079c7e9995907219721a72199a721a7316731705721c937213f0721d937221f0721fedededed93cbc272227318938602720e7213b2db6308722273190093860272117221b2db63087222731a00e6c67222040893e4c67222050e8c720401958f7213731bededec929a997206721472079c7e9995907219721a72199a721a731c731d05721c92a39a9a72159c721a7217b27205731e0093721df0721392721f95917219721a731f9c721d99721ba273207e721905d804d621e4c672010704d62299721a7221d6237e722205d62499997321721e9c9972127322722395ed917224732391721f7324edededed9072219972197325909972149c7223721c9a721c7207907ef0998c7208027214069a9d9c99997e7214069d9c7e7206067e7222067e721a0672207e721f067e7224067220937213732693721d73277328",
+        "ergoTree": "19c0062904000400040204020404040404060406040804080404040204000400040204020601010400040a050005000404040204020e2037687656669e6173e60c5671238d0518002768f7371d0b01a44c6dd5602570610400040205000402040204060500050005feffffffffffffffff010502050005000402050005000100d820d601b2a5730000d602db63087201d603db6308a7d604b27203730100d605e4c6a70410d606e4c6a70505d607e4c6a70605d608b27202730200d609b27203730300d60ab27202730400d60bb27203730500d60cb27202730600d60db27203730700d60e8c720d01d60fb27202730800d610b27203730900d6118c721001d6128c720b02d613998c720a027212d6148c720902d615b27205730a00d6169a99a37215730bd617b27205730c00d6189d72167217d61995919e72167217730d9a7218730e7218d61ab27205730f00d61b7e721a05d61c9d7206721bd61d998c720c028c720d02d61e8c721002d61f998c720f02721ed6207310d1ededededed93b272027311007204ededed93e4c672010410720593e4c672010505720693e4c6720106057207928cc77201018cc7a70193c27201c2a7ededed938c7208018c720901938c720a018c720b01938c720c01720e938c720f01721193b172027312959172137313d802d6219c721399721ba273147e721905d622b2a5731500ededed929a997206721472079c7e9995907219721a72199a721a7316731705721c937213f0721d937221f0721fedededed93cbc272227318938602720e7213b2db6308722273190093860272117221b2db63087222731a00e6c67222060893e4c67222070e8c720401958f7213731bededec929a997206721472079c7e9995907219721a72199a721a731c731d05721c92a39a9a72159c721a7217b27205731e0093721df0721392721f95917219721a731f9c721d99721ba273207e721905d804d621e4c672010704d62299721a7221d6237e722205d62499997321721e9c9972127322722395ed917224732391721f7324edededed9072219972197325909972149c7223721c9a721c7207907ef0998c7208027214069a9d9c99997e7214069d9c7e7206067e7222067e721a0672207e721f067e7224067220937213732693721d73277328",
         "assets": [
             {
                 "tokenId": "48ad28d9bb55e1da36d27c655a84279ff25d889063255d3f774ff926a3704370",

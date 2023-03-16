@@ -421,6 +421,8 @@ fn deploy_pool_chain_transaction(
         bundle_key: TypedAssetAmount::new(bundle_key_id, BUNDLE_KEY_AMOUNT_USER),
         redeemer_prop: redeemer_prop.clone(),
         erg_value: erg_value_per_box.into(),
+        token_name: String::from(""),
+        token_desc: String::from(""),
     };
 
     let deposit_output_candidate = deposit_output.into_candidate(height);
@@ -431,9 +433,14 @@ fn deploy_pool_chain_transaction(
         bundle_key_id: TypedAsset::new(bundle_key_id),
         pool_id: PoolId::from(pool_nft.token_id),
         vlq: TypedAssetAmount::new(vlq_tokens.token_id, lq_token_amount),
-        tmp: TypedAssetAmount::new(tmp_tokens.token_id, lq_token_amount * num_epochs_to_delegate),
+        tmp: Some(TypedAssetAmount::new(
+            tmp_tokens.token_id,
+            lq_token_amount * num_epochs_to_delegate,
+        )),
         redeemer_prop,
         erg_value: erg_value_per_box.into(),
+        token_name: String::from(""),
+        token_desc: String::from(""),
     };
     let staking_bundle_candidate = staking_bundle.into_candidate(height);
 

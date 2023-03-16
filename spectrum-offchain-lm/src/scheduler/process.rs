@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use futures::{Stream, StreamExt};
+use futures_timer::Delay;
 use log::info;
 use spectrum_offchain::data::OnChainOrder;
 use stream_throttle::{ThrottlePool, ThrottleRate, ThrottledStream};
@@ -43,14 +44,17 @@ where
         let network = network.clone();
         async move {
             if tip_reached.is_completed() {
-                let mut schedules = schedules.lock().await;
+                let peek_result = {
+                    let mut schedules = schedules.lock().await;
+                    schedules.peek().await
+                };
                 if let Some(
                     tick @ Tick {
                         pool_id,
                         epoch_ix,
                         height,
                     },
-                ) = schedules.peek().await
+                ) = peek_result
                 {
                     info!(target: "scheduler", "Checking schedule of pool [{}]", pool_id);
                     let height_now = network.get_height().await;
@@ -88,6 +92,7 @@ where
                                 // `ScheduleRepo` though, so as a workaround we simply defer the
                                 // tick, then remove.
                                 let ts_now = Utc::now().timestamp();
+                                let mut schedules = schedules.lock().await;
                                 schedules.defer(tick, ts_now + TICK_SUSPENSION_DURATION).await;
                                 schedules.remove(tick).await;
                             }
@@ -103,16 +108,24 @@ where
                                         queue_ix,
                                         stakers: Vec::from(xs),
                                     });
+                            info!(
+                                target: "scheduler",
+                                "# stakers left in epoch [{}] of pool [{}]: {}",
+                                epoch_ix, pool_id, stakers.len(),
+                            );
                             let ts_now = Utc::now().timestamp();
-                            let mut backlog = backlog.lock().await;
                             for order in orders {
-                                backlog
-                                    .put(PendingOrder {
-                                        order: Order::Compound(order),
-                                        timestamp: ts_now,
-                                    })
-                                    .await
+                                let mut backlog = backlog.lock().await;
+                                if !backlog.exists(order.order_id()).await {
+                                    backlog
+                                        .put(PendingOrder {
+                                            order: Order::Compound(order),
+                                            timestamp: ts_now,
+                                        })
+                                        .await;
+                                }
                             }
+                            let mut schedules = schedules.lock().await;
                             schedules.defer(tick, ts_now + TICK_SUSPENSION_DURATION).await;
                         }
                     }

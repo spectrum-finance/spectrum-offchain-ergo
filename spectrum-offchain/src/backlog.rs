@@ -231,13 +231,20 @@ where
 impl<TOrd, TStore> BacklogService<TOrd, TStore>
 where
     TOrd: OnChainOrder + Weighted + Hash + Eq,
+    TOrd::TOrderId: Debug,
     TStore: BacklogStore<TOrd>,
 {
-    pub fn new<TOrd0: IsEqual<TOrd>>(store: TStore, conf: BacklogConfig) -> Self {
+    pub async fn new<TOrd0: IsEqual<TOrd>>(store: TStore, conf: BacklogConfig) -> Self {
+        let mut pending_pq = PriorityQueue::new();
+        for ord in store.find_orders(|_| true).await {
+            let wt = ord.order.weight();
+            trace!(target: "backlog", "Restored order: {:?}", ord.order.get_self_ref());
+            pending_pq.push(ord.into(), wt);
+        }
         Self {
             store,
             conf,
-            pending_pq: PriorityQueue::new(),
+            pending_pq,
             suspended_pq: PriorityQueue::new(),
             revisit_queue: VecDeque::new(),
         }
@@ -254,7 +261,7 @@ where
                         self.pending_pq.push(ord.into(), wt);
                     }
                 } else {
-                    self.store.drop(ord.order_id).await;
+                    self.store.remove(ord.order_id).await;
                 }
             } else {
                 break;
@@ -276,7 +283,7 @@ where
         let ts_now = Utc::now().timestamp();
         let elapsed_secs = ts_now - ord.timestamp;
         if elapsed_secs > conf.order_lifespan.num_seconds() {
-            store.drop(ord.order_id).await;
+            store.remove(ord.order_id).await;
         } else {
             let res = store.get(ord.order_id).await.map(|bo| bo.order);
             if res.is_some() {
@@ -291,6 +298,7 @@ where
 impl<TOrd, TStore> Backlog<TOrd> for BacklogService<TOrd, TStore>
 where
     TStore: BacklogStore<TOrd>,
+    TOrd::TOrderId: Debug,
     TOrd: OnChainOrder + Weighted + Hash + Eq + Clone,
 {
     async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
@@ -359,7 +367,7 @@ where
     where
         TOrd::TOrderId: Clone + 'a,
     {
-        self.store.drop(ord_id).await;
+        self.store.remove(ord_id).await;
     }
 
     async fn recharge<'a>(&mut self, ord: TOrd)
@@ -445,27 +453,10 @@ mod tests {
         }
     }
 
-    impl Has<MockOrderId> for MockOrder {
-        fn get<U: IsEqual<MockOrderId>>(&self) -> MockOrderId {
-            self.order_id
-        }
-    }
-
     impl Weighted for MockOrder {
         fn weight(&self) -> OrderWeight {
             self.weight
         }
-    }
-
-    impl OnChainOrder for MockOrder {
-        type TOrderId = MockOrderId;
-        type TEntityId = ();
-
-        fn get_self_ref(&self) -> Self::TOrderId {
-            self.order_id
-        }
-
-        fn get_entity_ref(&self) -> Self::TEntityId {}
     }
 
     struct MockBacklogStore {
@@ -480,6 +471,18 @@ mod tests {
         }
     }
 
+    impl OnChainOrder for MockOrder {
+        type TOrderId = MockOrderId;
+
+        type TEntityId = ();
+
+        fn get_self_ref(&self) -> Self::TOrderId {
+            self.order_id
+        }
+
+        fn get_entity_ref(&self) -> Self::TEntityId {}
+    }
+
     #[async_trait(?Send)]
     impl BacklogStore<MockOrder> for MockBacklogStore {
         async fn put(&mut self, ord: BacklogOrder<MockOrder>) {
@@ -490,7 +493,7 @@ mod tests {
             self.inner.contains_key(&ord_id)
         }
 
-        async fn drop(&mut self, ord_id: MockOrderId) {
+        async fn remove(&mut self, ord_id: MockOrderId) {
             self.inner.remove(&ord_id);
         }
 
@@ -506,7 +509,7 @@ mod tests {
         }
     }
 
-    fn setup_backlog(
+    async fn setup_backlog(
         order_lifespan_secs: i64,
         order_exec_time_secs: i64,
         retry_suspended_prob: u8,
@@ -517,7 +520,7 @@ mod tests {
             order_exec_time: Duration::seconds(order_exec_time_secs),
             retry_suspended_prob: <BoundedU8<0, 100>>::new(retry_suspended_prob).unwrap(),
         };
-        BacklogService::new::<MockOrder>(store, conf)
+        BacklogService::new::<MockOrder>(store, conf).await
     }
 
     fn make_order(id: i64, weight: u64) -> BacklogOrder<MockOrder> {
@@ -532,7 +535,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_suspend_existing_order() {
-        let mut backlog = setup_backlog(10, 5, 50);
+        let mut backlog = setup_backlog(10, 5, 50).await;
         let ord = make_order(1, 1);
         backlog.put(ord.clone().into()).await;
         let suspended = backlog.suspend(ord.order).await;
@@ -541,7 +544,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_check_later_existing_order() {
-        let mut backlog = setup_backlog(10, 5, 50);
+        let mut backlog = setup_backlog(10, 5, 50).await;
         let ord = make_order(1, 1);
         backlog.put(ord.clone().into()).await;
         let accepted = backlog.check_later(ord.into()).await;
@@ -550,7 +553,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_not_suspend_non_existent_order() {
-        let mut backlog = setup_backlog(10, 5, 50);
+        let mut backlog = setup_backlog(10, 5, 50).await;
         let ord = make_order(1, 1);
         let suspended = backlog.suspend(ord.order).await;
         assert!(!suspended)
@@ -558,7 +561,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_not_check_later_non_existent_order() {
-        let mut backlog = setup_backlog(10, 5, 50);
+        let mut backlog = setup_backlog(10, 5, 50).await;
         let ord = make_order(1, 1);
         let accepted = backlog
             .check_later(ProgressingOrder {
@@ -571,7 +574,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_pop_best_order() {
-        let mut backlog = setup_backlog(10, 5, 0);
+        let mut backlog = setup_backlog(10, 5, 0).await;
         let ord1 = make_order(1, 1);
         let ord2 = make_order(2, 2);
         let ord3 = make_order(3, 3);
@@ -585,7 +588,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_always_pop_suspended_order_when_pa_100() {
-        let mut backlog = setup_backlog(10, 5, 100);
+        let mut backlog = setup_backlog(10, 5, 100).await;
         let ord1 = make_order(1, 1);
         let ord2 = make_order(2, 2);
         let ord3 = make_order(3, 3);
@@ -601,7 +604,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_not_pop_suspended_order_when_pa_0() {
-        let mut backlog = setup_backlog(10, 5, 0);
+        let mut backlog = setup_backlog(10, 5, 0).await;
         let ord1 = make_order(1, 1);
         let ord2 = make_order(2, 2);
         let ord3 = make_order(3, 3);
@@ -636,7 +639,7 @@ mod tests {
         }
 
         for i in 0..30 {
-            <BacklogStoreRocksDB as BacklogStore<MockOrder>>::drop(&mut store, MockOrderId(i)).await;
+            <BacklogStoreRocksDB as BacklogStore<MockOrder>>::remove(&mut store, MockOrderId(i)).await;
             assert!(!<BacklogStoreRocksDB as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
             assert!(
                 <BacklogStoreRocksDB as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))

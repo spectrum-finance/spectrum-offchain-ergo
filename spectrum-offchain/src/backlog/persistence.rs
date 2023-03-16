@@ -16,7 +16,7 @@ where
 {
     async fn put(&mut self, ord: BacklogOrder<TOrd>);
     async fn exists(&self, ord_id: TOrd::TOrderId) -> bool;
-    async fn drop(&mut self, ord_id: TOrd::TOrderId);
+    async fn remove(&mut self, ord_id: TOrd::TOrderId);
     async fn get(&self, ord_id: TOrd::TOrderId) -> Option<BacklogOrder<TOrd>>;
     async fn find_orders<F>(&self, f: F) -> Vec<BacklogOrder<TOrd>>
     where
@@ -57,7 +57,7 @@ where
         spawn_blocking(move || db.get(bincode::serialize(&ord_id).unwrap()).unwrap().is_some()).await
     }
 
-    async fn drop(&mut self, ord_id: TOrd::TOrderId) {
+    async fn remove(&mut self, ord_id: TOrd::TOrderId) {
         let db = self.db.clone();
         spawn_blocking(move || db.delete(bincode::serialize(&ord_id).unwrap()).unwrap()).await;
     }
