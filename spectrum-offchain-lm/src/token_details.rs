@@ -3,6 +3,7 @@ use spectrum_offchain::network::ErgoNetwork;
 
 use crate::data::PoolId;
 
+#[derive(Clone)]
 pub struct TokenDetails {
     pub name: String,
     pub description: String,

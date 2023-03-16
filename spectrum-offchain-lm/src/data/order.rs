@@ -750,6 +750,8 @@ mod tests {
 
     use super::RedeemProto;
 
+    use super::Redeem;
+
     fn trivial_prop() -> ErgoTree {
         ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap()
     }

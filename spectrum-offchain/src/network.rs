@@ -52,7 +52,11 @@ impl ErgoNetwork for ErgoNodeHttpClient {
             .header("Content-Type", "application/json")
             .body(serde_json::to_vec(&tx).unwrap())
             .unwrap();
-        let mut res = self.client.send_async(req).await.unwrap();
+        let mut res = self
+            .client
+            .send_async(req)
+            .await
+            .map_err(|e| ClientError(format!("ErgoNetwork::submit_tx: {:?}", e)))?;
         if res.status().is_client_error() {
             let details = res
                 .json::<NodeError>()

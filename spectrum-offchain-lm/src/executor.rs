@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::sync::Arc;
 
 use crate::data::bundle::IndexedBundle;
-use crate::data::FundingId;
+use crate::data::{FundingId, OrderId, PoolStateId};
 use crate::token_details::get_token_details;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -12,6 +12,7 @@ use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use futures::{stream, StreamExt};
 use itertools::{EitherOrBoth, Itertools};
 use log::{error, info, trace, warn};
+use spectrum_offchain::data::order::PendingOrder;
 use tokio::sync::Mutex;
 
 use spectrum_offchain::backlog::Backlog;

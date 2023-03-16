@@ -68,6 +68,7 @@ pub mod program;
 pub mod prover;
 pub mod scheduler;
 mod sink;
+mod token_details;
 pub mod validators;
 
 #[tokio::main]

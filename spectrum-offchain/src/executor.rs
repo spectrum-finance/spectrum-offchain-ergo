@@ -218,7 +218,7 @@ pub fn parse_err(err: &str) -> NodeSubmitTxError {
         return NodeSubmitTxError::MissingInputs(
             s[..s.len() - 1] // Don't consider the trailing ']' character
                 .split(',')
-                .map(|s| s.parse::<i32>().unwrap())
+                .map(|s| s.trim().parse::<i32>().unwrap())
                 .collect(),
         );
     } else if err.contains("Double spending attempt") {
@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn test_missing_indices() {
         assert_eq!(
-            parse_err("Missing inputs: 3,4,6"),
+            parse_err("Missing inputs: 3, 4, 6]"),
             NodeSubmitTxError::MissingInputs(vec![3_i32, 4, 6])
         );
     }
