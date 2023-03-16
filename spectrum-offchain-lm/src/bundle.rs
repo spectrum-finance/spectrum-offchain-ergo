@@ -158,6 +158,7 @@ where
 mod tests {
     use std::sync::Arc;
 
+    use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{ProveDlog, SigmaProp};
     use ergo_lib::{
         chain::{ergo_box::box_builder::ErgoBoxCandidateBuilder, transaction::TxId},
         ergo_chain_types::Digest32,
@@ -171,7 +172,6 @@ mod tests {
             serialization::SigmaSerializable,
         },
     };
-    use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{ProveDlog, SigmaProp};
     use rand::RngCore;
     use sigma_test_util::force_any_val;
 
@@ -318,7 +318,7 @@ mod tests {
                 .is_some());
         }
         let pool_1_ep_2_res = client.select(pool_id_1, 2).await;
-        let pool_1_ep_2_expected = bundles_pool_1_epoch_1.iter().chain(bundles_pool_1_epoch_2.iter());
+        let pool_1_ep_2_expected = bundles_pool_1_epoch_2;
         assert!(!pool_1_ep_2_res.is_empty());
         for AsBox(_, bun) in pool_1_ep_2_expected {
             assert!(pool_1_ep_2_res
@@ -349,10 +349,14 @@ mod tests {
             let sigma_prop = SigmaProp::from(ProveDlog::try_from(tree).unwrap());
             builder.set_register_value(
                 NonMandatoryRegisterId::R4,
-                Constant::from(sigma_prop),
+                Constant::from(String::from("").as_bytes().to_vec()),
             );
-
-            builder.set_register_value(NonMandatoryRegisterId::R5, Constant::from(TokenId::from(pool_id)));
+            builder.set_register_value(
+                NonMandatoryRegisterId::R5,
+                Constant::from(String::from("").as_bytes().to_vec()),
+            );
+            builder.set_register_value(NonMandatoryRegisterId::R6, Constant::from(sigma_prop));
+            builder.set_register_value(NonMandatoryRegisterId::R7, Constant::from(TokenId::from(pool_id)));
 
             let vlq = Token {
                 token_id: gen_from_rnd_digest_32::<TokenId>(),

@@ -39,7 +39,7 @@ impl<O> RunOrderError<O> {
     }
 }
 
-pub trait RunOrder<TEntity, TCtx>: OnChainOrder + Sized {
+pub trait RunOrder<TEntity, TCtx>: Sized {
     /// Try to run the given `TOrd` against the given `TEntity`.
     /// Returns transaction and the next state of the persistent entity in the case of success.
     /// Returns `RunOrderError<TOrd>` otherwise.
@@ -72,7 +72,7 @@ impl<'a, TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity> Executor
     for OrderExecutor<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity>
 where
     TOrd: OnChainOrder + RunOrder<TEntity, TCtx> + Clone + Display,
-    TOrd::TOrderId: Clone,
+    <TOrd as OnChainOrder>::TOrderId: Clone,
     TEntity: OnChainEntity + Clone,
     TEntity::TEntityId: Copy,
     TOrd::TEntityId: IsEqual<TEntity::TEntityId>,
@@ -208,27 +208,44 @@ pub fn generate_invalidations(
 
 pub type MissingIndex = i32;
 
-pub fn parse_err(err: &str) -> Option<Vec<MissingIndex>> {
-    let prefix = "Missing inputs: ";
-    if err.starts_with(prefix) {
-        return Some(
-            err.strip_prefix(prefix)
-                .unwrap()
+pub fn parse_err(err: &str) -> NodeSubmitTxError {
+    // Such an error can appear for example as:
+    // [Malformed transaction: Every input of the transaction should be in UTXO... Missing inputs: 0, 1, 2]
+    let error_description = "Missing inputs: ";
+    if err.contains(error_description) {
+        let s = err.split(error_description).last().unwrap();
+        trace!(target: "offchain_lm", "parse_err: Missing inputs {}", s);
+        return NodeSubmitTxError::MissingInputs(
+            s[..s.len() - 1] // Don't consider the trailing ']' character
                 .split(',')
-                .map(|s| s.parse::<i32>().unwrap())
+                .map(|s| s.trim().parse::<i32>().unwrap())
                 .collect(),
         );
+    } else if err.contains("Double spending attempt") {
+        return NodeSubmitTxError::DoubleSpend;
     }
 
-    None
+    NodeSubmitTxError::Unhandled
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum NodeSubmitTxError {
+    MissingInputs(Vec<MissingIndex>),
+    DoubleSpend,
+    Unhandled,
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::executor::NodeSubmitTxError;
+
     use super::parse_err;
 
     #[test]
     fn test_missing_indices() {
-        assert_eq!(parse_err("Missing inputs: 3,4,6").unwrap(), vec![3_i32, 4, 6]);
+        assert_eq!(
+            parse_err("Missing inputs: 3, 4, 6]"),
+            NodeSubmitTxError::MissingInputs(vec![3_i32, 4, 6])
+        );
     }
 }

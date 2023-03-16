@@ -4,7 +4,7 @@ use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use chrono::Utc;
 use log::trace;
-use rocksdb::{Direction, IteratorMode};
+use rocksdb::{Direction, IteratorMode, ReadOptions};
 
 use ergo_chain_sync::rocksdb::RocksConfig;
 use spectrum_offchain::binary::{prefixed_key, raw_prefixed_key};
@@ -100,8 +100,17 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
         spawn_blocking(move || {
             if let Some(next_height) = schedule.next_compounding_at() {
                 let transaction = db.transaction();
+
+                // Note that we will remove the ticks before and after the tick @ `next_height`, to
+                // stop redundant peeking of these other ticks.
+                let prev_height = next_height.saturating_sub(schedule.epoch_len);
+                let after_next_height = next_height + schedule.epoch_len;
+                let prev_tried_tick = tick_key(DEFERRED_TICKS_PREFIX, &pid, &prev_height);
+                let after_next_tried_tick = tick_key(DEFERRED_TICKS_PREFIX, &pid, &after_next_height);
                 let tried_tick = tick_key(DEFERRED_TICKS_PREFIX, &pid, &next_height);
                 let tick = tick_key(TICKS_PREFIX, &pid, &next_height);
+                let prev_tick = tick_key(TICKS_PREFIX, &pid, &prev_height);
+                let after_next_tick = tick_key(TICKS_PREFIX, &pid, &after_next_height);
                 // Write updated schedule only in case we haven't tried to compound it already on this height.
                 if transaction.get(tried_tick).unwrap().is_none()
                     && transaction.get(tick.clone()).unwrap().is_none()
@@ -110,6 +119,10 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                     let schedule_bytes = bincode::serialize(&schedule).unwrap();
                     transaction.put(schedule_key, schedule_bytes).unwrap();
                     transaction.put(tick, vec![]).unwrap();
+                    transaction.delete(prev_tick).unwrap();
+                    transaction.delete(after_next_tick).unwrap();
+                    transaction.delete(prev_tried_tick).unwrap();
+                    transaction.delete(after_next_tried_tick).unwrap();
                 }
                 transaction.commit().unwrap();
                 Ok(())
@@ -124,7 +137,9 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
         let db = Arc::clone(&self.db);
         spawn_blocking(move || {
             let ticks_prefix = bincode::serialize(TICKS_PREFIX).unwrap();
-            let mut ticks = db.iterator(IteratorMode::From(&ticks_prefix, Direction::Forward));
+            let mut readopts = ReadOptions::default();
+            readopts.set_iterate_range(rocksdb::PrefixRange(ticks_prefix.clone()));
+            let mut ticks = db.iterator_opt(IteratorMode::From(&ticks_prefix, Direction::Forward), readopts);
             let mut tick: Option<Tick> = None;
             // First we try to peek closest pending tick.
             while tick.is_none() {
@@ -136,6 +151,9 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                         })
                         .and_then(|bs| bincode::deserialize::<PoolSchedule>(&bs).ok())
                         .and_then(|sc| sc.try_into().ok());
+                    if tick.is_some() {
+                        trace!(target: "schedules", "pending tick chosen: {:?}", tick);
+                    }
                 } else {
                     break;
                 }
@@ -143,8 +161,12 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
             // If there are no pending ticks we check deferred ticks.
             if tick.is_none() {
                 let deferred_ticks_prefix = bincode::serialize(DEFERRED_TICKS_PREFIX).unwrap();
-                let mut deferred_ticks =
-                    db.iterator(IteratorMode::From(&deferred_ticks_prefix, Direction::Forward));
+                let mut readopts = ReadOptions::default();
+                readopts.set_iterate_range(rocksdb::PrefixRange(deferred_ticks_prefix.clone()));
+                let mut deferred_ticks = db.iterator_opt(
+                    IteratorMode::From(&deferred_ticks_prefix, Direction::Forward),
+                    readopts,
+                );
                 let ts_now = Utc::now().timestamp();
                 while tick.is_none() {
                     if let Some((bs, deferred_until)) = deferred_ticks.next().and_then(|res| res.ok()) {
@@ -157,6 +179,9 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                                     })
                                     .and_then(|bs| bincode::deserialize::<PoolSchedule>(&bs).ok())
                                     .and_then(|sc| sc.try_into().ok());
+                                if tick.is_some() {
+                                    trace!(target: "schedules", "deferred tick chosen: {:?}", tick);
+                                }
                             } else {
                                 break;
                             }
@@ -381,9 +406,9 @@ mod tests {
     }
 
     const POOL_JSON: &str = r#"{
-        "boxId": "f939833ea2e9102b7527c833ab61af7222ad6b440bc2807a14e826168f864213",
+        "boxId": "2b7a4dc2ed1e8f50b48faeb8c8a978b30fc5a1321dae314c7b3faea7c1040385",
         "value": 1250000,
-        "ergoTree": "19c0062904000400040204020404040404060406040804080404040204000400040204020601010400040a050005000404040204020e20fc3cdbfd1abc83f4a38ca3fb3dfe417a158b67d63e3c52137fdda4e66ad3956c0400040205000402040204060500050005feffffffffffffffff010502050005000402050005000100d820d601b2a5730000d602db63087201d603db6308a7d604b27203730100d605e4c6a70410d606e4c6a70505d607e4c6a70605d608b27202730200d609b27203730300d60ab27202730400d60bb27203730500d60cb27202730600d60db27203730700d60e8c720d01d60fb27202730800d610b27203730900d6118c721001d6128c720b02d613998c720a027212d6148c720902d615b27205730a00d6169a99a37215730bd617b27205730c00d6189d72167217d61995919e72167217730d9a7218730e7218d61ab27205730f00d61b7e721a05d61c9d7206721bd61d998c720c028c720d02d61e8c721002d61f998c720f02721ed6207310d1ededededed93b272027311007204ededed93e4c672010410720593e4c672010505720693e4c6720106057207928cc77201018cc7a70193c27201c2a7ededed938c7208018c720901938c720a018c720b01938c720c01720e938c720f01721193b172027312959172137313d802d6219c721399721ba273147e721905d622b2a5731500ededed929a997206721472079c7e9995907219721a72199a721a7316731705721c937213f0721d937221f0721fedededed93cbc272227318938602720e7213b2db6308722273190093860272117221b2db63087222731a00e6c67222040893e4c67222050e8c720401958f7213731bededec929a997206721472079c7e9995907219721a72199a721a731c731d05721c92a39a9a72159c721a7217b27205731e0093721df0721392721f95917219721a731f9c721d99721ba273207e721905d804d621e4c672010704d62299721a7221d6237e722205d62499997321721e9c9972127322722395ed917224732391721f7324edededed9072219972197325909972149c7223721c9a721c7207907ef0998c7208027214069a9d9c99997e7214069d9c7e7206067e7222067e721a0672207e721f067e7224067220937213732693721d73277328",
+        "ergoTree": "19c0062904000400040204020404040404060406040804080404040204000400040204020601010400040a050005000404040204020e2037687656669e6173e60c5671238d0518002768f7371d0b01a44c6dd5602570610400040205000402040204060500050005feffffffffffffffff010502050005000402050005000100d820d601b2a5730000d602db63087201d603db6308a7d604b27203730100d605e4c6a70410d606e4c6a70505d607e4c6a70605d608b27202730200d609b27203730300d60ab27202730400d60bb27203730500d60cb27202730600d60db27203730700d60e8c720d01d60fb27202730800d610b27203730900d6118c721001d6128c720b02d613998c720a027212d6148c720902d615b27205730a00d6169a99a37215730bd617b27205730c00d6189d72167217d61995919e72167217730d9a7218730e7218d61ab27205730f00d61b7e721a05d61c9d7206721bd61d998c720c028c720d02d61e8c721002d61f998c720f02721ed6207310d1ededededed93b272027311007204ededed93e4c672010410720593e4c672010505720693e4c6720106057207928cc77201018cc7a70193c27201c2a7ededed938c7208018c720901938c720a018c720b01938c720c01720e938c720f01721193b172027312959172137313d802d6219c721399721ba273147e721905d622b2a5731500ededed929a997206721472079c7e9995907219721a72199a721a7316731705721c937213f0721d937221f0721fedededed93cbc272227318938602720e7213b2db6308722273190093860272117221b2db63087222731a00e6c67222060893e4c67222070e8c720401958f7213731bededec929a997206721472079c7e9995907219721a72199a721a731c731d05721c92a39a9a72159c721a7217b27205731e0093721df0721392721f95917219721a731f9c721d99721ba273207e721905d804d621e4c672010704d62299721a7221d6237e722205d62499997321721e9c9972127322722395ed917224732391721f7324edededed9072219972197325909972149c7223721c9a721c7207907ef0998c7208027214069a9d9c99997e7214069d9c7e7206067e7222067e721a0672207e721f067e7224067220937213732693721d73277328",
         "assets": [
             {
                 "tokenId": "48ad28d9bb55e1da36d27c655a84279ff25d889063255d3f774ff926a3704370",

@@ -14,7 +14,7 @@ pub fn backlog_stream<'a, S, TOrd, TBacklog>(
     upstream: S,
 ) -> impl Stream<Item = ()> + 'a
 where
-    S: Stream<Item = OrderUpdate<TOrd>> + 'a,
+    S: Stream<Item = OrderUpdate<TOrd, TOrd::TOrderId>> + 'a,
     TOrd: OnChainOrder + 'a,
     TOrd::TOrderId: Clone,
     TBacklog: Backlog<TOrd> + 'a,

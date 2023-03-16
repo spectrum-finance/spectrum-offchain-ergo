@@ -39,6 +39,15 @@ where
                     if let Some(pool) = Pool::try_from_box(o.clone()) {
                         let mut repo = self.schedules.lock().await;
                         let pid = pool.pool_id;
+
+                        trace!(
+                            target: "offchain_lm",
+                            "LedgerTxEvent::AppliedTx: pool_box_id: {:?}, epoch_ix: {:?}, budget_rem: {:?}",
+                            o.box_id(),
+                            pool.epoch_ix,
+                            pool.budget_rem
+                        );
+
                         if let Err(_exhausted) = repo.update_schedule(PoolSchedule::from(pool)).await {
                             repo.clean(pid).await;
                         }
@@ -54,9 +63,9 @@ where
             }
             LedgerTxEvent::UnappliedTx(tx) => {
                 let mut is_success = false;
-                let pools = self.pools.lock().await;
                 for i in &tx.inputs {
                     let sid = PoolStateId::from(i.box_id);
+                    let pools = self.pools.lock().await;
                     if pools.may_exist(sid).await {
                         if let Some(AsBox(_, pool)) = pools.get_state(sid).await {
                             let mut repo = self.schedules.lock().await;
