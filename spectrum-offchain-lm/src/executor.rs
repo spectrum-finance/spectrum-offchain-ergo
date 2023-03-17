@@ -12,7 +12,7 @@ use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use futures::{stream, StreamExt};
 use itertools::{EitherOrBoth, Itertools};
 use log::{error, info, trace, warn};
-use spectrum_offchain::data::order::PendingOrder;
+use spectrum_offchain::data::order::{PendingOrder, ProgressingOrder};
 use tokio::sync::Mutex;
 
 use spectrum_offchain::backlog::Backlog;
@@ -218,14 +218,11 @@ where
                                             for i in invalidations {
                                                 match i {
                                                     Invalidation::Pool => {
-                                                        self.pool_repo
-                                                            .lock()
-                                                            .await
-                                                            .invalidate(
-                                                                pool.get_self_state_ref(),
-                                                                pool.get_self_ref(),
-                                                            )
-                                                            .await;
+                                                        // Here the TX is rejected by the node
+                                                        // because of an invalid pool box. We
+                                                        // should return the order to the backlog
+                                                        // and wait for updated pool box.
+                                                        self.backlog.lock().await.suspend(ord.clone()).await;
                                                     }
 
                                                     Invalidation::Funding => {
@@ -266,8 +263,18 @@ where
                                         }
                                         NodeSubmitTxError::Unhandled => (),
                                     }
-                                // Return order to backlog
                                 } else {
+                                    // Return order to backlog to check for settlement.
+                                    {
+                                        self.backlog
+                                            .lock()
+                                            .await
+                                            .check_later(ProgressingOrder {
+                                                order: ord,
+                                                timestamp: Utc::now().timestamp(),
+                                            })
+                                            .await;
+                                    }
                                     self.pool_repo
                                         .lock()
                                         .await
