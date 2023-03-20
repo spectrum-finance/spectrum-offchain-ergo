@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_stream::stream;
 use ergo_lib::chain::transaction::{Transaction, TxId};
-use futures::stream::select;
+use futures::stream::{select, select_all};
 use futures::{Stream, StreamExt};
 use log::info;
 use tokio::sync::Mutex;
@@ -139,10 +140,10 @@ where
     };
     let chain_sync = chain_sync_maker.init(start_at as u32, None).await;
     let state = Arc::new(Mutex::new(SyncState::empty()));
-    let joined_stream = select(
-        sync_ledger(chain_sync_stream(chain_sync), Arc::clone(&state)).map(move |_| None),
-        sync_mempool(conf, client, state),
-    );
+    let joined_stream = select_all(vec![
+        boxed(sync_ledger(chain_sync_stream(chain_sync), Arc::clone(&state)).map(move |_| None)),
+        boxed(sync_mempool(conf, client, state)),
+    ]);
     joined_stream.filter_map(move |maybe_upd| async move { maybe_upd })
 }
 
@@ -185,4 +186,8 @@ where
             sync(client, Arc::clone(&state)).await;
         }
     }
+}
+
+fn boxed<'a, T>(s: impl Stream<Item = T> + 'a) -> Pin<Box<dyn Stream<Item = T> + 'a>> {
+    Box::pin(s)
 }
