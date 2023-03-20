@@ -330,7 +330,11 @@ impl Pool {
                 let charged_tmp_amt = tmp.amount - epochs_remain as u64 * bundle.vlq.amount;
                 let charged_tmp = TypedAssetAmount::new(tmp.token_id, charged_tmp_amt);
                 accumulated_cost = accumulated_cost + reward_output.erg_value;
-                bundle.tmp = Some(tmp - charged_tmp);
+                if (tmp - charged_tmp).amount > 0 {
+                    bundle.tmp = Some(tmp - charged_tmp);
+                } else {
+                    bundle.tmp = None;
+                }
                 next_pool.reserves_tmp = next_pool.reserves_tmp + charged_tmp;
             }
 

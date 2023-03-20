@@ -12,7 +12,7 @@ use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use futures::{stream, StreamExt};
 use itertools::{EitherOrBoth, Itertools};
 use log::{error, info, trace, warn};
-use spectrum_offchain::data::order::PendingOrder;
+use spectrum_offchain::data::order::{PendingOrder, ProgressingOrder};
 use tokio::sync::Mutex;
 
 use spectrum_offchain::backlog::Backlog;
@@ -218,6 +218,14 @@ where
                                             for i in invalidations {
                                                 match i {
                                                     Invalidation::Pool => {
+                                                        // We suspend the order and also invalidate
+                                                        // the pool. If the pool is actually
+                                                        // invalid, it's gone.
+                                                        //
+                                                        // Otherwise we are just waiting for
+                                                        // subsequent pool box to be confimed by
+                                                        // the ledger. The program will be brought
+                                                        // back by `ConfirmedProgramUpdateHandler`.
                                                         self.pool_repo
                                                             .lock()
                                                             .await
@@ -226,6 +234,7 @@ where
                                                                 pool.get_self_ref(),
                                                             )
                                                             .await;
+                                                        self.backlog.lock().await.suspend(ord.clone()).await;
                                                     }
 
                                                     Invalidation::Funding => {
@@ -266,8 +275,18 @@ where
                                         }
                                         NodeSubmitTxError::Unhandled => (),
                                     }
-                                // Return order to backlog
                                 } else {
+                                    // Return order to backlog to check for settlement.
+                                    {
+                                        self.backlog
+                                            .lock()
+                                            .await
+                                            .check_later(ProgressingOrder {
+                                                order: ord,
+                                                timestamp: Utc::now().timestamp(),
+                                            })
+                                            .await;
+                                    }
                                     self.pool_repo
                                         .lock()
                                         .await
