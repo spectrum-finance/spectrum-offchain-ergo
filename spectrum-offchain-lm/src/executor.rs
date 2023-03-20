@@ -218,10 +218,22 @@ where
                                             for i in invalidations {
                                                 match i {
                                                     Invalidation::Pool => {
-                                                        // Here the TX is rejected by the node
-                                                        // because of an invalid pool box. We
-                                                        // should return the order to the backlog
-                                                        // and wait for updated pool box.
+                                                        // We suspend the order and also invalidate
+                                                        // the pool. If the pool is actually
+                                                        // invalid, it's gone.
+                                                        //
+                                                        // Otherwise we are just waiting for
+                                                        // subsequent pool box to be confimed by
+                                                        // the ledger. The program will be brought
+                                                        // back by `ConfirmedProgramUpdateHandler`.
+                                                        self.pool_repo
+                                                            .lock()
+                                                            .await
+                                                            .invalidate(
+                                                                pool.get_self_state_ref(),
+                                                                pool.get_self_ref(),
+                                                            )
+                                                            .await;
                                                         self.backlog.lock().await.suspend(ord.clone()).await;
                                                     }
 
