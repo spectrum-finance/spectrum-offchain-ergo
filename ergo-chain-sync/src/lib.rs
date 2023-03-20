@@ -16,9 +16,9 @@ use crate::model::Block;
 
 pub mod cache;
 pub mod client;
+pub mod constants;
 pub mod model;
 pub mod rocksdb;
-pub mod constants;
 
 #[derive(Debug, Clone)]
 pub enum ChainUpgrade {

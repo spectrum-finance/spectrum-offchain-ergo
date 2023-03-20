@@ -8,7 +8,6 @@ use std::task::{Context, Poll};
 use ergo_lib::chain::transaction::{Transaction, TxId};
 use futures::stream::FusedStream;
 use futures::Stream;
-use futures::StreamExt;
 use log::info;
 use wasm_timer::Delay;
 
@@ -79,11 +78,15 @@ impl<'a, TClient, TChainSync> MempoolSync<'a, TClient, TChainSync>
 where
     TClient: ErgoNetwork,
 {
-    pub async fn init<TChainSyncMaker: InitChainSync<TChainSync>>(
+    pub async fn init<F, TChainSyncProto, TChainSyncMaker: InitChainSync<TChainSyncProto>>(
         conf: MempoolSyncConf,
         client: &'a TClient,
         chain_sync_maker: TChainSyncMaker,
-    ) -> MempoolSync<'a, TClient, TChainSync> {
+        into_stream: F,
+    ) -> MempoolSync<'a, TClient, TChainSync>
+    where
+        F: FnOnce(TChainSyncProto) -> TChainSync,
+    {
         let chain_tip_height = client.get_best_height().await;
         let start_at = match chain_tip_height {
             Ok(height) => height as usize - KEEP_LAST_BLOCKS,
@@ -100,7 +103,7 @@ where
         Self {
             conf,
             client,
-            chain_sync,
+            chain_sync: into_stream(chain_sync),
             state: Rc::new(RefCell::new(SyncState::empty())),
         }
     }
@@ -153,17 +156,6 @@ async fn sync<'a, TClient: ErgoNetwork>(client: &TClient, mut state: RefMut<'a, 
         state.mempool_projection.insert(tx.id(), tx.clone());
         state.pending_updates.push_back(MempoolUpdate::TxAccepted(tx));
     }
-}
-
-/// Cast MempoolSync to impl Stream for convenience and consistency with other stream constructors.
-pub fn mempool_stream<'a, TClient, TChainSync>(
-    ms: MempoolSync<'a, TClient, TChainSync>,
-) -> impl Stream<Item = MempoolUpdate> + 'a
-where
-    TClient: ErgoNetwork,
-    TChainSync: Stream<Item = ChainUpgrade> + Unpin + 'a,
-{
-    ms
 }
 
 impl<'a, TClient, TChainSync> Stream for MempoolSync<'a, TClient, TChainSync>
