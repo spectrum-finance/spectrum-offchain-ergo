@@ -11,3 +11,8 @@ pub struct FullBlock {
     pub header: Header,
     pub block_transactions: BlockTransactions,
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ApiInfo {
+    pub full_height: u32
+}

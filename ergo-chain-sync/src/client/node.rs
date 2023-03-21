@@ -1,10 +1,11 @@
 use async_trait::async_trait;
 use derive_more::From;
+use ergo_lib::chain::transaction::Transaction;
 use ergo_lib::ergo_chain_types::{BlockId, Header};
 use isahc::{AsyncReadResponseExt, HttpClient};
 use thiserror::Error;
 
-use crate::client::model::FullBlock;
+use crate::client::model::{ApiInfo, FullBlock};
 use crate::client::types::Url;
 
 use super::model::BlockTransactions;
@@ -25,6 +26,8 @@ pub enum Error {
 #[async_trait(?Send)]
 pub trait ErgoNetwork {
     async fn get_block_at(&self, height: u32) -> Result<FullBlock, Error>;
+    async fn fetch_mempool(&self, offset: usize, limit: usize) -> Result<Vec<Transaction>, Error>;
+    async fn get_best_height(&self) -> Result<u32, Error>;
 }
 
 #[derive(Clone)]
@@ -82,5 +85,41 @@ impl ErgoNetwork for ErgoNodeHttpClient {
         } else {
             Err(Error::NoBlock)
         }
+    }
+
+    async fn get_best_height(&self) -> Result<u32, Error> {
+        let genesis_height = ApiInfo { full_height: 0 };
+        let mut response = self
+            .client
+            .get_async(with_path(&self.base_url, &format!("/info")))
+            .await?;
+        let height = if response.status().is_success() {
+            response
+                .json::<ApiInfo>()
+                .await
+                .unwrap_or(genesis_height)
+                .full_height
+        } else {
+            return Err(Error::UnsuccessfulRequest("expected 200 from /info".into()));
+        };
+        Ok(height)
+    }
+
+    async fn fetch_mempool(&self, offset: usize, limit: usize) -> Result<Vec<Transaction>, Error> {
+        let mut response = self
+            .client
+            .get_async(with_path(
+                &self.base_url,
+                &format!("/transactions/unconfirmed?offset={:?}&limit={:?}", offset, limit),
+            ))
+            .await?;
+        let transactions = if response.status().is_success() {
+            response.json::<Vec<Transaction>>().await?
+        } else {
+            return Err(Error::UnsuccessfulRequest(
+                "expected 200 from /transactions/unconfirmed?offset=_&limit=_".into(),
+            ));
+        };
+        Ok(transactions)
     }
 }
