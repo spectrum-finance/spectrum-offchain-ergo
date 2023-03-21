@@ -144,7 +144,7 @@ where
         boxed(sync_ledger(chain_sync_stream(chain_sync), Arc::clone(&state)).map(move |_| None)),
         boxed(sync_mempool(conf, client, state)),
     ]);
-    joined_stream.filter_map(move |maybe_upd| async move { maybe_upd })
+    joined_stream.filter_map(futures::future::ready)
 }
 
 fn sync_ledger<'a, S>(upstream: S, state: Arc<Mutex<SyncState>>) -> impl Stream<Item = ()> + 'a
