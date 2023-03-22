@@ -7,7 +7,7 @@ use std::time::Duration;
 use async_stream::stream;
 use futures::Stream;
 use futures_timer::Delay;
-use log::trace;
+use log::{info, trace};
 use pin_project::pin_project;
 
 use crate::cache::chain_cache::ChainCache;
@@ -98,6 +98,9 @@ where
         let best_block = cache.get_best_block().await;
         let start_at = if let Some(best_block) = best_block {
             trace!(target: "chain_sync", "Best block is [{}], height: {}", best_block.id, best_block.height);
+            info!(target: "chain_sync", "Best block is [{}], height: {}", best_block.id, best_block.height);
+            let s = max(best_block.height, starting_height);
+            info!(target: "chain_sync", "start_at is: {}", s);
             max(best_block.height, starting_height)
         } else {
             starting_height

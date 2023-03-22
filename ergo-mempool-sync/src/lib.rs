@@ -127,6 +127,7 @@ where
     TChainSyncMaker: InitChainSync<ChainSync<'a, TClient, TCache>>,
 {
     let chain_tip_height = client.get_best_height().await;
+    info!(target:"mempool_sync","chain_tip_height -> ${:?} mempool_sync_stream ->", chain_tip_height);
     let start_at = match chain_tip_height {
         Ok(height) => height as usize - KEEP_LAST_BLOCKS,
         Err(error) => {
@@ -138,6 +139,7 @@ where
             START_HEIGHT
         }
     };
+    info!(target:"mempool_sync", "chain_tip_height -> mempool_sync_stream -> start_at -> ${:?}", start_at);
     let chain_sync = chain_sync_maker.init(start_at as u32, None).await;
     let state = Arc::new(Mutex::new(SyncState::empty()));
     let joined_stream = select_all(vec![
