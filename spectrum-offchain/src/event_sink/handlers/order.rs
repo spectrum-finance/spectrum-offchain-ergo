@@ -1,88 +1,167 @@
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
-use tokio::sync::mpsc::UnboundedSender;
+use futures::{Sink, SinkExt};
+use log::trace;
+use tokio::sync::Mutex;
 
-use crate::backlog::data::BacklogOrder;
-use crate::backlog::persistence::BacklogStore;
-use crate::data::order::{EliminatedOrder, PendingOrder};
-use crate::data::OnChainOrder;
+use ergo_mempool_sync::MempoolUpdate;
+
+use crate::backlog::Backlog;
+use crate::data::order::{OrderUpdate, PendingOrder};
+use crate::data::{Has, OnChainOrder};
 use crate::event_sink::handlers::types::TryFromBox;
 use crate::event_sink::types::EventHandler;
 use crate::event_source::data::LedgerTxEvent;
 
-pub struct PendingOrdersHandler<TOrd, P> {
-    topic: UnboundedSender<PendingOrder<TOrd>>,
-    order_lifespan: Duration,
-    parser: P,
+pub struct OrderUpdatesHandler<TSink, TOrd, TOrdProto, TBacklog> {
+    pub topic: TSink,
+    pub backlog: Arc<Mutex<TBacklog>>,
+    pub order_lifespan: Duration,
+    pub pd: PhantomData<TOrd>,
+    pub pd_proto: PhantomData<TOrdProto>,
 }
 
-#[async_trait(?Send)]
-impl<TOrd, P> EventHandler<LedgerTxEvent> for PendingOrdersHandler<TOrd, P>
-where
-    P: TryFromBox<TOrd>,
-{
-    async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
-        match ev {
-            LedgerTxEvent::AppliedTx { tx, timestamp } => {
-                let ts_now = Utc::now().timestamp();
-                if ts_now - timestamp <= self.order_lifespan.num_milliseconds() {
-                    let mut is_success = false;
-                    for bx in &tx.outputs {
-                        if let Some(order) = self.parser.try_from(bx.clone()) {
-                            is_success = true;
-                            let _ = self.topic.send(PendingOrder {
-                                order,
-                                timestamp: Utc::now().timestamp(),
-                            });
-                        }
-                    }
-                    if is_success {
-                        return None;
-                    }
-                }
-                Some(LedgerTxEvent::AppliedTx { tx, timestamp })
-            }
-            ev => Some(ev),
+impl<TSink, TOrd, TOrdProto, TBacklog> OrderUpdatesHandler<TSink, TOrd, TOrdProto, TBacklog> {
+    pub fn new(topic: TSink, backlog: Arc<Mutex<TBacklog>>, order_lifespan: Duration) -> Self {
+        Self {
+            topic,
+            backlog,
+            order_lifespan,
+            pd: Default::default(),
+            pd_proto: Default::default(),
         }
     }
 }
 
-pub struct EliminatedOrdersHandler<TOrd, TOrdId, TStore> {
-    topic: UnboundedSender<EliminatedOrder<TOrdId>>,
-    store: TStore,
-    pd: PhantomData<TOrd>,
-}
-
 #[async_trait(?Send)]
-impl<TOrd, TOrdId, TStore> EventHandler<LedgerTxEvent> for EliminatedOrdersHandler<TOrd, TOrdId, TStore>
+impl<TSink, TOrd, TOrdProto, TBacklog> EventHandler<LedgerTxEvent>
+    for OrderUpdatesHandler<TSink, TOrd, TOrdProto, TBacklog>
 where
-    TOrdId: From<BoxId> + Clone,
-    TOrd: OnChainOrder<TOrderId = TOrdId>,
-    TStore: BacklogStore<TOrd>,
+    TSink: Sink<OrderUpdate<TOrdProto, TOrd::TOrderId>> + Unpin,
+    TOrd: OnChainOrder,
+    TOrdProto: Has<TOrd::TOrderId> + TryFromBox,
+    TOrd::TOrderId: From<BoxId> + Copy,
+    TBacklog: Backlog<TOrd>,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
-        match ev {
+        let res = match ev {
             LedgerTxEvent::AppliedTx { tx, timestamp } => {
                 let mut is_success = false;
                 for i in tx.clone().inputs {
-                    let ord_id = TOrdId::from(i.box_id);
-                    if let Some(BacklogOrder { timestamp, .. }) = self.store.get(ord_id.clone()).await {
+                    let order_id = TOrd::TOrderId::from(i.box_id);
+                    if self.backlog.lock().await.exists(order_id).await {
                         is_success = true;
-                        let _ = self.topic.send(EliminatedOrder {
-                            order_id: ord_id,
-                            timestamp,
-                        });
+                        let _ = self.topic.feed(OrderUpdate::OrderEliminated(order_id)).await;
+                    }
+                }
+                let ts_now = Utc::now().timestamp();
+                if ts_now - timestamp <= self.order_lifespan.num_milliseconds() {
+                    for bx in &tx.outputs {
+                        if let Some(order) = TOrdProto::try_from_box(bx.clone()) {
+                            is_success = true;
+                            let _ = self
+                                .topic
+                                .feed(OrderUpdate::NewOrder(PendingOrder {
+                                    order,
+                                    timestamp: Utc::now().timestamp(),
+                                }))
+                                .await;
+                        }
                     }
                 }
                 if is_success {
+                    trace!(target: "offchain_lm", "Observing new order");
                     return None;
                 }
                 Some(LedgerTxEvent::AppliedTx { tx, timestamp })
             }
+            LedgerTxEvent::UnappliedTx(tx) => {
+                let mut is_success = false;
+                for bx in &tx.outputs {
+                    if let Some(order) = TOrdProto::try_from_box(bx.clone()) {
+                        is_success = true;
+                        let _ = self
+                            .topic
+                            .feed(OrderUpdate::OrderEliminated(
+                                <TOrdProto as Has<TOrd::TOrderId>>::get::<TOrd::TOrderId>(&order),
+                            ))
+                            .await;
+                    }
+                }
+                if is_success {
+                    trace!(target: "offchain_lm", "Known order is eliminated");
+                    return None;
+                }
+                Some(LedgerTxEvent::UnappliedTx(tx))
+            }
+        };
+        let _ = self.topic.flush().await;
+        res
+    }
+}
+
+#[async_trait(?Send)]
+impl<TSink, TOrd, TOrdProto, TBacklog> EventHandler<MempoolUpdate>
+    for OrderUpdatesHandler<TSink, TOrd, TOrdProto, TBacklog>
+where
+    TSink: Sink<OrderUpdate<TOrd, TOrd::TOrderId>> + Unpin,
+    TOrd: OnChainOrder + TryFromBox,
+    TOrd::TOrderId: From<BoxId> + Copy,
+    TBacklog: Backlog<TOrd>,
+{
+    async fn try_handle(&mut self, ev: MempoolUpdate) -> Option<MempoolUpdate> {
+        let res = match ev {
+            MempoolUpdate::TxAccepted(tx) => {
+                let mut is_success = false;
+                for i in tx.clone().inputs {
+                    let order_id = TOrd::TOrderId::from(i.box_id);
+                    if self.backlog.lock().await.exists(order_id).await {
+                        is_success = true;
+                        let _ = self.topic.feed(OrderUpdate::OrderEliminated(order_id)).await;
+                    }
+                }
+                for bx in &tx.outputs {
+                    if let Some(order) = TOrd::try_from_box(bx.clone()) {
+                        is_success = true;
+                        let _ = self
+                            .topic
+                            .feed(OrderUpdate::NewOrder(PendingOrder {
+                                order,
+                                timestamp: Utc::now().timestamp(),
+                            }))
+                            .await;
+                    }
+                }
+                if is_success {
+                    trace!(target: "offchain_lm", "Observing new order in mempool");
+                    return None;
+                }
+                Some(MempoolUpdate::TxAccepted(tx))
+            }
+            MempoolUpdate::TxWithdrawn(tx) => {
+                let mut is_success = false;
+                for bx in &tx.outputs {
+                    if let Some(order) = TOrd::try_from_box(bx.clone()) {
+                        is_success = true;
+                        let _ = self
+                            .topic
+                            .feed(OrderUpdate::OrderEliminated(order.get_self_ref()))
+                            .await;
+                    }
+                }
+                if is_success {
+                    trace!(target: "offchain_lm", "Known order is eliminated in mempool");
+                    return None;
+                }
+                Some(MempoolUpdate::TxWithdrawn(tx))
+            }
             ev => Some(ev),
-        }
+        };
+        let _ = self.topic.flush().await;
+        res
     }
 }

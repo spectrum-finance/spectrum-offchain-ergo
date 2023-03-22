@@ -1,77 +1,211 @@
+use std::fmt::Debug;
+
 use async_trait::async_trait;
-use serde::Serialize;
+use log::trace;
 
 use crate::box_resolver::{Predicted, Traced};
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
 use crate::data::OnChainEntity;
 
+/// Stores on-chain entities.
+/// Operations are atomic.
 #[async_trait(?Send)]
 pub trait EntityRepo<TEntity: OnChainEntity> {
-    async fn get_prediction<'a>(&self, id: TEntity::TStateId) -> Option<Traced<Predicted<TEntity>>>
+    /// Get state id preceding given predicted state.
+    async fn get_prediction_predecessor<'a>(&self, id: TEntity::TStateId) -> Option<TEntity::TStateId>
     where
         <TEntity as OnChainEntity>::TStateId: 'a;
+    /// Get last predicted state of the given entity.
     async fn get_last_predicted<'a>(&self, id: TEntity::TEntityId) -> Option<Predicted<TEntity>>
     where
         <TEntity as OnChainEntity>::TEntityId: 'a;
+    /// Get last confirmed state of the given entity.
     async fn get_last_confirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Confirmed<TEntity>>
     where
         <TEntity as OnChainEntity>::TEntityId: 'a;
+    /// Get last unconfirmed state of the given entity.
     async fn get_last_unconfirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Unconfirmed<TEntity>>
     where
         <TEntity as OnChainEntity>::TEntityId: 'a;
+    /// Persist predicted state of the entity.
     async fn put_predicted<'a>(&mut self, entity: Traced<Predicted<TEntity>>)
     where
         Traced<Predicted<TEntity>>: 'a;
+    /// Persist confirmed state of the entity.
     async fn put_confirmed<'a>(&mut self, entity: Confirmed<TEntity>)
     where
         Traced<Predicted<TEntity>>: 'a;
+    /// Persist unconfirmed state of the entity.
     async fn put_unconfirmed<'a>(&mut self, entity: Unconfirmed<TEntity>)
     where
         Traced<Predicted<TEntity>>: 'a;
-    async fn invalidate<'a>(&mut self, eid: TEntity::TEntityId, sid: TEntity::TStateId)
+    /// Invalidate particular state of the entity.
+    async fn invalidate<'a>(&mut self, sid: TEntity::TStateId, eid: TEntity::TEntityId)
     where
         <TEntity as OnChainEntity>::TStateId: 'a,
         <TEntity as OnChainEntity>::TEntityId: 'a;
+    /// Invalidate particular state of the entity.
+    async fn eliminate<'a>(&mut self, entity: TEntity)
+    where
+        TEntity: 'a;
+    /// False-positive analog of `exists()`.
+    async fn may_exist<'a>(&self, sid: TEntity::TStateId) -> bool
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a;
+    async fn get_state<'a>(&self, sid: TEntity::TStateId) -> Option<TEntity>
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a;
 }
 
-static PREDICTED_KEY_PREFIX: &str = "predicted:prevState:";
-static LAST_PREDICTED_KEY_PREFIX: &str = "predicted:last:";
-static LAST_CONFIRMED_KEY_PREFIX: &str = "confirmed:last:";
-static LAST_UNCONFIRMED_KEY_PREFIX: &str = "unconfirmed:last:";
-
-pub fn predicted_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(PREDICTED_KEY_PREFIX).unwrap();
-    let id_bytes = bincode::serialize(&id).unwrap();
-    key_bytes.extend_from_slice(&id_bytes);
-    key_bytes
+pub struct EntityRepoTracing<R> {
+    inner: R,
 }
 
-pub fn last_predicted_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(LAST_PREDICTED_KEY_PREFIX).unwrap();
-    let id_bytes = bincode::serialize(&id).unwrap();
-    key_bytes.extend_from_slice(&id_bytes);
-    key_bytes
+impl<R> EntityRepoTracing<R> {
+    pub fn wrap(repo: R) -> Self {
+        Self { inner: repo }
+    }
 }
 
-pub fn last_confirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(LAST_CONFIRMED_KEY_PREFIX).unwrap();
-    let id_bytes = bincode::serialize(&id).unwrap();
-    key_bytes.extend_from_slice(&id_bytes);
-    key_bytes
-}
+#[async_trait(?Send)]
+impl<TEntity, R> EntityRepo<TEntity> for EntityRepoTracing<R>
+where
+    TEntity: OnChainEntity,
+    TEntity::TEntityId: Debug + Copy,
+    TEntity::TStateId: Debug + Copy,
+    R: EntityRepo<TEntity>,
+{
+    async fn get_prediction_predecessor<'a>(&self, id: TEntity::TStateId) -> Option<TEntity::TStateId>
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a,
+    {
+        trace!(target: "box_resolver", "get_prediction_predecessor({:?})", id);
+        let res = self.inner.get_prediction_predecessor(id).await;
+        trace!(target: "box_resolver", "get_prediction_predecessor({:?}) -> {:?}", id, res);
+        res
+    }
 
-pub fn last_unconfirmed_key_bytes<T: Serialize>(id: &T) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(LAST_UNCONFIRMED_KEY_PREFIX).unwrap();
-    let id_bytes = bincode::serialize(&id).unwrap();
-    key_bytes.extend_from_slice(&id_bytes);
-    key_bytes
+    async fn get_last_predicted<'a>(&self, id: TEntity::TEntityId) -> Option<Predicted<TEntity>>
+    where
+        <TEntity as OnChainEntity>::TEntityId: 'a,
+    {
+        trace!(target: "box_resolver", "get_last_predicted({:?})", id);
+        let res = self.inner.get_last_predicted(id).await;
+        trace!(target: "box_resolver", "get_last_predicted({:?}) -> {:?}", id, res.as_ref().map(|_| "<Entity>"));
+        res
+    }
+
+    async fn get_last_confirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Confirmed<TEntity>>
+    where
+        <TEntity as OnChainEntity>::TEntityId: 'a,
+    {
+        trace!(target: "box_resolver", "get_last_confirmed({:?})", id);
+        let res = self.inner.get_last_confirmed(id).await;
+        trace!(target: "box_resolver", "get_last_confirmed({:?}) -> {:?}", id, res.as_ref().map(|_| "<Entity>"));
+        res
+    }
+
+    async fn get_last_unconfirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Unconfirmed<TEntity>>
+    where
+        <TEntity as OnChainEntity>::TEntityId: 'a,
+    {
+        trace!(target: "box_resolver", "get_last_unconfirmed({:?})", id);
+        let res = self.inner.get_last_unconfirmed(id).await;
+        trace!(target: "box_resolver", "get_last_unconfirmed({:?}) -> {:?}", id, res.as_ref().map(|_| "<Entity>"));
+        res
+    }
+
+    async fn put_predicted<'a>(&mut self, entity: Traced<Predicted<TEntity>>)
+    where
+        Traced<Predicted<TEntity>>: 'a,
+    {
+        let show_entity = format!(
+            "<Entity({:?}, {:?})>",
+            entity.state.get_self_ref(),
+            entity.state.get_self_state_ref()
+        );
+        trace!(target: "box_resolver", "put_predicted({})", show_entity);
+        self.inner.put_predicted(entity).await;
+        trace!(target: "box_resolver", "put_predicted({}) -> ()", show_entity);
+    }
+
+    async fn put_confirmed<'a>(&mut self, entity: Confirmed<TEntity>)
+    where
+        Traced<Predicted<TEntity>>: 'a,
+    {
+        let show_entity = format!(
+            "<Entity({:?}, {:?})>",
+            entity.0.get_self_ref(),
+            entity.0.get_self_state_ref()
+        );
+        trace!(target: "box_resolver", "put_confirmed({})", show_entity);
+        self.inner.put_confirmed(entity).await;
+        trace!(target: "box_resolver", "put_confirmed({}) -> ()", show_entity);
+    }
+
+    async fn put_unconfirmed<'a>(&mut self, entity: Unconfirmed<TEntity>)
+    where
+        Traced<Predicted<TEntity>>: 'a,
+    {
+        let show_entity = format!(
+            "<Entity({:?}, {:?})>",
+            entity.0.get_self_ref(),
+            entity.0.get_self_state_ref()
+        );
+        trace!(target: "box_resolver", "put_unconfirmed({})", show_entity);
+        self.inner.put_unconfirmed(entity).await;
+        trace!(target: "box_resolver", "put_unconfirmed({}) -> ()", show_entity);
+    }
+
+    async fn invalidate<'a>(&mut self, sid: TEntity::TStateId, eid: TEntity::TEntityId)
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a,
+        <TEntity as OnChainEntity>::TEntityId: 'a,
+    {
+        trace!(target: "box_resolver", "invalidate({:?})", sid);
+        self.inner.invalidate(sid, eid).await;
+        trace!(target: "box_resolver", "invalidate({:?}) -> ()", sid);
+    }
+
+    async fn eliminate<'a>(&mut self, entity: TEntity)
+    where
+        TEntity: 'a,
+    {
+        let show_entity = format!(
+            "<Entity({:?}, {:?})>",
+            entity.get_self_ref(),
+            entity.get_self_state_ref()
+        );
+        trace!(target: "box_resolver", "eliminate({})", show_entity);
+        self.inner.eliminate(entity).await;
+        trace!(target: "box_resolver", "eliminate({}) -> ()", show_entity);
+    }
+
+    async fn may_exist<'a>(&self, sid: TEntity::TStateId) -> bool
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a,
+    {
+        self.inner.may_exist(sid).await
+    }
+
+    async fn get_state<'a>(&self, sid: TEntity::TStateId) -> Option<TEntity>
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a,
+    {
+        trace!(target: "box_resolver", "get_state({:?})", sid);
+        let res = self.inner.get_state(sid).await;
+        let show_entity = res
+            .as_ref()
+            .map(|e| format!("<Entity({:?}, {:?})>", e.get_self_ref(), e.get_self_state_ref()));
+        trace!(target: "box_resolver", "get_state({:?}) -> {:?}", sid, show_entity);
+        res
+    }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::Arc;
 
-    use ergo_chain_sync::cache::rocksdb::ChainCacheRocksDB;
     use ergo_lib::{
         ergo_chain_types::Digest32,
         ergotree_ir::chain::{ergo_box::BoxId, token::TokenId},
@@ -80,6 +214,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use sigma_test_util::force_any_val;
 
+    use crate::box_resolver::rocksdb::EntityRepoRocksDB;
     use crate::{
         box_resolver::persistence::EntityRepo,
         data::{
@@ -89,9 +224,9 @@ mod tests {
     };
 
     #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
-    struct ErgoEntity {
-        token_id: TokenId,
-        box_id: BoxId,
+    pub struct ErgoEntity {
+        pub token_id: TokenId,
+        pub box_id: BoxId,
     }
     impl OnChainEntity for ErgoEntity {
         type TEntityId = TokenId;
@@ -105,6 +240,12 @@ mod tests {
         fn get_self_state_ref(&self) -> Self::TStateId {
             self.box_id
         }
+    }
+
+    #[tokio::test]
+    async fn test_rocksdb_may_exist() {
+        let client = rocks_db_client();
+        test_entity_repo_may_exist(client).await;
     }
 
     #[tokio::test]
@@ -131,33 +272,52 @@ mod tests {
         test_entity_repo_invalidate(client).await;
     }
 
-    fn rocks_db_client() -> ChainCacheRocksDB {
+    #[tokio::test]
+    async fn test_rocksdb_eliminate() {
+        let client = rocks_db_client();
+        test_entity_repo_eliminate(client).await;
+    }
+
+    pub fn rocks_db_client() -> EntityRepoRocksDB {
         let rnd = rand::thread_rng().next_u32();
-        ChainCacheRocksDB {
+        EntityRepoRocksDB {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
-            max_rollback_depth: 10,
         }
     }
 
-    async fn test_entity_repo_predicted<C: EntityRepo<ErgoEntity>>(mut client: C) {
+    async fn test_entity_repo_may_exist<C: EntityRepo<ErgoEntity>>(mut client: C) {
         let (box_ids, token_ids, n) = gen_box_and_token_ids();
-        let mut entities = vec![];
         for i in 1..n {
             let entity = Traced {
                 state: Predicted(ErgoEntity {
                     token_id: token_ids[i],
                     box_id: box_ids[i],
                 }),
-                prev_state_id: box_ids[i - 1],
+                prev_state_id: box_ids.get(i - 1).cloned(),
             };
             client.put_predicted(entity.clone()).await;
-            entities.push(entity);
         }
         for i in 1..n {
-            let e: Traced<Predicted<ErgoEntity>> = client.get_prediction(box_ids[i]).await.unwrap();
-            let predicted: Predicted<ErgoEntity> = client.get_last_predicted(token_ids[i]).await.unwrap();
-            assert_eq!(e.state.0, entities[i - 1].state.0);
-            assert_eq!(e.state.0, predicted.0);
+            let may_exist = client.may_exist(box_ids[i]).await;
+            assert!(may_exist);
+        }
+    }
+
+    async fn test_entity_repo_predicted<C: EntityRepo<ErgoEntity>>(mut client: C) {
+        let (box_ids, token_ids, n) = gen_box_and_token_ids();
+        for i in 1..n {
+            let entity = Traced {
+                state: Predicted(ErgoEntity {
+                    token_id: token_ids[i],
+                    box_id: box_ids[i],
+                }),
+                prev_state_id: box_ids.get(i - 1).cloned(),
+            };
+            client.put_predicted(entity.clone()).await;
+        }
+        for i in 1..n {
+            let pred: Option<BoxId> = client.get_prediction_predecessor(box_ids[i]).await;
+            assert_eq!(pred, box_ids.get(i - 1).cloned());
         }
     }
 
@@ -204,13 +364,40 @@ mod tests {
             };
             let entity = Traced {
                 state: Predicted(ee.clone()),
-                prev_state_id: box_ids[i - 1],
+                prev_state_id: box_ids.get(i - 1).cloned(),
             };
             client.put_predicted(entity.clone()).await;
-            client.put_unconfirmed(Unconfirmed(ee)).await;
+            client.put_unconfirmed(Unconfirmed(ee.clone())).await;
+            client.put_confirmed(Confirmed(ee)).await;
 
             // Invalidate
-            <C as EntityRepo<ErgoEntity>>::invalidate(&mut client, token_ids[i], box_ids[i]).await;
+            <C as EntityRepo<ErgoEntity>>::invalidate(&mut client, box_ids[i], token_ids[i]).await;
+            let predicted: Option<Predicted<ErgoEntity>> = client.get_last_predicted(token_ids[i]).await;
+            let unconfirmed: Option<Unconfirmed<ErgoEntity>> =
+                client.get_last_unconfirmed(token_ids[i]).await;
+            let confirmed: Option<Confirmed<ErgoEntity>> = client.get_last_confirmed(token_ids[i]).await;
+            assert!(predicted.is_none());
+            assert!(unconfirmed.is_none());
+            assert!(confirmed.is_none());
+        }
+    }
+
+    async fn test_entity_repo_eliminate<C: EntityRepo<ErgoEntity>>(mut client: C) {
+        let (box_ids, token_ids, n) = gen_box_and_token_ids();
+        for i in 1..n {
+            let ee = ErgoEntity {
+                token_id: token_ids[i],
+                box_id: box_ids[i],
+            };
+            let entity = Traced {
+                state: Predicted(ee.clone()),
+                prev_state_id: box_ids.get(i - 1).cloned(),
+            };
+            client.put_predicted(entity.clone()).await;
+            client.put_unconfirmed(Unconfirmed(ee.clone())).await;
+
+            // Invalidate
+            <C as EntityRepo<ErgoEntity>>::eliminate(&mut client, ee).await;
             let predicted: Option<Predicted<ErgoEntity>> = client.get_last_predicted(token_ids[i]).await;
             let unconfirmed: Option<Unconfirmed<ErgoEntity>> =
                 client.get_last_unconfirmed(token_ids[i]).await;

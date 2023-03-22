@@ -1,13 +1,14 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::cmp::max;
-use std::future::Future;
-use std::pin::Pin;
 use std::rc::Rc;
-use std::task::{Context, Poll};
+use std::sync::Once;
+use std::time::Duration;
 
-use futures::stream::FusedStream;
+use async_stream::stream;
 use futures::Stream;
+use futures_timer::Delay;
 use log::trace;
+use pin_project::pin_project;
 
 use crate::cache::chain_cache::ChainCache;
 use crate::client::node::ErgoNetwork;
@@ -15,7 +16,9 @@ use crate::model::Block;
 
 pub mod cache;
 pub mod client;
+pub mod constants;
 pub mod model;
+pub mod rocksdb;
 
 #[derive(Debug, Clone)]
 pub enum ChainUpgrade {
@@ -40,46 +43,61 @@ impl SyncState {
 
 #[async_trait::async_trait(?Send)]
 pub trait InitChainSync<TChainSync> {
-    async fn init(self, starting_height: u32) -> TChainSync;
+    async fn init(self, starting_height: u32, tip_reached_signal: Option<&'static Once>) -> TChainSync;
 }
 
-pub struct ChainSyncNonInit<TClient, TCache> {
-    client: TClient,
+pub struct ChainSyncNonInit<'a, TClient, TCache> {
+    client: &'a TClient,
     cache: TCache,
 }
 
-impl<TClient, TCache> ChainSyncNonInit<TClient, TCache> {
-    pub fn new(client: TClient, cache: TCache) -> Self {
+impl<'a, TClient, TCache> ChainSyncNonInit<'a, TClient, TCache> {
+    pub fn new(client: &'a TClient, cache: TCache) -> Self {
         Self { client, cache }
     }
 }
 
 #[async_trait::async_trait(?Send)]
-impl<TClient, TCache> InitChainSync<ChainSync<TClient, TCache>> for ChainSyncNonInit<TClient, TCache>
+impl<'a, TClient, TCache> InitChainSync<ChainSync<'a, TClient, TCache>>
+    for ChainSyncNonInit<'a, TClient, TCache>
 where
     TClient: ErgoNetwork,
     TCache: ChainCache,
 {
-    async fn init(self, starting_height: u32) -> ChainSync<TClient, TCache> {
-        ChainSync::init(starting_height, self.client, self.cache).await
+    async fn init(
+        self,
+        starting_height: u32,
+        tip_reached_signal: Option<&'a Once>,
+    ) -> ChainSync<TClient, TCache> {
+        ChainSync::init(starting_height, self.client, self.cache, tip_reached_signal).await
     }
 }
 
-pub struct ChainSync<TClient, TCache> {
+#[pin_project]
+pub struct ChainSync<'a, TClient, TCache> {
     starting_height: u32,
-    client: TClient,
-    cache: TCache,
+    client: &'a TClient,
+    cache: Rc<RefCell<TCache>>,
     state: Rc<RefCell<SyncState>>,
+    #[pin]
+    delay: Cell<Option<Delay>>,
+    tip_reached_signal: Option<&'a Once>,
 }
 
-impl<TClient, TCache> ChainSync<TClient, TCache>
+impl<'a, TClient, TCache> ChainSync<'a, TClient, TCache>
 where
     TClient: ErgoNetwork,
     TCache: ChainCache,
 {
-    pub async fn init(starting_height: u32, client: TClient, mut cache: TCache) -> Self {
+    pub async fn init(
+        starting_height: u32,
+        client: &'a TClient,
+        mut cache: TCache,
+        tip_reached_signal: Option<&'a Once>,
+    ) -> ChainSync<'a, TClient, TCache> {
         let best_block = cache.get_best_block().await;
         let start_at = if let Some(best_block) = best_block {
+            trace!(target: "chain_sync", "Best block is [{}], height: {}", best_block.id, best_block.height);
             max(best_block.height, starting_height)
         } else {
             starting_height
@@ -87,70 +105,79 @@ where
         Self {
             starting_height,
             client,
-            cache,
+            cache: Rc::new(RefCell::new(cache)),
             state: Rc::new(RefCell::new(SyncState {
                 next_height: start_at,
             })),
+            delay: Cell::new(None),
+            tip_reached_signal,
         }
     }
 
     /// Try acquiring next upgrade from the network.
     /// `None` is returned when no upgrade is available at the moment.
-    async fn try_upgrade(&mut self) -> Option<ChainUpgrade> {
+    async fn try_upgrade(&self) -> Option<ChainUpgrade> {
         let next_height = { self.state.borrow().next_height };
-        trace!("Processing height [{}]", next_height);
-        if let Some(api_blk) = self.client.get_block_at(next_height).await {
-            trace!(
+        trace!(target: "chain_sync", "Processing height [{}]", next_height);
+        match self.client.get_block_at(next_height).await {
+            Ok(api_blk) => {
+                trace!(
+                target: "chain_sync",
                 "Processing block [{:?}] at height [{}]",
                 api_blk.header.id,
                 next_height
-            );
-            let parent_id = api_blk.header.parent_id;
-            let linked = self.cache.exists(parent_id).await;
-            if linked || api_blk.header.height == self.starting_height {
-                trace!("Chain is linked, upgrading ..");
-                let blk = Block::from(api_blk);
-                self.cache.append_block(blk.clone()).await;
-                self.state.borrow_mut().upgrade();
-                return Some(ChainUpgrade::RollForward(blk));
-            } else {
-                // Local chain does not link anymore
-                trace!("Chain does not link, downgrading ..");
-                if let Some(discarded_blk) = self.cache.take_best_block().await {
-                    self.state.borrow_mut().downgrade();
-                    return Some(ChainUpgrade::RollBackward(discarded_blk));
+                );
+                let parent_id = api_blk.header.parent_id;
+                let mut cache = self.cache.borrow_mut();
+                let linked = cache.exists(parent_id).await;
+                if linked || api_blk.header.height == self.starting_height {
+                    trace!(target: "chain_sync", "Chain is linked, upgrading ..");
+                    let blk = Block::from(api_blk);
+                    cache.append_block(blk.clone()).await;
+                    self.state.borrow_mut().upgrade();
+                    return Some(ChainUpgrade::RollForward(blk));
+                } else {
+                    // Local chain does not link anymore
+                    trace!(target: "chain_sync", "Chain does not link, downgrading ..");
+                    if let Some(discarded_blk) = cache.take_best_block().await {
+                        self.state.borrow_mut().downgrade();
+                        return Some(ChainUpgrade::RollBackward(discarded_blk));
+                    }
                 }
+            }
+            Err(e) => {
+                log::error!("try_upgrade: {}", e)
             }
         }
         None
     }
 }
 
-impl<TClient, TCache> Stream for ChainSync<TClient, TCache>
+const THROTTLE_SECS: u64 = 1;
+
+pub fn chain_sync_stream<'a, TClient, TCache>(
+    chain_sync: ChainSync<'a, TClient, TCache>,
+) -> impl Stream<Item = ChainUpgrade> + 'a
 where
     TClient: ErgoNetwork + Unpin,
-    TCache: ChainCache + Unpin,
+    TCache: ChainCache + Unpin + 'a,
 {
-    type Item = ChainUpgrade;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        let mut upgr_fut = Box::pin(self.try_upgrade());
-        loop {
-            match upgr_fut.as_mut().poll(cx) {
-                Poll::Ready(Some(upgr)) => return Poll::Ready(Some(upgr)),
-                Poll::Ready(None) => return Poll::Pending,
-                Poll::Pending => continue,
+    stream! {
+            loop {
+                if let Some(delay) = chain_sync.delay.take() {
+                    delay.await;
+                }
+                if let Some(upgr) = chain_sync.try_upgrade().await {
+                    yield upgr;
+                } else {
+                    chain_sync.delay
+                            .set(Some(Delay::new(Duration::from_secs(THROTTLE_SECS))));
+                    if let Some(sig) = chain_sync.tip_reached_signal {
+                        sig.call_once(|| {
+                            trace!(target: "chain_sync", "Tip reached, waiting for new blocks ..");
+                        });
+                }
             }
         }
-    }
-}
-
-impl<TClient, TCache> FusedStream for ChainSync<TClient, TCache>
-where
-    ChainSync<TClient, TCache>: Stream,
-{
-    /// ChainSync stream is never terminated.
-    fn is_terminated(&self) -> bool {
-        false
     }
 }

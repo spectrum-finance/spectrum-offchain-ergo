@@ -1,0 +1,58 @@
+[package]
+name = "spectrum-offchain-lm"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.67.1"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+isahc = { version = "1.7.2", features = ["json"] }
+futures = "0.3.25"
+tokio = { version = "1.22.0", features = ["full"] }
+ergo-chain-sync = { version = "0.1.0", path = "../ergo-chain-sync" }
+ergo-mempool-sync = { version = "0.1.0", path = "../ergo-mempool-sync" }
+spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
+ergo-lib = { version = "0.23", features = ["json", "arbitrary"] }
+log = "0.4.17"
+log4rs = "1.2.0"
+async-trait = "0.1.58"
+type-equalities = "0.3.1"
+tailcall = "0.1.6"
+parallel-stream = "2.1.3"
+chrono = "0.4.23"
+serde = { version = "1.0.147", features = ["derive"] }
+serde_yaml = "0.9"
+priority-queue = "1.3.0"
+bounded-integer = "0.5.3"
+rand = "0.8.5"
+parking_lot = "0.12.1"
+derive_more = "0.99.17"
+base16 = "0.2.1"
+pin-project = "1.0.12"
+stream_throttle = "0.4.0"
+itertools = "0.10.5"
+nonempty = "0.8.1"
+indexmap = "1.9.2"
+bincode = "1.3"
+rocksdb = "0.20.1"
+async-channel = "1.8.0"
+futures-timer = "3.0.2"
+clap = { version = "4.0", features = ["derive"] }
+sigma-test-util = "0.3"
+lazy_static = "1.4.0"
+thiserror = "1.0"
+async-std = "1.12"
+# Add openssl-sys as a direct dependency so it can be cross compiled to
+# x86_64-unknown-linux-musl using the "vendored" feature below
+openssl-sys = "*"
+
+[features]
+# Force openssl-sys to staticly link in the openssl library. Necessary when
+# cross compiling to x86_64-unknown-linux-musl.
+vendored = ["openssl-sys/vendored"]
+
+[dev-dependencies]
+rocksdb = "0.20.1"
+serde_json = "1.0.91"
+crossbeam-channel = "0.5.6"

@@ -1,14 +1,16 @@
 use std::sync::Arc;
 
+use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use ergo_lib::{
     chain::transaction::{Transaction, TxId},
     ergo_chain_types::BlockId,
     ergotree_ir::serialization::SigmaSerializable,
 };
-use tokio::task::spawn_blocking;
 
+use crate::constants::ERGO_MAX_ROLLBACK_DEPTH;
 use crate::model::{Block, BlockRecord};
+use crate::rocksdb::RocksConfig;
 
 use super::chain_cache::ChainCache;
 
@@ -34,8 +36,17 @@ pub struct ChainCacheRocksDB {
     pub max_rollback_depth: u32,
 }
 
+impl ChainCacheRocksDB {
+    pub fn new(conf: RocksConfig) -> Self {
+        Self {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(conf.db_path).unwrap()),
+            max_rollback_depth: ERGO_MAX_ROLLBACK_DEPTH,
+        }
+    }
+}
+
 /// The Rocksdb bindings are not async, so we must wrap any uses of the library in
-/// `tokio::task::spawn_blocking`.
+/// `async_std::task::spawn_blocking`.
 #[async_trait(?Send)]
 impl ChainCache for ChainCacheRocksDB {
     async fn append_block(&mut self, block: Block) {
@@ -154,7 +165,6 @@ impl ChainCache for ChainCacheRocksDB {
             db_tx.commit().unwrap();
         })
         .await
-        .unwrap();
     }
 
     async fn exists(&mut self, block_id: BlockId) -> bool {
@@ -165,7 +175,6 @@ impl ChainCache for ChainCacheRocksDB {
                 .is_some()
         })
         .await
-        .unwrap()
     }
 
     async fn get_best_block(&mut self) -> Option<BlockRecord> {
@@ -178,7 +187,6 @@ impl ChainCache for ChainCacheRocksDB {
             }
         })
         .await
-        .unwrap()
     }
 
     async fn take_best_block(&mut self) -> Option<Block> {
@@ -264,7 +272,6 @@ impl ChainCache for ChainCacheRocksDB {
             }
         })
         .await
-        .unwrap()
     }
 }
 
@@ -284,6 +291,7 @@ const TRANSACTION_POSTFIX: &str = ":t";
 mod tests {
     use std::sync::Arc;
 
+    use async_std::task::spawn_blocking;
     use chrono::Utc;
     use ergo_lib::{
         chain::transaction::Transaction,
@@ -291,7 +299,6 @@ mod tests {
     };
     use rand::RngCore;
     use sigma_test_util::force_any_val;
-    use tokio::task::spawn_blocking;
 
     use crate::{
         cache::{
@@ -336,8 +343,7 @@ mod tests {
                 .unwrap()
                 .is_none());
         })
-        .await
-        .unwrap();
+        .await;
     }
 
     #[tokio::test]

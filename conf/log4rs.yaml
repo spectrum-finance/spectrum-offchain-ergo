@@ -4,11 +4,56 @@ appenders:
     kind: console
   file:
     kind: file
-    path: "log/chain-sync.log"
+    path: "log/spectrum-offchain.log"
     encoder:
       pattern: "{d} - {m}{n}"
+root:
+  level: info
+  appenders:
+    - stdout
 loggers:
-  ergo_chain_sync:
+  chain_sync:
     level: trace
     appenders:
       - stdout
+    additive: false
+  box_resolver:
+    level: trace
+    appenders:
+      - stdout
+    additive: false
+  backlog:
+    level: trace
+    appenders:
+      - stdout
+    additive: false
+  funding:
+    level: trace
+    appenders:
+      - stdout
+    additive: false
+  bundles:
+    level: trace
+    appenders:
+      - stdout
+    additive: false
+  scheduler:
+    level: trace
+    appenders:
+      - stdout
+    additive: false
+  schedules:
+    level: trace
+    appenders:
+      - stdout
+    additive: false
+  offchain_lm:
+    level: trace
+    appenders:
+      - stdout
+    additive: false
+  pool:
+    level: trace
+    appenders:
+      - stdout
+    additive: false

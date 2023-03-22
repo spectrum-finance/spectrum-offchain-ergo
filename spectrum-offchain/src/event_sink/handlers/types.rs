@@ -1,7 +1,18 @@
-use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
+use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, ErgoBoxCandidate};
 
-/// Used to convert `ErgoBox` to domain entity `TEntity`.
-pub trait TryFromBox<TEntity> {
-    /// Try to extract some domain entity `TEntity` from given `ErgoBox`.
-    fn try_from(&self, bx: ErgoBox) -> Option<TEntity>;
+/// Used to convert `ErgoBox` to domain entity.
+pub trait TryFromBox: Sized {
+    /// Try to extract some domain entity from given `ErgoBox`.
+    fn try_from_box(bx: ErgoBox) -> Option<Self>;
+}
+
+/// Used to convert `ErgoBox` to domain entity.
+pub trait TryFromBoxCtx<TCtx>: Sized {
+    /// Try to extract some domain entity from given `ErgoBox`.
+    fn try_from_box(bx: ErgoBox, ctx: TCtx) -> Option<Self>;
+}
+
+/// Used to convert some domain entity to `ErgoBoxCandidate`.
+pub trait IntoBoxCandidate {
+    fn into_candidate(self, height: u32) -> ErgoBoxCandidate;
 }

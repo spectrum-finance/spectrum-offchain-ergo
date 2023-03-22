@@ -1,11 +1,16 @@
 use std::collections::VecDeque;
+use std::fmt::Debug;
 use std::hash::Hash;
 
 use async_trait::async_trait;
 use bounded_integer::BoundedU8;
 use chrono::{Duration, Utc};
+use log::trace;
 use priority_queue::PriorityQueue;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
+use type_equalities::IsEqual;
 
 use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
 use crate::backlog::persistence::BacklogStore;
@@ -16,33 +21,144 @@ pub mod data;
 pub mod persistence;
 pub mod process;
 
+/// Backlog manages orders on all stages of their life.
+/// Usually in the order defined by some weighting function (e.g. orders with higher fee are preferred).
 #[async_trait(?Send)]
 pub trait Backlog<TOrd>
 where
     TOrd: OnChainOrder,
 {
     /// Add new pending order to backlog.
-    async fn put(&mut self, ord: PendingOrder<TOrd>);
+    async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
+    where
+        TOrd: 'a;
     /// Suspend order that temporarily failed.
     /// Potentially retry later.
-    async fn suspend(&mut self, ord: TOrd) -> bool;
+    async fn suspend<'a>(&mut self, ord: TOrd) -> bool
+    where
+        TOrd: 'a;
     /// Register successfull order to check if it settled later.
-    async fn check_later(&mut self, ord: ProgressingOrder<TOrd>) -> bool;
+    async fn check_later<'a>(&mut self, ord: ProgressingOrder<TOrd>) -> bool
+    where
+        TOrd: 'a;
     /// Pop best order.
     async fn try_pop(&mut self) -> Option<TOrd>;
+    /// Check if order with the given id exists already in backlog.
+    async fn exists<'a>(&self, ord_id: TOrd::TOrderId) -> bool
+    where
+        TOrd::TOrderId: 'a;
     /// Remove order from backlog.
-    async fn remove(&mut self, ord_id: TOrd::TOrderId);
+    async fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
+    where
+        TOrd::TOrderId: 'a + Clone;
     /// Return order back to backlog.
-    async fn recharge(&mut self, org: TOrd);
+    async fn recharge<'a>(&mut self, ord: TOrd)
+    where
+        TOrd: 'a;
+    /// Return all orders satisfying the given predicate.
+    async fn find_orders<F: Fn(&TOrd) -> bool + Send + 'static>(&self, f: F) -> Vec<TOrd>
+    where
+        F: Fn(&TOrd) -> bool + Send + 'static;
 }
 
+pub struct BacklogTracing<B> {
+    inner: B,
+}
+
+impl<B> BacklogTracing<B> {
+    pub fn wrap(backlog: B) -> Self {
+        Self { inner: backlog }
+    }
+}
+
+#[async_trait(?Send)]
+impl<TOrd, B> Backlog<TOrd> for BacklogTracing<B>
+where
+    TOrd: OnChainOrder + Debug + Clone,
+    TOrd::TOrderId: Debug + Clone,
+    B: Backlog<TOrd>,
+{
+    async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
+    where
+        TOrd: 'a,
+    {
+        trace!(target: "backlog", "put({:?})", ord);
+        self.inner.put(ord.clone()).await;
+        trace!(target: "backlog", "put({:?}) -> ()", ord);
+    }
+
+    async fn suspend<'a>(&mut self, ord: TOrd) -> bool
+    where
+        TOrd: 'a,
+    {
+        trace!(target: "backlog", "suspend({:?})", ord);
+        let res = self.inner.suspend(ord.clone()).await;
+        trace!(target: "backlog", "suspend({:?}) -> {:?}", ord, res);
+        res
+    }
+
+    async fn check_later<'a>(&mut self, ord: ProgressingOrder<TOrd>) -> bool
+    where
+        TOrd: 'a,
+    {
+        trace!(target: "backlog", "check_later({:?})", ord);
+        let res = self.inner.check_later(ord.clone()).await;
+        trace!(target: "backlog", "check_later({:?}) -> {:?}", ord, res);
+        res
+    }
+
+    async fn try_pop(&mut self) -> Option<TOrd> {
+        trace!(target: "backlog", "try_pop()");
+        let res = self.inner.try_pop().await;
+        trace!(target: "backlog", "try_pop() -> {:?}", res);
+        res
+    }
+
+    async fn exists<'a>(&self, ord_id: TOrd::TOrderId) -> bool
+    where
+        TOrd::TOrderId: 'a,
+    {
+        self.inner.exists(ord_id.clone()).await
+    }
+
+    async fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
+    where
+        TOrd::TOrderId: 'a,
+    {
+        trace!(target: "backlog", "remove({:?})", ord_id);
+        self.inner.remove(ord_id.clone()).await;
+        trace!(target: "backlog", "remove({:?}) -> ()", ord_id);
+    }
+
+    async fn recharge<'a>(&mut self, ord: TOrd)
+    where
+        TOrd: 'a,
+    {
+        trace!(target: "backlog", "recharge({:?})", ord);
+        self.inner.recharge(ord.clone()).await;
+        trace!(target: "backlog", "recharge({:?}) -> ()", ord);
+    }
+
+    async fn find_orders<F>(&self, f: F) -> Vec<TOrd>
+    where
+        F: Fn(&TOrd) -> bool + Send + 'static,
+    {
+        trace!(target: "backlog", "find_order()");
+        self.inner.find_orders(f).await
+    }
+}
+
+#[serde_with::serde_as]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BacklogConfig {
+    #[serde_as(as = "serde_with::DurationSeconds<i64>")]
     pub order_lifespan: Duration,
+    #[serde_as(as = "serde_with::DurationSeconds<i64>")]
     pub order_exec_time: Duration,
     pub retry_suspended_prob: BoundedU8<0, 100>,
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 struct WeightedOrder<TOrderId> {
     order_id: TOrderId,
     timestamp: i64,
@@ -115,13 +231,20 @@ where
 impl<TOrd, TStore> BacklogService<TOrd, TStore>
 where
     TOrd: OnChainOrder + Weighted + Hash + Eq,
+    TOrd::TOrderId: Debug,
     TStore: BacklogStore<TOrd>,
 {
-    pub fn new(store: TStore, conf: BacklogConfig) -> Self {
+    pub async fn new<TOrd0: IsEqual<TOrd>>(store: TStore, conf: BacklogConfig) -> Self {
+        let mut pending_pq = PriorityQueue::new();
+        for ord in store.find_orders(|_| true).await {
+            let wt = ord.order.weight();
+            trace!(target: "backlog", "Restored order: {:?}", ord.order.get_self_ref());
+            pending_pq.push(ord.into(), wt);
+        }
         Self {
             store,
             conf,
-            pending_pq: PriorityQueue::new(),
+            pending_pq,
             suspended_pq: PriorityQueue::new(),
             revisit_queue: VecDeque::new(),
         }
@@ -138,7 +261,7 @@ where
                         self.pending_pq.push(ord.into(), wt);
                     }
                 } else {
-                    self.store.drop(ord.order_id).await;
+                    self.store.remove(ord.order_id).await;
                 }
             } else {
                 break;
@@ -160,9 +283,12 @@ where
         let ts_now = Utc::now().timestamp();
         let elapsed_secs = ts_now - ord.timestamp;
         if elapsed_secs > conf.order_lifespan.num_seconds() {
-            store.drop(ord.order_id).await;
+            store.remove(ord.order_id).await;
         } else {
-            return store.get(ord.order_id).await.map(|bo| bo.order);
+            let res = store.get(ord.order_id).await.map(|bo| bo.order);
+            if res.is_some() {
+                return res;
+            }
         }
     }
     None
@@ -172,9 +298,13 @@ where
 impl<TOrd, TStore> Backlog<TOrd> for BacklogService<TOrd, TStore>
 where
     TStore: BacklogStore<TOrd>,
+    TOrd::TOrderId: Debug,
     TOrd: OnChainOrder + Weighted + Hash + Eq + Clone,
 {
-    async fn put(&mut self, ord: PendingOrder<TOrd>) {
+    async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
+    where
+        TOrd: 'a,
+    {
         self.store
             .put(BacklogOrder {
                 order: ord.order.clone(),
@@ -185,7 +315,10 @@ where
         self.pending_pq.push(ord.into(), wt);
     }
 
-    async fn suspend(&mut self, ord: TOrd) -> bool {
+    async fn suspend<'a>(&mut self, ord: TOrd) -> bool
+    where
+        TOrd: 'a,
+    {
         if self.store.exists(ord.get_self_ref()).await {
             let wt = ord.weight();
             if let Some(backlog_ord) = self.store.get(ord.get_self_ref()).await {
@@ -202,7 +335,10 @@ where
         false
     }
 
-    async fn check_later(&mut self, ord: ProgressingOrder<TOrd>) -> bool {
+    async fn check_later<'a>(&mut self, ord: ProgressingOrder<TOrd>) -> bool
+    where
+        TOrd: 'a,
+    {
         if self.store.exists(ord.order.get_self_ref()).await {
             self.revisit_queue.push_back(ord.into());
             return true;
@@ -220,21 +356,46 @@ where
         }
     }
 
-    async fn remove(&mut self, ord_id: TOrd::TOrderId) {
-        self.store.drop(ord_id).await;
+    async fn exists<'a>(&self, ord_id: TOrd::TOrderId) -> bool
+    where
+        TOrd::TOrderId: 'a,
+    {
+        self.store.exists(ord_id).await
     }
 
-    async fn recharge(&mut self, org: TOrd) {
-        let wt = org.weight();
-        if let Some(backlog_ord) = self.store.get(org.get_self_ref()).await {
+    async fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
+    where
+        TOrd::TOrderId: Clone + 'a,
+    {
+        self.store.remove(ord_id).await;
+    }
+
+    async fn recharge<'a>(&mut self, ord: TOrd)
+    where
+        TOrd: 'a,
+    {
+        let wt = ord.weight();
+        if let Some(backlog_ord) = self.store.get(ord.get_self_ref()).await {
             self.pending_pq.push(
                 WeightedOrder {
-                    order_id: org.get_self_ref(),
+                    order_id: ord.get_self_ref(),
                     timestamp: backlog_ord.timestamp,
                 },
                 wt,
             );
         }
+    }
+
+    async fn find_orders<F>(&self, f: F) -> Vec<TOrd>
+    where
+        F: Fn(&TOrd) -> bool + Send + 'static,
+    {
+        self.store
+            .find_orders(f)
+            .await
+            .into_iter()
+            .map(|b| b.order)
+            .collect()
     }
 }
 
@@ -246,13 +407,12 @@ mod tests {
     use async_trait::async_trait;
     use bounded_integer::BoundedU8;
     use chrono::{Duration, Utc};
-    use ergo_chain_sync::cache::rocksdb::ChainCacheRocksDB;
     use rand::RngCore;
     use serde::{Deserialize, Serialize};
     use type_equalities::IsEqual;
 
     use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
-    use crate::backlog::persistence::BacklogStore;
+    use crate::backlog::persistence::{BacklogStore, BacklogStoreRocksDB};
     use crate::backlog::{Backlog, BacklogConfig, BacklogService};
     use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
     use crate::data::{Has, OnChainOrder};
@@ -293,27 +453,10 @@ mod tests {
         }
     }
 
-    impl Has<MockOrderId> for MockOrder {
-        fn get<U: IsEqual<MockOrderId>>(&self) -> MockOrderId {
-            self.order_id
-        }
-    }
-
     impl Weighted for MockOrder {
         fn weight(&self) -> OrderWeight {
             self.weight
         }
-    }
-
-    impl OnChainOrder for MockOrder {
-        type TOrderId = MockOrderId;
-        type TEntityId = ();
-
-        fn get_self_ref(&self) -> Self::TOrderId {
-            self.order_id
-        }
-
-        fn get_entity_ref(&self) -> Self::TEntityId {}
     }
 
     struct MockBacklogStore {
@@ -328,6 +471,18 @@ mod tests {
         }
     }
 
+    impl OnChainOrder for MockOrder {
+        type TOrderId = MockOrderId;
+
+        type TEntityId = ();
+
+        fn get_self_ref(&self) -> Self::TOrderId {
+            self.order_id
+        }
+
+        fn get_entity_ref(&self) -> Self::TEntityId {}
+    }
+
     #[async_trait(?Send)]
     impl BacklogStore<MockOrder> for MockBacklogStore {
         async fn put(&mut self, ord: BacklogOrder<MockOrder>) {
@@ -338,16 +493,23 @@ mod tests {
             self.inner.contains_key(&ord_id)
         }
 
-        async fn drop(&mut self, ord_id: MockOrderId) {
+        async fn remove(&mut self, ord_id: MockOrderId) {
             self.inner.remove(&ord_id);
         }
 
         async fn get(&self, ord_id: MockOrderId) -> Option<BacklogOrder<MockOrder>> {
             self.inner.get(&ord_id).cloned()
         }
+
+        async fn find_orders<F>(&self, f: F) -> Vec<BacklogOrder<MockOrder>>
+        where
+            F: Fn(&MockOrder) -> bool + Send + 'static,
+        {
+            self.inner.values().cloned().filter(|b| f(&b.order)).collect()
+        }
     }
 
-    fn setup_backlog(
+    async fn setup_backlog(
         order_lifespan_secs: i64,
         order_exec_time_secs: i64,
         retry_suspended_prob: u8,
@@ -358,7 +520,7 @@ mod tests {
             order_exec_time: Duration::seconds(order_exec_time_secs),
             retry_suspended_prob: <BoundedU8<0, 100>>::new(retry_suspended_prob).unwrap(),
         };
-        BacklogService::new(store, conf)
+        BacklogService::new::<MockOrder>(store, conf).await
     }
 
     fn make_order(id: i64, weight: u64) -> BacklogOrder<MockOrder> {
@@ -373,7 +535,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_suspend_existing_order() {
-        let mut backlog = setup_backlog(10, 5, 50);
+        let mut backlog = setup_backlog(10, 5, 50).await;
         let ord = make_order(1, 1);
         backlog.put(ord.clone().into()).await;
         let suspended = backlog.suspend(ord.order).await;
@@ -382,7 +544,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_check_later_existing_order() {
-        let mut backlog = setup_backlog(10, 5, 50);
+        let mut backlog = setup_backlog(10, 5, 50).await;
         let ord = make_order(1, 1);
         backlog.put(ord.clone().into()).await;
         let accepted = backlog.check_later(ord.into()).await;
@@ -391,7 +553,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_not_suspend_non_existent_order() {
-        let mut backlog = setup_backlog(10, 5, 50);
+        let mut backlog = setup_backlog(10, 5, 50).await;
         let ord = make_order(1, 1);
         let suspended = backlog.suspend(ord.order).await;
         assert!(!suspended)
@@ -399,7 +561,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_not_check_later_non_existent_order() {
-        let mut backlog = setup_backlog(10, 5, 50);
+        let mut backlog = setup_backlog(10, 5, 50).await;
         let ord = make_order(1, 1);
         let accepted = backlog
             .check_later(ProgressingOrder {
@@ -412,7 +574,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_pop_best_order() {
-        let mut backlog = setup_backlog(10, 5, 0);
+        let mut backlog = setup_backlog(10, 5, 0).await;
         let ord1 = make_order(1, 1);
         let ord2 = make_order(2, 2);
         let ord3 = make_order(3, 3);
@@ -426,7 +588,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_always_pop_suspended_order_when_pa_100() {
-        let mut backlog = setup_backlog(10, 5, 100);
+        let mut backlog = setup_backlog(10, 5, 100).await;
         let ord1 = make_order(1, 1);
         let ord2 = make_order(2, 2);
         let ord3 = make_order(3, 3);
@@ -442,7 +604,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_not_pop_suspended_order_when_pa_0() {
-        let mut backlog = setup_backlog(10, 5, 0);
+        let mut backlog = setup_backlog(10, 5, 0).await;
         let ord1 = make_order(1, 1);
         let ord2 = make_order(2, 2);
         let ord3 = make_order(3, 3);
@@ -459,29 +621,28 @@ mod tests {
     #[tokio::test]
     async fn test_rocksdb_backlog() {
         let rnd = rand::thread_rng().next_u32();
-        let mut store = ChainCacheRocksDB {
+        let mut store = BacklogStoreRocksDB {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(format!("./tmp/{}", rnd)).unwrap()),
-            max_rollback_depth: 10,
         };
         for i in 0..30 {
             store.put(make_order(i, i as u64)).await;
         }
 
         for i in 0..30 {
-            assert!(<ChainCacheRocksDB as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
+            assert!(<BacklogStoreRocksDB as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
             assert_eq!(
                 make_order(i, i as u64),
-                <ChainCacheRocksDB as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
+                <BacklogStoreRocksDB as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
                     .await
                     .unwrap()
             );
         }
 
         for i in 0..30 {
-            <ChainCacheRocksDB as BacklogStore<MockOrder>>::drop(&mut store, MockOrderId(i)).await;
-            assert!(!<ChainCacheRocksDB as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
+            <BacklogStoreRocksDB as BacklogStore<MockOrder>>::remove(&mut store, MockOrderId(i)).await;
+            assert!(!<BacklogStoreRocksDB as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
             assert!(
-                <ChainCacheRocksDB as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
+                <BacklogStoreRocksDB as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
                     .await
                     .is_none()
             )
