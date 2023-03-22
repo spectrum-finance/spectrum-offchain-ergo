@@ -93,9 +93,13 @@ async fn sync<TClient: ErgoNetwork>(client: &TClient, state: Arc<Mutex<SyncState
     }
     info!("Loop finished.");
     let new_pool_ids = pool.iter().map(|tx| tx.id()).collect::<HashSet<_>>();
+    info!("new_pool_ids");
     let mut state = state.lock().await;
+    info!("state");
     let old_pool_ids = state.mempool_projection.keys().cloned().collect::<HashSet<_>>();
+    info!("old_pool_ids");
     let elim_txs = old_pool_ids.difference(&new_pool_ids);
+    info!("elim_txs");
     'check_withdrawn: for tx_id in elim_txs {
         if let Some(tx) = state.mempool_projection.remove(tx_id) {
             for blk in state.latest_blocks.iter() {
@@ -107,6 +111,7 @@ async fn sync<TClient: ErgoNetwork>(client: &TClient, state: Arc<Mutex<SyncState
             state.pending_updates.push_back(MempoolUpdate::TxWithdrawn(tx));
         }
     }
+    info!("check_withdrawn");
     for tx in pool {
         if state.mempool_projection.contains_key(&tx.id()) {
             continue;
