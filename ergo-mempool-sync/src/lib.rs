@@ -70,6 +70,7 @@ const TXS_PER_REQUEST: usize = 100;
 async fn sync<TClient: ErgoNetwork>(client: &TClient, state: Arc<Mutex<SyncState>>) {
     let mut pool: Vec<Transaction> = Vec::new();
     let mut offset = 0;
+    info!("Going to loop next transaction");
     loop {
         let txs = client.fetch_mempool(offset, TXS_PER_REQUEST).await;
         match txs {
@@ -90,6 +91,7 @@ async fn sync<TClient: ErgoNetwork>(client: &TClient, state: Arc<Mutex<SyncState
             }
         }
     }
+    info!("Loop finished.");
     let new_pool_ids = pool.iter().map(|tx| tx.id()).collect::<HashSet<_>>();
     let mut state = state.lock().await;
     let old_pool_ids = state.mempool_projection.keys().cloned().collect::<HashSet<_>>();
@@ -184,6 +186,7 @@ where
                 drop(st);
                 let _ = Delay::new(conf.sync_interval).await;
             }
+            info!("Going to sync mempool stream from sync_mempool stream");
             sync(client, Arc::clone(&state)).await;
         }
     }
