@@ -70,6 +70,7 @@ const TXS_PER_REQUEST: usize = 100;
 async fn sync<TClient: ErgoNetwork>(client: &TClient, state: Arc<Mutex<SyncState>>) {
     let mut pool: Vec<Transaction> = Vec::new();
     let mut offset = 0;
+    info!("Going to loop next transaction");
     loop {
         let txs = client.fetch_mempool(offset, TXS_PER_REQUEST).await;
         match txs {
@@ -90,10 +91,15 @@ async fn sync<TClient: ErgoNetwork>(client: &TClient, state: Arc<Mutex<SyncState
             }
         }
     }
+    info!("Loop finished.");
     let new_pool_ids = pool.iter().map(|tx| tx.id()).collect::<HashSet<_>>();
+    info!("new_pool_ids");
     let mut state = state.lock().await;
+    info!("state");
     let old_pool_ids = state.mempool_projection.keys().cloned().collect::<HashSet<_>>();
+    info!("old_pool_ids");
     let elim_txs = old_pool_ids.difference(&new_pool_ids);
+    info!("elim_txs");
     'check_withdrawn: for tx_id in elim_txs {
         if let Some(tx) = state.mempool_projection.remove(tx_id) {
             for blk in state.latest_blocks.iter() {
@@ -105,6 +111,7 @@ async fn sync<TClient: ErgoNetwork>(client: &TClient, state: Arc<Mutex<SyncState
             state.pending_updates.push_back(MempoolUpdate::TxWithdrawn(tx));
         }
     }
+    info!("check_withdrawn");
     for tx in pool {
         if state.mempool_projection.contains_key(&tx.id()) {
             continue;
@@ -112,6 +119,7 @@ async fn sync<TClient: ErgoNetwork>(client: &TClient, state: Arc<Mutex<SyncState
         state.mempool_projection.insert(tx.id(), tx.clone());
         state.pending_updates.push_back(MempoolUpdate::TxAccepted(tx));
     }
+    info!("Sync mempool finished.");
 }
 
 const START_HEIGHT: usize = 0;
@@ -184,7 +192,9 @@ where
                 drop(st);
                 let _ = Delay::new(conf.sync_interval).await;
             }
+            info!("Going to sync mempool stream from sync_mempool stream");
             sync(client, Arc::clone(&state)).await;
+            info!("Sync mempool stream from sync_mempool stream, waiting next loop iteration");
         }
     }
 }
