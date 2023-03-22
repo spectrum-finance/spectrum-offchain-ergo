@@ -101,7 +101,11 @@ impl ErgoNetwork for ErgoNodeHttpClient {
             .client
             .get_async(with_path(&self.base_url, &format!("/info")))
             .await?;
+        let r = response.json::<ApiInfo>().await;
+        info!("get_best_height -> ${:?}", r);
         let height = if response.status().is_success() {
+            let r = response.json::<ApiInfo>().await;
+            info!("get_best_height -> ${:?}", r);
             response
                 .json::<ApiInfo>()
                 .await
