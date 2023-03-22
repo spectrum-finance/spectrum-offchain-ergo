@@ -186,10 +186,11 @@ where
     stream! {
         loop {
             let mut st = state.lock().await;
-            if let Some(upd) = st.pending_updates.pop_front() { // First, try to pop updates
+            let maybe_upd = st.pending_updates.pop_front();
+            drop(st);
+            if let Some(upd) = maybe_upd { // First, try to pop updates
                 yield Some(upd)
             } else { // Wait otherwise
-                drop(st);
                 let _ = Delay::new(conf.sync_interval).await;
             }
             info!("Going to sync mempool stream from sync_mempool stream");
