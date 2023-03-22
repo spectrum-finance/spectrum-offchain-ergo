@@ -107,7 +107,12 @@ impl ErgoNetwork for ErgoNodeHttpClient {
     }
 
     async fn fetch_mempool(&self, offset: usize, limit: usize) -> Result<Vec<Transaction>, Error> {
-        info!("fetch_mempool: offset {:}, limit {:}", offset, limit);
+        info!(
+            target: "mempool sync",
+            "Going to fetch next mempool transactions. offset {:}, limit {:}",
+            offset,
+            limit
+        );
         let mut response = self
             .client
             .get_async(with_path(
@@ -122,7 +127,6 @@ impl ErgoNetwork for ErgoNodeHttpClient {
                 "expected 200 from /transactions/unconfirmed?offset=_&limit=_".into(),
             ));
         };
-        info!("fetch_mempool: txn len {:}", transactions.len());
         Ok(transactions)
     }
 }
