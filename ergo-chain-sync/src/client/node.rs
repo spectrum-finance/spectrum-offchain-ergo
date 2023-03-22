@@ -88,7 +88,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
     }
 
     async fn get_best_height(&self) -> Result<u32, Error> {
-        let genesis_height = ApiInfo { fullHeight: 0 };
+        let genesis_height = ApiInfo { full_height: 0 };
         let mut response = self
             .client
             .get_async(with_path(&self.base_url, &format!("/info")))
@@ -98,7 +98,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
                 .json::<ApiInfo>()
                 .await
                 .unwrap_or(genesis_height)
-                .fullHeight
+                .full_height
         } else {
             return Err(Error::UnsuccessfulRequest("expected 200 from /info".into()));
         };
