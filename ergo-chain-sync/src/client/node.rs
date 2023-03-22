@@ -3,6 +3,7 @@ use derive_more::From;
 use ergo_lib::chain::transaction::Transaction;
 use ergo_lib::ergo_chain_types::{BlockId, Header};
 use isahc::{AsyncReadResponseExt, HttpClient};
+use log::info;
 use thiserror::Error;
 
 use crate::client::model::{ApiInfo, FullBlock};
@@ -106,6 +107,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
     }
 
     async fn fetch_mempool(&self, offset: usize, limit: usize) -> Result<Vec<Transaction>, Error> {
+        info!("fetch_mempool: offset {:}, limit {:}", offset, limit);
         let mut response = self
             .client
             .get_async(with_path(
@@ -120,6 +122,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
                 "expected 200 from /transactions/unconfirmed?offset=_&limit=_".into(),
             ));
         };
+        info!("fetch_mempool: txn len {:}", transactions.len());
         Ok(transactions)
     }
 }
