@@ -3,6 +3,7 @@ use derive_more::From;
 use ergo_lib::chain::transaction::Transaction;
 use ergo_lib::ergo_chain_types::{BlockId, Header};
 use isahc::{AsyncReadResponseExt, HttpClient};
+use log::info;
 use thiserror::Error;
 
 use crate::client::model::{ApiInfo, FullBlock};
@@ -51,13 +52,17 @@ impl ErgoNetwork for ErgoNodeHttpClient {
             .await?
             .json::<Vec<BlockId>>()
             .await?;
+        info!("height: ${:} -> blocks ${:?}", height, blocks);
         if !blocks.is_empty() {
             let header_id = base16::encode_lower(&blocks[0].0 .0);
+            info!("height: ${:} -> header_id ${:?}", height, header_id);
             let transactions_path = format!("/blocks/{}/transactions", header_id);
             let mut resp = self
                 .client
                 .get_async(with_path(&self.base_url, &transactions_path))
                 .await?;
+            let s = resp.json::<BlockTransactions>().await;
+            info!("height: ${:} -> resp ${:?}", height, s);
             let block_transactions = if resp.status().is_success() {
                 resp.json::<BlockTransactions>().await?
             } else {
@@ -65,12 +70,15 @@ impl ErgoNetwork for ErgoNodeHttpClient {
                     "expected 200 from /blocks/_/transactions".into(),
                 ));
             };
+            info!("height: ${:} -> block_transactions ${:?}", height, block_transactions);
 
             let header_path = format!("/blocks/{}/header", header_id);
             let mut resp = self
                 .client
                 .get_async(with_path(&self.base_url, &header_path))
                 .await?;
+            let r = resp.json::<Header>().await;
+            info!("height: ${:} -> resp header ${:?}", height, r);
             let header = if resp.status().is_success() {
                 resp.json::<Header>().await?
             } else {
