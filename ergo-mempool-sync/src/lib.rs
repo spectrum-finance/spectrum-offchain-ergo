@@ -114,6 +114,7 @@ async fn sync<TClient: ErgoNetwork>(client: &TClient, state: Arc<Mutex<SyncState
         state.mempool_projection.insert(tx.id(), tx.clone());
         state.pending_updates.push_back(MempoolUpdate::TxAccepted(tx));
     }
+    info!("Sync mempool finished.");
 }
 
 const START_HEIGHT: usize = 0;
@@ -188,6 +189,7 @@ where
             }
             info!("Going to sync mempool stream from sync_mempool stream");
             sync(client, Arc::clone(&state)).await;
+            info!("Sync mempool stream from sync_mempool stream, waiting next loop iteration");
         }
     }
 }
