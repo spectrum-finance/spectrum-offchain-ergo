@@ -114,14 +114,12 @@ where
                             let ts_now = Utc::now().timestamp();
                             for order in orders {
                                 let mut backlog = backlog.lock().await;
-                                if !backlog.exists(order.order_id()).await {
-                                    backlog
-                                        .put(PendingOrder {
-                                            order: Order::Compound(order),
-                                            timestamp: ts_now,
-                                        })
-                                        .await;
-                                }
+                                backlog
+                                    .put(PendingOrder {
+                                        order: Order::Compound(order),
+                                        timestamp: ts_now,
+                                    })
+                                    .await;
                             }
                             let mut schedules = schedules.lock().await;
                             schedules.defer(tick, ts_now + TICK_SUSPENSION_DURATION).await;
