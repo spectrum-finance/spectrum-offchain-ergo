@@ -5,7 +5,6 @@ operator_funding_secret: "<seed>"
 max_number_expected_participants: 1000
 tx_fee: 1000000
 erg_value_per_box: 250000
-height: 966000
 initial_lq_token_deposit:
   token_id: f581975e2f52e6b5d43620ca865b6f4b99d279b6e92b8acaeb68a589b0eb32ec
   amount: 1

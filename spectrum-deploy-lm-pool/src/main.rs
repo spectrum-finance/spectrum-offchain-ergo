@@ -104,7 +104,6 @@ pub struct DeployPoolConfig {
     conf: ProgramConfig,
     tx_fee: BoxValue,
     erg_value_per_box: BoxValue,
-    height: u32,
     initial_lq_token_deposit: TypedAssetAmount<Lq>,
     num_epochs_to_delegate: u64,
     operator_funding_secret: SeedPhrase,
@@ -117,25 +116,6 @@ async fn main() {
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
     let config: DeployPoolConfig = serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
 
-    let reward_token = Token {
-        token_id: TokenId::from(
-            Digest32::try_from(String::from(
-                "991892666236da4771a8cdf95cf2c531daf1630ee0ee7805ebb24200f92ca886",
-            ))
-            .unwrap(),
-        ),
-        amount: TokenAmount::try_from(50000000000_u64).unwrap(),
-    };
-    let lq_token = Token {
-        token_id: TokenId::from(
-            Digest32::try_from(String::from(
-                "20a6f717a998c73f6664b4f2c49d10dc05c5c8826776c566a2ab318a27b54e95",
-            ))
-            .unwrap(),
-        ),
-        amount: TokenAmount::try_from(1_u64).unwrap(),
-    };
-
     let client = HttpClient::builder()
         .timeout(std::time::Duration::from_secs(50))
         .build()
@@ -145,16 +125,18 @@ async fn main() {
         client: client.clone(),
         base_url: explorer_url,
     };
-    let node_url = Url::try_from(String::from("http://213.239.193.208:9053")).unwrap();
-    let node = ErgoNodeHttpClient::new(client, node_url);
+    let node = ErgoNodeHttpClient::new(client, config.node_addr.clone());
     match deploy_pool(config, &node, explorer).await {
         Ok(txs) => {
-            for tx in txs {
-                println!("Submitting {:?} to node", tx.id());
+            for (tx, description) in txs {
+                let tx_id = tx.id();
                 if let Err(e) = node.submit_tx(tx).await {
                     println!("ERROR SUBMITTING TO NODE: {:?}", e);
                 } else {
-                    println!("TX successfully submitted!");
+                    println!(
+                        "TX {:?} successfully submitted! (Description: {})",
+                        tx_id, description
+                    );
                 }
             }
         }
@@ -168,13 +150,13 @@ pub async fn deploy_pool(
     config: DeployPoolConfig,
     node: &ErgoNodeHttpClient,
     explorer: Explorer,
-) -> Result<Vec<Transaction>, Error> {
+) -> Result<Vec<(Transaction, String)>, Error> {
     let input = DeployPoolInputs::from(&config);
     let (prover, addr) = Wallet::try_from_seed(config.operator_funding_secret).expect("Invalid seed");
     let current_height = node.get_height().await;
     validate_pool(&input, current_height)?;
     let utxos = explorer.get_utxos(&addr).await;
-    let txs = deploy_pool_chain_transaction(utxos, input, prover, addr)?;
+    let txs = deploy_pool_chain_transaction(utxos, input, current_height, prover, addr)?;
     //dbg!(&txs);
     Ok(txs)
 }
@@ -183,7 +165,6 @@ struct DeployPoolInputs {
     conf: ProgramConfig,
     tx_fee: BoxValue,
     erg_value_per_box: BoxValue,
-    height: u32,
     initial_lq_token_deposit: TypedAssetAmount<Lq>,
     num_epochs_to_delegate: u64,
     max_number_expected_participants: u64,
@@ -195,7 +176,6 @@ impl From<&DeployPoolConfig> for DeployPoolInputs {
             conf: d.conf,
             tx_fee: d.tx_fee,
             erg_value_per_box: d.erg_value_per_box,
-            height: d.height,
             initial_lq_token_deposit: d.initial_lq_token_deposit,
             num_epochs_to_delegate: d.num_epochs_to_delegate,
             max_number_expected_participants: d.max_number_expected_participants,
@@ -206,9 +186,10 @@ impl From<&DeployPoolConfig> for DeployPoolInputs {
 fn deploy_pool_chain_transaction(
     utxos: Vec<ErgoBox>,
     input: DeployPoolInputs,
+    height: u32,
     prover: Wallet,
     addr: Address,
-) -> Result<Vec<Transaction>, Error> {
+) -> Result<Vec<(Transaction, String)>, Error> {
     check_utxos(&utxos, &input)?;
     println!("UTXOs fine: only reward and LQ tokens found.");
 
@@ -216,7 +197,6 @@ fn deploy_pool_chain_transaction(
         conf,
         tx_fee,
         erg_value_per_box,
-        height,
         initial_lq_token_deposit,
         num_epochs_to_delegate,
         ..
@@ -421,10 +401,6 @@ fn deploy_pool_chain_transaction(
     num_transactions_left -= 1;
     let tx_0 = prover.sign(tx_candidate)?;
 
-    for (i, o) in tx_0.outputs.iter().enumerate() {
-        println!("#{}, value: {:?}", i, o.value);
-    }
-    println!("-----------------");
     // TX 1: Mint pool NFT -------------------------------------------------------------------------
     let inputs = if !remaining_tokens.is_empty() {
         let mut tx_0_outputs = tx_0.outputs.clone();
@@ -521,7 +497,7 @@ fn deploy_pool_chain_transaction(
     pool_init_box_builder.set_register_value(NonMandatoryRegisterId::R4, <Vec<i32>>::from(conf).into());
     pool_init_box_builder.set_register_value(
         NonMandatoryRegisterId::R5,
-        (conf.program_budget.amount as i64).into(),
+        (conf.program_budget.amount as i64 - 1_i64).into(),
     );
     pool_init_box_builder.set_register_value(
         NonMandatoryRegisterId::R6,
@@ -560,10 +536,6 @@ fn deploy_pool_chain_transaction(
     };
     let pool_input_tx = prover.sign(tx_candidate)?;
 
-    println!("TX_4-----------------------");
-    for (i, o) in pool_input_tx.outputs.iter().enumerate() {
-        println!("#{}, value: {:?}", i, o.value);
-    }
     num_transactions_left -= 1;
 
     // TX 5: Create first LM pool, stake bundle and redeemer out boxes -----------------------------
@@ -679,17 +651,16 @@ fn deploy_pool_chain_transaction(
     };
     let init_pool_tx = prover.sign(tx_candidate)?;
 
-    println!("TX_5-----------------------");
-    for (i, o) in init_pool_tx.outputs.iter().enumerate() {
-        println!("#{}, value: {:?}", i, o.value);
-    }
     Ok(vec![
-        tx_0,
-        signed_mint_pool_nft_tx,
-        signed_mint_vlq_tokens_tx,
-        signed_mint_tmp_tokens_tx,
-        pool_input_tx,
-        init_pool_tx,
+        (tx_0, String::from("Move LQ and reward tokens to single box")),
+        (signed_mint_pool_nft_tx, String::from("Mint Pool NFT")),
+        (signed_mint_vlq_tokens_tx, String::from("Mint VLQ tokens")),
+        (signed_mint_tmp_tokens_tx, String::from("Mint TMP tokens")),
+        (pool_input_tx, String::from("Initialise pool-input box")),
+        (
+            init_pool_tx,
+            String::from("Create first LM pool, staking bundle and redeemer out boxes"),
+        ),
     ])
 }
 
@@ -708,7 +679,7 @@ fn find_box_with_token(boxes: &Vec<ErgoBox>, token_id: &TokenId) -> Option<ErgoB
 
 #[derive(Debug)]
 pub enum UtxoError {
-    MissingLqToken,
+    InsufficientLqTokens,
     InsufficientRewardTokens {
         expected_quantity: u64,
         actual_quantity: u64,
@@ -719,7 +690,7 @@ pub enum UtxoError {
 /// Returns true iff the UTXOs of the given wallet contain all necessary
 fn check_utxos(utxos: &Vec<ErgoBox>, config: &DeployPoolInputs) -> Result<(), UtxoError> {
     let mut reward_tokens_count = 0_u64;
-    let mut lq_token_found = false;
+    let mut lq_tokens_count = 0_u64;
     let mut other_tokens = vec![];
 
     let expected_reward_token_quantity = config.conf.program_budget.amount;
@@ -729,7 +700,7 @@ fn check_utxos(utxos: &Vec<ErgoBox>, config: &DeployPoolInputs) -> Result<(), Ut
                 if token.token_id == config.conf.program_budget.token_id {
                     reward_tokens_count += *token.amount.as_u64();
                 } else if token.token_id == config.initial_lq_token_deposit.token_id {
-                    lq_token_found = true;
+                    lq_tokens_count += *token.amount.as_u64();
                 } else {
                     other_tokens.push(token.clone());
                 }
@@ -740,8 +711,8 @@ fn check_utxos(utxos: &Vec<ErgoBox>, config: &DeployPoolInputs) -> Result<(), Ut
         return Err(UtxoError::OtherTokensInUtxos(other_tokens));
     }
 
-    if !lq_token_found {
-        return Err(UtxoError::MissingLqToken);
+    if lq_tokens_count < 100 {
+        return Err(UtxoError::InsufficientLqTokens);
     }
     if reward_tokens_count < config.conf.program_budget.amount {
         return Err(UtxoError::InsufficientRewardTokens {
@@ -759,6 +730,10 @@ fn validate_pool(input: &DeployPoolInputs, current_height: u32) -> Result<(), Po
 
     if input.conf.redeem_blocks_delta < input.conf.epoch_len {
         return Err(PoolValidationError::RedeemBlocksDeltaTooLong);
+    }
+
+    if input.conf.program_budget.amount < 100 {
+        return Err(PoolValidationError::InsufficientLqTokens);
     }
 
     let epoch_num = input.conf.epoch_num;
@@ -779,6 +754,7 @@ pub enum PoolValidationError {
     StartTooEarly,
     RedeemBlocksDeltaTooLong,
     FailedMaxRoundingErrorBounds,
+    InsufficientLqTokens,
 }
 
 #[derive(Parser)]
