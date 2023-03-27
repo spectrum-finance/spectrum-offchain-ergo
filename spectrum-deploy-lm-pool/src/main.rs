@@ -732,7 +732,7 @@ fn validate_pool(input: &DeployPoolInputs, current_height: u32) -> Result<(), Po
         return Err(PoolValidationError::RedeemBlocksDeltaTooLong);
     }
 
-    if input.conf.program_budget.amount < 100 {
+    if input.initial_lq_token_deposit.amount < 100 {
         return Err(PoolValidationError::InsufficientLqTokens);
     }
 
