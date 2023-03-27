@@ -93,6 +93,8 @@ pub enum Error {
     TxSigning(TxSigningError),
     #[error("utxo error: {0:?}")]
     Utxo(UtxoError),
+    #[error("pool validation error: {0:?}")]
+    PoolValidation(PoolValidationError),
 }
 
 #[derive(Deserialize)]
@@ -106,6 +108,7 @@ pub struct DeployPoolConfig {
     initial_lq_token_deposit: TypedAssetAmount<Lq>,
     num_epochs_to_delegate: u64,
     operator_funding_secret: SeedPhrase,
+    max_number_expected_participants: u64,
 }
 
 #[tokio::main]
@@ -113,12 +116,6 @@ async fn main() {
     let args = AppArgs::parse();
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
     let config: DeployPoolConfig = serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
-    //
-
-    //let (prover, funding_addr) = Wallet::try_from_seed(SeedPhrase::from(String::from(
-    //    "gather obvious bracket ticket uphold quantum quit pistol math direct rural turn west youth acid",
-    //)))
-    //.expect("Invalid seed");
 
     let reward_token = Token {
         token_id: TokenId::from(
@@ -138,11 +135,6 @@ async fn main() {
         ),
         amount: TokenAmount::try_from(1_u64).unwrap(),
     };
-    // mint reward tokens
-    //let reward_token_id = mint_token(50000000000, funding_addr.clone(), &prover).await;
-    //println!("reward_token_id: {:?}", reward_token_id);
-    //let lq_token_id = mint_token(50000000000, funding_addr, &prover).await;
-    //println!("lq_token_id: {:?}", lq_token_id);
 
     let client = HttpClient::builder()
         .timeout(std::time::Duration::from_secs(50))
@@ -153,11 +145,10 @@ async fn main() {
         client: client.clone(),
         base_url: explorer_url,
     };
-    match deploy_pool(config, explorer).await {
+    let node_url = Url::try_from(String::from("http://213.239.193.208:9053")).unwrap();
+    let node = ErgoNodeHttpClient::new(client, node_url);
+    match deploy_pool(config, &node, explorer).await {
         Ok(txs) => {
-            let node_url = Url::try_from(String::from("http://213.239.193.208:9053")).unwrap();
-            let node = ErgoNodeHttpClient::new(client, node_url);
-
             for tx in txs {
                 println!("Submitting {:?} to node", tx.id());
                 if let Err(e) = node.submit_tx(tx).await {
@@ -173,9 +164,15 @@ async fn main() {
     }
 }
 
-pub async fn deploy_pool(config: DeployPoolConfig, explorer: Explorer) -> Result<Vec<Transaction>, Error> {
+pub async fn deploy_pool(
+    config: DeployPoolConfig,
+    node: &ErgoNodeHttpClient,
+    explorer: Explorer,
+) -> Result<Vec<Transaction>, Error> {
     let input = DeployPoolInputs::from(&config);
     let (prover, addr) = Wallet::try_from_seed(config.operator_funding_secret).expect("Invalid seed");
+    let current_height = node.get_height().await;
+    validate_pool(&input, current_height)?;
     let utxos = explorer.get_utxos(&addr).await;
     let txs = deploy_pool_chain_transaction(utxos, input, prover, addr)?;
     //dbg!(&txs);
@@ -189,6 +186,7 @@ struct DeployPoolInputs {
     height: u32,
     initial_lq_token_deposit: TypedAssetAmount<Lq>,
     num_epochs_to_delegate: u64,
+    max_number_expected_participants: u64,
 }
 
 impl From<&DeployPoolConfig> for DeployPoolInputs {
@@ -200,6 +198,7 @@ impl From<&DeployPoolConfig> for DeployPoolInputs {
             height: d.height,
             initial_lq_token_deposit: d.initial_lq_token_deposit,
             num_epochs_to_delegate: d.num_epochs_to_delegate,
+            max_number_expected_participants: d.max_number_expected_participants,
         }
     }
 }
@@ -210,7 +209,7 @@ fn deploy_pool_chain_transaction(
     prover: Wallet,
     addr: Address,
 ) -> Result<Vec<Transaction>, Error> {
-    //check_utxos(&utxos, &input)?;
+    check_utxos(&utxos, &input)?;
     println!("UTXOs fine: only reward and LQ tokens found.");
 
     let DeployPoolInputs {
@@ -220,6 +219,7 @@ fn deploy_pool_chain_transaction(
         height,
         initial_lq_token_deposit,
         num_epochs_to_delegate,
+        ..
     } = input;
     let reward_token_budget = Token {
         token_id: conf.program_budget.token_id,
@@ -237,13 +237,11 @@ fn deploy_pool_chain_transaction(
     //
     // Now assuming that each created box will hold a value of `erg_value_per_box` the total amount
     // of ERG needed is:
-    //   6 * tx_fee + 8 * erg_value_per_box + MIN_SAFE_FAT_BOX_VALUE
+    //   6 * tx_fee + 5 * erg_value_per_box + 3 * MIN_SAFE_FAT_BOX_VALUE
     //
-    // Why 8 boxes of `erg_value_per_box`?
-    //  - 1 box each for TX 0 to TX 4.
-    //  - 3 boxes for TX 5
-    // We have one box of value MIN_SAFE_FAT_BOX_VALUE to hold all other tokens that were picked up
-    // by UTXO selection.
+    //  - 1 box each of `erg_value_per_box` for TX 0 to TX 4.
+    //  - 3 boxes of `MIN_SAFE_FAT_BOX_VALUE` for TX 5
+    //
 
     // Since we're building a chain of transactions, we need to filter the output boxes of each
     // constituent transaction to be only those that are guarded by our wallet's key.
@@ -368,7 +366,7 @@ fn deploy_pool_chain_transaction(
                 num_selected_lq_tokens += token.amount.as_u64();
             } else {
                 // There should be no other tokens here
-                //unreachable!()
+                unreachable!("There should only be reward and LQ tokens for specified wallet!")
             }
         }
     }
@@ -754,101 +752,33 @@ fn check_utxos(utxos: &Vec<ErgoBox>, config: &DeployPoolInputs) -> Result<(), Ut
     Ok(())
 }
 
-/// Mint new token. Scans all input boxes to preserve any existing tokens.
-async fn mint_token(token_amount: u64, wallet_addr: Address, wallet: &Wallet) -> TokenId {
-    let client = HttpClient::builder()
-        .timeout(std::time::Duration::from_secs(50))
-        .build()
-        .unwrap();
-
-    let node_url = Url::try_from(String::from("http://213.239.193.208:9053")).unwrap();
-    let explorer_url = Url::try_from(String::from("https://api.ergoplatform.com")).unwrap();
-    let explorer = Explorer {
-        client: client.clone(),
-        base_url: explorer_url,
-    };
-    let node = ErgoNodeHttpClient::new(client, node_url);
-
-    let utxos = explorer.get_utxos(&wallet_addr).await;
-    let height = node.get_height().await;
-
-    let target_balance = BoxValue::try_from(MIN_SAFE_BOX_VALUE).unwrap();
-    let mut miner_output = MinerOutput {
-        erg_value: DEFAULT_MINER_FEE,
-    };
-    let accumulated_cost = miner_output.erg_value + NanoErg::from(target_balance);
-    let selection_value = BoxValue::try_from(accumulated_cost).unwrap();
-    let box_selector = SimpleBoxSelector::new();
-    let box_selection = box_selector.select(utxos, selection_value, &[]).unwrap();
-    let token = Token {
-        token_id: box_selection.boxes.first().box_id().into(),
-        amount: TokenAmount::try_from(token_amount).unwrap(),
-    };
-    let token_id = token.token_id.clone();
-    let ergo_tree = wallet_addr.script().unwrap();
-    let mut builder = ErgoBoxCandidateBuilder::new(target_balance, ergo_tree.clone(), height);
-    builder.mint_token(token.clone(), "".into(), "".into(), 10);
-    let mut output_candidates = vec![builder.build().unwrap()];
-
-    let funds_total = box_selection.boxes.iter().fold(NanoErg::from(0), |acc, ergobox| {
-        acc + NanoErg::from(ergobox.value)
-    });
-
-    let mut token_quantities: HashMap<TokenId, u64> = HashMap::new();
-
-    for ergobox in &box_selection.boxes {
-        for t in ergobox.tokens.iter().flatten() {
-            *token_quantities.entry(t.token_id).or_insert(0) += t.amount.as_u64();
-        }
+fn validate_pool(input: &DeployPoolInputs, current_height: u32) -> Result<(), PoolValidationError> {
+    if input.conf.program_start < current_height + 100 {
+        return Err(PoolValidationError::StartTooEarly);
     }
 
-    let existing_tokens: Vec<_> = token_quantities
-        .into_iter()
-        .map(|(token_id, amount)| Token {
-            token_id,
-            amount: TokenAmount::try_from(amount).unwrap(),
-        })
-        .collect();
-
-    let funds_remain = funds_total.safe_sub(accumulated_cost);
-    if funds_remain >= MIN_SAFE_BOX_VALUE {
-        let mut candidate = DistributionFundingProto {
-            prop: ergo_tree,
-            erg_value: funds_remain,
-        }
-        .into_candidate(height);
-        assert!(candidate.tokens.is_none());
-        candidate.tokens = Some(BoxTokens::from_vec(existing_tokens).unwrap());
-        output_candidates.push(candidate);
-    } else {
-        miner_output.erg_value = miner_output.erg_value + funds_remain;
-    }
-    output_candidates.push(miner_output.into_candidate(height));
-    let inputs = TxIoVec::from_vec(
-        box_selection
-            .boxes
-            .clone()
-            .into_iter()
-            .map(|bx| (bx, ContextExtension::empty()))
-            .collect::<Vec<_>>(),
-    )
-    .unwrap();
-
-    let tx_candidate = TransactionCandidate {
-        inputs,
-        data_inputs: None,
-        output_candidates: TxIoVec::from_vec(output_candidates).unwrap(),
-    };
-    let signed_tx = wallet.sign(tx_candidate).unwrap();
-    dbg!(&signed_tx);
-
-    if let Err(e) = node.submit_tx(signed_tx).await {
-        println!("ERGO NODE ERROR: {:?}", e);
-    } else {
-        println!("TX successfully submitted!");
+    if input.conf.redeem_blocks_delta < input.conf.epoch_len {
+        return Err(PoolValidationError::RedeemBlocksDeltaTooLong);
     }
 
-    token_id
+    let epoch_num = input.conf.epoch_num;
+    let n_part = input.max_number_expected_participants;
+    let max_rounding_error = input.conf.max_rounding_error;
+    let budget_amt = input.conf.program_budget.amount;
+
+    if (epoch_num as u64) * n_part >= max_rounding_error
+        || max_rounding_error * n_part >= budget_amt / (epoch_num as u64)
+    {
+        return Err(PoolValidationError::FailedMaxRoundingErrorBounds);
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+pub enum PoolValidationError {
+    StartTooEarly,
+    RedeemBlocksDeltaTooLong,
+    FailedMaxRoundingErrorBounds,
 }
 
 #[derive(Parser)]
