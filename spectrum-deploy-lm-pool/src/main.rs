@@ -317,7 +317,7 @@ fn deploy_pool_chain_transaction(
 
     let lq_token = Token {
         token_id: initial_lq_token_deposit.token_id,
-        amount: TokenAmount::try_from(1_u64).unwrap(),
+        amount: TokenAmount::try_from(input.initial_lq_token_deposit.amount).unwrap(),
     };
 
     let box_selector = SimpleBoxSelector::new();
