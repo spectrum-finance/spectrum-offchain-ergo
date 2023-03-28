@@ -1,6 +1,9 @@
+mod bip39_words;
+mod generate_wallet;
+
 use std::collections::HashMap;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use derive_more::From;
 use ergo_chain_sync::client::node::ErgoNodeHttpClient;
 use ergo_lib::chain::contract::Contract;
@@ -113,35 +116,45 @@ pub struct DeployPoolConfig {
 #[tokio::main]
 async fn main() {
     let args = AppArgs::parse();
-    let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
-    let config: DeployPoolConfig = serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
 
-    let client = HttpClient::builder()
-        .timeout(std::time::Duration::from_secs(50))
-        .build()
-        .unwrap();
-    let explorer_url = Url::try_from(String::from("https://api.ergoplatform.com")).unwrap();
-    let explorer = Explorer {
-        client: client.clone(),
-        base_url: explorer_url,
-    };
-    let node = ErgoNodeHttpClient::new(client, config.node_addr.clone());
-    match deploy_pool(config, &node, explorer).await {
-        Ok(txs) => {
-            for (tx, description) in txs {
-                let tx_id = tx.id();
-                if let Err(e) = node.submit_tx(tx).await {
-                    println!("ERROR SUBMITTING TO NODE: {:?}", e);
-                } else {
-                    println!(
-                        "TX {:?} successfully submitted! (Description: {})",
-                        tx_id, description
-                    );
+    match args.command {
+        Command::DeployPool { config_path } => {
+            let raw_config = std::fs::read_to_string(config_path).expect("Cannot load configuration file");
+            let config: DeployPoolConfig =
+                serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
+
+            let client = HttpClient::builder()
+                .timeout(std::time::Duration::from_secs(50))
+                .build()
+                .unwrap();
+            let explorer_url = Url::try_from(String::from("https://api.ergoplatform.com")).unwrap();
+            let explorer = Explorer {
+                client: client.clone(),
+                base_url: explorer_url,
+            };
+            let node = ErgoNodeHttpClient::new(client, config.node_addr.clone());
+            match deploy_pool(config, &node, explorer).await {
+                Ok(txs) => {
+                    for (tx, description) in txs {
+                        let tx_id = tx.id();
+                        if let Err(e) = node.submit_tx(tx).await {
+                            println!("ERROR SUBMITTING TO NODE: {:?}", e);
+                        } else {
+                            println!(
+                                "TX {:?} successfully submitted! (Description: {})",
+                                tx_id, description
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("DEPLOY POOL ERROR: {:?}", e);
                 }
             }
         }
-        Err(e) => {
-            println!("DEPLOY POOL ERROR: {:?}", e);
+
+        Command::GenerateNewWallet => {
+            generate_new_wallet();
         }
     }
 }
@@ -677,6 +690,17 @@ fn find_box_with_token(boxes: &Vec<ErgoBox>, token_id: &TokenId) -> Option<ErgoB
         .cloned()
 }
 
+fn generate_new_wallet() {
+    let mnemonic = generate_wallet::generate_bip39_mnemonic();
+    println!("Mnemonic seed phrase(KEEP IT SAFE!): {}", mnemonic);
+    let (prover, funding_addr) = Wallet::try_from_seed(SeedPhrase::from(mnemonic)).expect("Invalid seed");
+
+    println!(
+        "Wallet's address: {}",
+        AddressEncoder::encode_address_as_string(NetworkPrefix::Mainnet, &funding_addr)
+    );
+}
+
 #[derive(Debug)]
 pub enum UtxoError {
     InsufficientLqTokens,
@@ -763,7 +787,16 @@ pub enum PoolValidationError {
 #[command(version = "0.1")]
 #[command(about = "Spectrum Finance Liquidity Mining LM pool deployment tool", long_about = None)]
 struct AppArgs {
-    /// Path to the YAML configuration file.
-    #[arg(long, short)]
-    config_path: String,
+    #[clap(subcommand)]
+    command: Command,
+}
+
+#[derive(Clone, Debug, Subcommand)]
+enum Command {
+    DeployPool {
+        #[arg(long, short)]
+        /// Path to the YAML configuration file.
+        config_path: String,
+    },
+    GenerateNewWallet,
 }

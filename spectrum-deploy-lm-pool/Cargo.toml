@@ -18,6 +18,7 @@ spectrum-offchain-lm = { version = "0.1.0", path = "../spectrum-offchain-lm" }
 tokio = { version = "1.22.0", features = ["full"] }
 thiserror = "1"
 clap = { version = "4.0", features = ["derive"] }
+rand = "0.8.5"
 
 [dev-dependencies]
 sigma-test-util = "0.3"
