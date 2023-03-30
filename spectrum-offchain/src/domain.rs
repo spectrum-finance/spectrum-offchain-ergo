@@ -39,6 +39,7 @@ impl AssetAmount {
 pub struct TypedAssetAmount<T> {
     pub token_id: TokenId,
     pub amount: u64,
+    #[serde(skip)]
     pub pd: PhantomData<T>,
 }
 

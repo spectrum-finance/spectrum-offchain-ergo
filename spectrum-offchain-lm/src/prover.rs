@@ -173,7 +173,7 @@ mod tests {
         ergotree_interpreter::sigma_protocol::{private_input::PrivateInput, prover::ContextExtension},
         ergotree_ir::{
             chain::{
-                address::Address,
+                address::{Address, AddressEncoder, NetworkPrefix},
                 ergo_box::{box_value::BoxValue, ErgoBox, NonMandatoryRegisters},
             },
             sigma_protocol::sigma_boolean::ProveDlog,
@@ -184,7 +184,7 @@ mod tests {
 
     use spectrum_offchain::transaction::TransactionCandidate;
 
-    use super::{SigmaProver, Wallet};
+    use super::{SeedPhrase, SigmaProver, Wallet};
 
     #[test]
     fn test_sigmaprover_sign() {
@@ -229,5 +229,18 @@ mod tests {
         };
 
         assert!(wallet.sign(tx_candidate).is_ok());
+    }
+
+    #[test]
+    fn gen_pub_key() {
+        let seed_phrase = SeedPhrase(
+            "gather obvious bracket ticket uphold quantum quit pistol math direct rural turn west youth acid"
+                .into(),
+        );
+        let (prover, funding_addr) = Wallet::try_from_seed(seed_phrase).expect("Invalid seed");
+        println!(
+            "funding_address: {:?}",
+            AddressEncoder::encode_address_as_string(NetworkPrefix::Mainnet, &funding_addr)
+        );
     }
 }

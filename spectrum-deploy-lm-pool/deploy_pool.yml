@@ -1,0 +1,19 @@
+node_addr: http://213.239.193.208:9053
+http_client_timeout_duration_secs: 50
+num_epochs_to_delegate: 10
+operator_funding_secret: "<seed>"
+max_number_expected_participants: 1000
+tx_fee: 1000000
+erg_value_per_box: 250000
+initial_lq_token_deposit:
+  token_id: f581975e2f52e6b5d43620ca865b6f4b99d279b6e92b8acaeb68a589b0eb32ec
+  amount: 1
+conf:
+  epoch_len: 250
+  epoch_num: 5
+  program_start: 966000
+  redeem_blocks_delta: 10
+  max_rounding_error: 100
+  program_budget:
+    token_id: 54e59733be4cc720df51453bb2440ab57a66dadd77ea096cbe0943f92c8f9011
+    amount: 50000000000
