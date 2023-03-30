@@ -13,17 +13,20 @@ use crate::ergo::{NanoErg, DEFAULT_P2PK_HEADER};
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct RewardOutput {
-    pub reward: TypedAssetAmount<Reward>,
+    pub reward: Option<TypedAssetAmount<Reward>>,
     pub redeemer_prop: SigmaProp,
     pub erg_value: NanoErg,
 }
 
 impl IntoBoxCandidate for RewardOutput {
     fn into_candidate(self, height: u32) -> ErgoBoxCandidate {
+        let tokens = self
+            .reward
+            .map(|reward| BoxTokens::from([reward.try_into().unwrap()]));
         ErgoBoxCandidate {
             value: self.erg_value.into(),
             ergo_tree: ErgoTree::new(DEFAULT_P2PK_HEADER.clone(), &self.redeemer_prop.into()).unwrap(),
-            tokens: Some(BoxTokens::from([self.reward.try_into().unwrap()])),
+            tokens,
             additional_registers: NonMandatoryRegisters::empty(),
             creation_height: height,
         }
