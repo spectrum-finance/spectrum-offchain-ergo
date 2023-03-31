@@ -54,7 +54,6 @@ where
     R: BundleRepo,
 {
     async fn select(&self, pool_id: PoolId, epoch_ix: u32) -> Vec<BundleId> {
-        trace!(target: "bundles", "select(pool_id: {}, epoch_ix: {})", pool_id, epoch_ix);
         let res = self.inner.select(pool_id, epoch_ix).await;
         trace!(target: "bundles", "select(pool_id: {}, epoch_ix: {}) -> {:?}", pool_id, epoch_ix, res);
         res

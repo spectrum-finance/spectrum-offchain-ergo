@@ -44,7 +44,6 @@ where
     R: FundingRepo,
 {
     async fn collect(&mut self, target: NanoErg) -> Result<NonEmpty<AsBox<DistributionFunding>>, ()> {
-        trace!(target: "funding", "collect(target: {:?})", target);
         let res = self.inner.collect(target).await;
         trace!(target: "funding", "collect(target: {:?}) -> {:?}", target, res);
         res
@@ -52,14 +51,12 @@ where
 
     async fn put_confirmed(&mut self, df: Confirmed<AsBox<DistributionFunding>>) {
         let id = df.0 .1.id;
-        trace!(target: "funding", "put_confirmed(df: {:?})", id);
         self.inner.put_confirmed(df).await;
         trace!(target: "funding", "put_confirmed(df: {:?}) -> ()", id);
     }
 
     async fn put_predicted(&mut self, df: Predicted<AsBox<DistributionFunding>>) {
         let id = df.0 .1.id;
-        trace!(target: "funding", "put_predicted(df: {:?})", id);
         self.inner.put_predicted(df).await;
         trace!(target: "funding", "put_predicted(df: {:?}) -> ()", id);
     }
@@ -69,7 +66,6 @@ where
     }
 
     async fn remove(&mut self, fid: FundingId) {
-        trace!(target: "funding", "remove(fid: {:?})", fid);
         self.inner.remove(fid).await;
         trace!(target: "funding", "remove(fid: {:?}) -> ()", fid);
     }

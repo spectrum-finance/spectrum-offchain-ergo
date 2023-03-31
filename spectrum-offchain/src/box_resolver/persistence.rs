@@ -79,7 +79,6 @@ where
     where
         <TEntity as OnChainEntity>::TStateId: 'a,
     {
-        trace!(target: "box_resolver", "get_prediction_predecessor({:?})", id);
         let res = self.inner.get_prediction_predecessor(id).await;
         trace!(target: "box_resolver", "get_prediction_predecessor({:?}) -> {:?}", id, res);
         res
@@ -89,7 +88,6 @@ where
     where
         <TEntity as OnChainEntity>::TEntityId: 'a,
     {
-        trace!(target: "box_resolver", "get_last_predicted({:?})", id);
         let res = self.inner.get_last_predicted(id).await;
         trace!(target: "box_resolver", "get_last_predicted({:?}) -> {:?}", id, res.as_ref().map(|_| "<Entity>"));
         res
@@ -99,7 +97,6 @@ where
     where
         <TEntity as OnChainEntity>::TEntityId: 'a,
     {
-        trace!(target: "box_resolver", "get_last_confirmed({:?})", id);
         let res = self.inner.get_last_confirmed(id).await;
         trace!(target: "box_resolver", "get_last_confirmed({:?}) -> {:?}", id, res.as_ref().map(|_| "<Entity>"));
         res
@@ -109,7 +106,6 @@ where
     where
         <TEntity as OnChainEntity>::TEntityId: 'a,
     {
-        trace!(target: "box_resolver", "get_last_unconfirmed({:?})", id);
         let res = self.inner.get_last_unconfirmed(id).await;
         trace!(target: "box_resolver", "get_last_unconfirmed({:?}) -> {:?}", id, res.as_ref().map(|_| "<Entity>"));
         res
@@ -124,7 +120,6 @@ where
             entity.state.get_self_ref(),
             entity.state.get_self_state_ref()
         );
-        trace!(target: "box_resolver", "put_predicted({})", show_entity);
         self.inner.put_predicted(entity).await;
         trace!(target: "box_resolver", "put_predicted({}) -> ()", show_entity);
     }
@@ -138,7 +133,6 @@ where
             entity.0.get_self_ref(),
             entity.0.get_self_state_ref()
         );
-        trace!(target: "box_resolver", "put_confirmed({})", show_entity);
         self.inner.put_confirmed(entity).await;
         trace!(target: "box_resolver", "put_confirmed({}) -> ()", show_entity);
     }
@@ -152,7 +146,6 @@ where
             entity.0.get_self_ref(),
             entity.0.get_self_state_ref()
         );
-        trace!(target: "box_resolver", "put_unconfirmed({})", show_entity);
         self.inner.put_unconfirmed(entity).await;
         trace!(target: "box_resolver", "put_unconfirmed({}) -> ()", show_entity);
     }
@@ -162,7 +155,6 @@ where
         <TEntity as OnChainEntity>::TStateId: 'a,
         <TEntity as OnChainEntity>::TEntityId: 'a,
     {
-        trace!(target: "box_resolver", "invalidate({:?})", sid);
         self.inner.invalidate(sid, eid).await;
         trace!(target: "box_resolver", "invalidate({:?}) -> ()", sid);
     }
@@ -176,7 +168,6 @@ where
             entity.get_self_ref(),
             entity.get_self_state_ref()
         );
-        trace!(target: "box_resolver", "eliminate({})", show_entity);
         self.inner.eliminate(entity).await;
         trace!(target: "box_resolver", "eliminate({}) -> ()", show_entity);
     }
@@ -192,7 +183,6 @@ where
     where
         <TEntity as OnChainEntity>::TStateId: 'a,
     {
-        trace!(target: "box_resolver", "get_state({:?})", sid);
         let res = self.inner.get_state(sid).await;
         let show_entity = res
             .as_ref()
