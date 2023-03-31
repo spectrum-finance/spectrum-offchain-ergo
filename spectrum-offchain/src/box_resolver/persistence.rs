@@ -99,6 +99,7 @@ where
     where
         <TEntity as OnChainEntity>::TEntityId: 'a,
     {
+        trace!(target: "box_resolver", "get_last_confirmed({:?})", id);
         let res = self.inner.get_last_confirmed(id).await;
         trace!(target: "box_resolver", "get_last_confirmed({:?}) -> {:?}", id, res.as_ref().map(|_| "<Entity>"));
         res
