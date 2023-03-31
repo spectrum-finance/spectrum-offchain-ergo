@@ -630,13 +630,20 @@ mod tests {
             store.put(make_order(i, i as u64)).await;
         }
 
+        // Github CI can be a bit slow, so timestamps don't coincide. Instead of equality we'll
+        // check that they are within 2 seconds of each other.
+        let check_eq = |ord1: BacklogOrder<MockOrder>, ord2: BacklogOrder<MockOrder>| {
+            assert_eq!(ord1.order, ord2.order);
+            assert!(ord1.timestamp.abs_diff(ord2.timestamp) < 2)
+        };
+
         for i in 0..30 {
             assert!(<BacklogStoreRocksDB as BacklogStore<MockOrder>>::exists(&store, MockOrderId(i)).await);
-            assert_eq!(
+            check_eq(
                 make_order(i, i as u64),
                 <BacklogStoreRocksDB as BacklogStore<MockOrder>>::get(&store, MockOrderId(i))
                     .await
-                    .unwrap()
+                    .unwrap(),
             );
         }
 
