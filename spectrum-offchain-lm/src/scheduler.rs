@@ -48,28 +48,33 @@ where
     R: ScheduleRepo,
 {
     async fn update_schedule(&mut self, schedule: PoolSchedule) -> Result<(), ProgramExhausted> {
+        trace!(target: "schedules", "update_schedule({})", schedule);
         let r = self.inner.update_schedule(schedule.clone()).await;
         trace!(target: "schedules", "update_schedule({}) -> ()", schedule);
         r
     }
 
     async fn peek(&mut self) -> Option<Tick> {
+        trace!(target: "schedules", "peek()");
         let res = self.inner.peek().await;
         trace!(target: "schedules", "peek() -> {:?}", res);
         res
     }
 
     async fn remove(&mut self, tick: Tick) {
+        trace!(target: "schedules", "remove({:?})", tick);
         self.inner.remove(tick.clone()).await;
         trace!(target: "schedules", "remove({:?}) -> ()", tick);
     }
 
     async fn defer(&mut self, tick: Tick, until: i64) {
+        trace!(target: "schedules", "defer(tick: {:?}, until: {})", tick, until);
         self.inner.defer(tick.clone(), until).await;
         trace!(target: "schedules", "defer(tick: {:?}, until: {}) -> ()", tick, until);
     }
 
     async fn clean(&mut self, pool_id: PoolId) {
+        trace!(target: "schedules", "clean({})", pool_id);
         self.inner.clean(pool_id).await;
         trace!(target: "schedules", "clean({}) -> ()", pool_id);
     }

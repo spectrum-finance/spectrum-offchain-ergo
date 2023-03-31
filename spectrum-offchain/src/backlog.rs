@@ -82,6 +82,7 @@ where
     where
         TOrd: 'a,
     {
+        trace!(target: "backlog", "put({:?})", ord);
         self.inner.put(ord.clone()).await;
         trace!(target: "backlog", "put({:?}) -> ()", ord);
     }
@@ -90,6 +91,7 @@ where
     where
         TOrd: 'a,
     {
+        trace!(target: "backlog", "suspend({:?})", ord);
         let res = self.inner.suspend(ord.clone()).await;
         trace!(target: "backlog", "suspend({:?}) -> {:?}", ord, res);
         res
@@ -99,12 +101,14 @@ where
     where
         TOrd: 'a,
     {
+        trace!(target: "backlog", "check_later({:?})", ord);
         let res = self.inner.check_later(ord.clone()).await;
         trace!(target: "backlog", "check_later({:?}) -> {:?}", ord, res);
         res
     }
 
     async fn try_pop(&mut self) -> Option<TOrd> {
+        trace!(target: "backlog", "try_pop()");
         let res = self.inner.try_pop().await;
         trace!(target: "backlog", "try_pop() -> {:?}", res);
         res
@@ -121,6 +125,7 @@ where
     where
         TOrd::TOrderId: 'a,
     {
+        trace!(target: "backlog", "remove({:?})", ord_id);
         self.inner.remove(ord_id.clone()).await;
         trace!(target: "backlog", "remove({:?}) -> ()", ord_id);
     }
@@ -129,6 +134,7 @@ where
     where
         TOrd: 'a,
     {
+        trace!(target: "backlog", "recharge({:?})", ord);
         self.inner.recharge(ord.clone()).await;
         trace!(target: "backlog", "recharge({:?}) -> ()", ord);
     }
@@ -137,6 +143,7 @@ where
     where
         F: Fn(&TOrd) -> bool + Send + 'static,
     {
+        trace!(target: "backlog", "find_order()");
         let res = self.inner.find_orders(f).await;
         trace!(target: "backlog", "find_order() -> {:?}", res);
         res
