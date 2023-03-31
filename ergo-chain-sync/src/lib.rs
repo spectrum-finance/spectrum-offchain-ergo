@@ -11,7 +11,7 @@ use log::{error, info, trace};
 use pin_project::pin_project;
 
 use crate::cache::chain_cache::ChainCache;
-use crate::client::node::ErgoNetwork;
+use crate::client::node::{ErgoNetwork, Error};
 use crate::model::Block;
 
 pub mod cache;
@@ -151,7 +151,11 @@ where
             }
             Err(e) => {
                 error!(target: "chain_sync", "try_upgrade: {}", e);
-                error!("try_upgrade: {}", e);
+                if let Error::NoBlock = e {
+                    // Don't want to spam console with 'no block found' messages
+                } else {
+                    error!("try_upgrade: {}", e);
+                }
             }
         }
         None
