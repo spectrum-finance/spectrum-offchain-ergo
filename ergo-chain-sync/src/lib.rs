@@ -7,7 +7,7 @@ use std::time::Duration;
 use async_stream::stream;
 use futures::Stream;
 use futures_timer::Delay;
-use log::trace;
+use log::{error, info, trace};
 use pin_project::pin_project;
 
 use crate::cache::chain_cache::ChainCache;
@@ -121,11 +121,15 @@ where
         trace!(target: "chain_sync", "Processing height [{}]", next_height);
         match self.client.get_block_at(next_height).await {
             Ok(api_blk) => {
-                trace!(
-                target: "chain_sync",
-                "Processing block [{:?}] at height [{}]",
-                api_blk.header.id,
-                next_height
+                info!(
+                    target: "chain_sync",
+                    "Processing block [{:?}] at height [{}]",
+                    api_blk.header.id,
+                    next_height
+                );
+                info!(
+                    "Processing block [{:?}] at height [{}]",
+                    api_blk.header.id, next_height
                 );
                 let parent_id = api_blk.header.parent_id;
                 let mut cache = self.cache.borrow_mut();
@@ -146,7 +150,8 @@ where
                 }
             }
             Err(e) => {
-                log::error!("try_upgrade: {}", e)
+                error!(target: "chain_sync", "try_upgrade: {}", e);
+                error!("try_upgrade: {}", e);
             }
         }
         None
