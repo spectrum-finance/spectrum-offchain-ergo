@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use futures::{Sink, SinkExt};
-use log::trace;
+use log::{info, trace};
 use tokio::sync::Mutex;
 
 use ergo_mempool_sync::MempoolUpdate;
@@ -70,11 +70,12 @@ where
                                     timestamp: Utc::now().timestamp(),
                                 }))
                                 .await;
+                            info!(target: "offchain_lm", "Observing new order");
+                            info!("Observing new order");
                         }
                     }
                 }
                 if is_success {
-                    trace!(target: "offchain_lm", "Observing new order");
                     return None;
                 }
                 Some(LedgerTxEvent::AppliedTx { tx, timestamp })
@@ -90,10 +91,11 @@ where
                                 <TOrdProto as Has<TOrd::TOrderId>>::get::<TOrd::TOrderId>(&order),
                             ))
                             .await;
+                        info!(target: "offchain_lm", "Known order is eliminated");
+                        info!("Known order is eliminated");
                     }
                 }
                 if is_success {
-                    trace!(target: "offchain_lm", "Known order is eliminated");
                     return None;
                 }
                 Some(LedgerTxEvent::UnappliedTx(tx))

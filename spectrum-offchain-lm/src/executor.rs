@@ -135,7 +135,19 @@ where
             let entity_id = ord.get_entity_ref();
 
             if let Some(pool) = resolve_entity_state(entity_id, Arc::clone(&self.pool_repo)).await {
-                trace!(target: "offchain_lm", "Pool for order [{:?}] is [{:?}], pool_state: {:?}", ord.get_self_ref(), pool.get_self_ref(), pool);
+                info!(
+                    target: "offchain_lm",
+                    "Pool for order [{:?}] is [{:?}], pool_state: {}",
+                    ord.get_self_ref(),
+                    pool.get_self_ref(),
+                    pool
+                );
+                info!(
+                    "Pool for order [{:?}] is [{:?}], pool_state: {}",
+                    ord.get_self_ref(),
+                    pool.get_self_ref(),
+                    pool
+                );
                 let conf = pool.1.conf;
                 let bundle_ids = ord.get::<Vec<BundleId>>();
                 let bundle_resolver = Arc::clone(&self.bundle_repo);
@@ -148,6 +160,7 @@ where
                     .await;
                 let ctx = self.make_context(pool.box_id()).await;
                 info!("Running against {} with {}", pool, ctx);
+                info!(target: "offchain_lm", "Running against {} with {}", pool, ctx);
                 let run_result = match (ord.clone(), bundles.first().cloned()) {
                     (Order::Deposit(deposit), _) => {
                         // Try to get token names from node
@@ -195,7 +208,7 @@ where
                         ord.clone(),
                     )),
                     (Order::Redeem(redeem), None) => {
-                        error!("Bunle not found for Redeem [{:?}]", redeem.get_self_ref(),);
+                        error!("Bundle not found for Redeem [{:?}]", redeem.get_self_ref(),);
                         return Err(());
                     }
                 };
@@ -204,12 +217,28 @@ where
                         trace!(target: "offchain_lm", "Order [{}] successfully evaluated", ord.get_self_ref());
                         match self.prover.sign(tx) {
                             Ok(tx) => {
-                                trace!(target: "offchain_lm", "Transaction ID for order [{}] is [{}]", ord.get_self_ref(), tx.id());
+                                info!(
+                                    target: "offchain_lm", "Transaction ID for {:?} order [{}] is [{}]",
+                                    order_type,
+                                    ord.get_self_ref(),
+                                    tx.id()
+                                );
+                                info!(
+                                    "Transaction ID for {:?} order [{}] is [{}]",
+                                    order_type,
+                                    ord.get_self_ref(),
+                                    tx.id()
+                                );
                                 for (i, o) in tx.outputs.iter().enumerate() {
                                     trace!(target: "offchain_lm", "tx_output {}: {:?}", i, o.box_id());
                                 }
                                 if let Err(client_err) = self.network.submit_tx(tx.clone()).await {
                                     warn!("Execution failed while submitting tx due to {}", client_err);
+                                    warn!(
+                                        target: "offchain_lm",
+                                        "Execution failed while submitting tx due to {}",
+                                        client_err
+                                    );
                                     match parse_err(&client_err.0) {
                                         NodeSubmitTxError::MissingInputs(missing_indices) => {
                                             let invalidations =
@@ -337,11 +366,22 @@ where
                             }
                             Err(signing_err) => {
                                 error!("Failed to sign transaction due to {}", signing_err);
+                                error!(
+                                    target: "offchain_lm",
+                                    "Failed to sign transaction due to {}",
+                                    signing_err
+                                );
                             }
                         }
                     }
                     Err(RunOrderError::NonFatal(err, ord)) => {
                         warn!(
+                            "Order [{:?}] suspended due to non-fatal error {}",
+                            ord.get_self_ref(),
+                            err
+                        );
+                        warn!(
+                            target: "offchain_lm",
                             "Order [{:?}] suspended due to non-fatal error {}",
                             ord.get_self_ref(),
                             err
@@ -354,11 +394,18 @@ where
                             ord.get_self_ref(),
                             err
                         );
+                        warn!(
+                            target: "offchain_lm",
+                            "Order [{:?}] dropped due to fatal error {}",
+                            ord.get_self_ref(),
+                            err
+                        );
                         self.backlog.lock().await.remove(ord.get_self_ref()).await;
                     }
                 }
                 return Ok(());
             } else {
+                warn!("No pool is found for order [{:?}]", ord.get_self_ref());
                 warn!(target: "offchain_lm", "No pool is found for order [{:?}]", ord.get_self_ref());
                 self.backlog.lock().await.remove(ord.get_self_ref()).await;
             }
