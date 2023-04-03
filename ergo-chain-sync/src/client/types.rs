@@ -15,7 +15,7 @@ impl TryFrom<String> for Url {
     type Error = InvalidUrl;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        Url::from_str(&*value)
+        Url::from_str(&value)
     }
 }
 

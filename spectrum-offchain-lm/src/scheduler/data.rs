@@ -43,7 +43,7 @@ impl PoolSchedule {
 
 impl Display for PoolSchedule {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        f.write_str(&*format!(
+        f.write_str(&format!(
             "PoolSchedule(pool_id: {}, start: {}, end: {}, step: {}, last_completed_epoch: {}, next_compounding_at: {:?})",
             self.pool_id,
             self.program_start,
@@ -104,9 +104,9 @@ mod tests {
         let pool_box: ErgoBox = serde_json::from_str(FRESH_POOL_JSON).unwrap();
         let pool = <AsBox<Pool>>::try_from_box(pool_box).unwrap();
         let schedule = PoolSchedule::from(pool.1.clone());
-        assert_eq!(pool.1.clone().conf.program_start, schedule.program_start);
-        assert_eq!(pool.1.clone().conf.epoch_len, schedule.epoch_len);
-        assert_eq!(pool.1.clone().conf.epoch_num, schedule.epoch_num);
+        assert_eq!(pool.1.conf.program_start, schedule.program_start);
+        assert_eq!(pool.1.conf.epoch_len, schedule.epoch_len);
+        assert_eq!(pool.1.conf.epoch_num, schedule.epoch_num);
         println!("Schedule: {}", schedule);
     }
 

@@ -39,7 +39,7 @@ impl ProgramRepo for ProgramRepoRocksDB {
         spawn_blocking(move || {
             db.get(&key)
                 .unwrap()
-                .and_then(|bs| bincode::deserialize(&*bs).ok())
+                .and_then(|bs| bincode::deserialize(&bs).ok())
         })
         .await
     }

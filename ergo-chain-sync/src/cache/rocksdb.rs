@@ -142,11 +142,11 @@ impl ChainCache for ChainCacheRocksDB {
                     }
 
                     db_tx
-                        .delete(&postfixed_key(&oldest_id, TRANSACTION_POSTFIX))
+                        .delete(postfixed_key(&oldest_id, TRANSACTION_POSTFIX))
                         .unwrap();
-                    db_tx.delete(&postfixed_key(&oldest_id, HEIGHT_POSTFIX)).unwrap();
-                    db_tx.delete(&postfixed_key(&oldest_id, PARENT_POSTFIX)).unwrap();
-                    db_tx.delete(&postfixed_key(&oldest_id, CHILD_POSTFIX)).unwrap();
+                    db_tx.delete(postfixed_key(&oldest_id, HEIGHT_POSTFIX)).unwrap();
+                    db_tx.delete(postfixed_key(&oldest_id, PARENT_POSTFIX)).unwrap();
+                    db_tx.delete(postfixed_key(&oldest_id, CHILD_POSTFIX)).unwrap();
                 }
             } else {
                 // This is the very first block to add to the store
@@ -317,7 +317,7 @@ mod tests {
     ) {
         spawn_blocking::<_, ()>(move || {
             let oldest_block_key = bincode::serialize(OLDEST_BLOCK).unwrap();
-            let bytes = db.get(&oldest_block_key).unwrap().unwrap();
+            let bytes = db.get(oldest_block_key).unwrap().unwrap();
             let BlockRecord {
                 id: oldest_id,
                 height: oldest_height,
@@ -326,20 +326,20 @@ mod tests {
             assert_eq!(oldest_id, expected_block_id);
             assert_eq!(oldest_height, expected_height);
             let parent_block_id_bytes = db
-                .get(&postfixed_key(&oldest_id, PARENT_POSTFIX))
+                .get(postfixed_key(&oldest_id, PARENT_POSTFIX))
                 .unwrap()
                 .unwrap();
             let parent_block_id: BlockId = bincode::deserialize(&parent_block_id_bytes).unwrap();
             assert!(db
-                .get(&postfixed_key(&parent_block_id, PARENT_POSTFIX))
+                .get(postfixed_key(&parent_block_id, PARENT_POSTFIX))
                 .unwrap()
                 .is_none());
             assert!(db
-                .get(&postfixed_key(&parent_block_id, HEIGHT_POSTFIX))
+                .get(postfixed_key(&parent_block_id, HEIGHT_POSTFIX))
                 .unwrap()
                 .is_none());
             assert!(db
-                .get(&postfixed_key(&parent_block_id, TRANSACTION_POSTFIX))
+                .get(postfixed_key(&parent_block_id, TRANSACTION_POSTFIX))
                 .unwrap()
                 .is_none());
         })

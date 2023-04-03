@@ -18,7 +18,7 @@ pub struct NoopDefaultHandler;
 
 #[async_trait(?Send)]
 impl<TEvent> DefaultEventHandler<TEvent> for NoopDefaultHandler {
-    async fn handle<'a>(&mut self, ev: TEvent)
+    async fn handle<'a>(&mut self, _ev: TEvent)
     where
         TEvent: 'a,
     {

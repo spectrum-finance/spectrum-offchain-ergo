@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use async_stream::stream;
 use ergo_lib::chain::transaction::{Transaction, TxId};
-use futures::stream::{select, select_all};
+use futures::stream::select_all;
 use futures::{Stream, StreamExt};
 use log::info;
 use tokio::sync::Mutex;
@@ -167,6 +167,7 @@ where
     })
 }
 
+#[allow(clippy::needless_lifetimes)] // Note: clippy false-positive
 fn sync_mempool<'a, TClient>(
     conf: MempoolSyncConf,
     client: &'a TClient,

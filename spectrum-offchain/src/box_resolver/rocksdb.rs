@@ -272,7 +272,7 @@ where
         spawn_blocking(move || {
             db.get(state_key)
                 .unwrap()
-                .and_then(|bytes| bincode::deserialize(&*bytes).ok())
+                .and_then(|bytes| bincode::deserialize(&bytes).ok())
         })
         .await
     }

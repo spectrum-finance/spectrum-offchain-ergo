@@ -68,7 +68,7 @@ pub struct OrderExecutor<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity> {
 }
 
 #[async_trait(?Send)]
-impl<'a, TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity> Executor
+impl<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity> Executor
     for OrderExecutor<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity>
 where
     TOrd: OnChainOrder + RunOrder<TEntity, TCtx> + Clone + Display,
@@ -135,7 +135,7 @@ pub fn executor_stream<'a, TExecutor: Executor + 'a>(
             if tip_reached_signal.is_completed() {
                 trace!(target: "offchain_lm", "Trying to execute next order ..");
                 let mut executor_quard = executor.lock().await;
-                if let Err(_) = executor_quard.try_execute_next().await {
+                if (executor_quard.try_execute_next().await).is_err() {
                     trace!(target: "offchain_lm", "Execution attempt failed, throttling ..");
                     Delay::new(Duration::from_secs(THROTTLE_SECS)).await;
                 }

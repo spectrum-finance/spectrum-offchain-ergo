@@ -64,12 +64,11 @@ where
         let created_keys = created_bundles.keys().cloned().collect::<HashSet<_>>();
         consumed_keys
             .union(&created_keys)
-            .map(|k| {
+            .flat_map(|k| {
                 EitherOrBoth::try_from((consumed_bundles.remove(k), created_bundles.remove(k)))
                     .map(|x| vec![x])
                     .unwrap_or(Vec::new())
             })
-            .flatten()
             .collect()
     }
 }
@@ -86,7 +85,7 @@ where
         let res = match ev {
             LedgerTxEvent::AppliedTx { tx, timestamp } => {
                 let transitions = self.extract_transitions(tx.clone()).await;
-                let is_success = transitions.len() > 0;
+                let is_success = !transitions.is_empty();
                 for tr in transitions {
                     let _ = self.topic.feed(Confirmed(StateUpdate::Transition(tr))).await;
                 }
@@ -98,7 +97,7 @@ where
             }
             LedgerTxEvent::UnappliedTx(tx) => {
                 let transitions = self.extract_transitions(tx.clone()).await;
-                let is_success = transitions.len() > 0;
+                let is_success = !transitions.is_empty();
                 for tr in transitions {
                     let _ = self
                         .topic

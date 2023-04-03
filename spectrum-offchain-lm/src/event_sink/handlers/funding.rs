@@ -34,7 +34,7 @@ where
                     let repo = self.repo.lock().await;
                     for i in tx.clone().inputs {
                         let fid = FundingId::from(i.box_id);
-                        if repo.may_exist(fid.clone()).await {
+                        if repo.may_exist(fid).await {
                             is_success = true;
                             let _ = self
                                 .topic

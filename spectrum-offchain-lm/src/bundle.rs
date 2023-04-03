@@ -312,19 +312,13 @@ mod tests {
         let pool_0_ep_1_expected = bundles_pool_0_epoch_1.iter();
         assert!(!pool_0_ep_1_res.is_empty());
         for AsBox(_, bun) in pool_0_ep_1_expected {
-            assert!(pool_0_ep_1_res
-                .iter()
-                .find(|bid| bun.bundle.bundle_id() == **bid)
-                .is_some());
+            assert!(pool_0_ep_1_res.iter().any(|bid| bun.bundle.bundle_id() == *bid));
         }
         let pool_1_ep_2_res = client.select(pool_id_1, 2).await;
         let pool_1_ep_2_expected = bundles_pool_1_epoch_2;
         assert!(!pool_1_ep_2_res.is_empty());
         for AsBox(_, bun) in pool_1_ep_2_expected {
-            assert!(pool_1_ep_2_res
-                .iter()
-                .find(|bid| bun.bundle.bundle_id() == **bid)
-                .is_some());
+            assert!(pool_1_ep_2_res.iter().any(|bid| bun.bundle.bundle_id() == *bid));
         }
     }
 

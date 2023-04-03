@@ -63,13 +63,13 @@ where
 
     async fn remove(&mut self, tick: Tick) {
         trace!(target: "schedules", "remove({:?})", tick);
-        self.inner.remove(tick.clone()).await;
+        self.inner.remove(tick).await;
         trace!(target: "schedules", "remove({:?}) -> ()", tick);
     }
 
     async fn defer(&mut self, tick: Tick, until: i64) {
         trace!(target: "schedules", "defer(tick: {:?}, until: {})", tick, until);
-        self.inner.defer(tick.clone(), until).await;
+        self.inner.defer(tick, until).await;
         trace!(target: "schedules", "defer(tick: {:?}, until: {}) -> ()", tick, until);
     }
 
@@ -144,7 +144,7 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
             // First we try to peek closest pending tick.
             while tick.is_none() {
                 if let Some((bs, _)) = ticks.next().and_then(|res| res.ok()) {
-                    tick = destructure_tick_key(&*bs)
+                    tick = destructure_tick_key(&bs)
                         .and_then(|pid| {
                             let schedule_key = prefixed_key(SCHEDULE_PREFIX, &pid);
                             db.get(schedule_key).unwrap()
@@ -172,7 +172,7 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                     if let Some((bs, deferred_until)) = deferred_ticks.next().and_then(|res| res.ok()) {
                         if let Ok(deferred_until) = bincode::deserialize::<i64>(&deferred_until) {
                             if deferred_until <= ts_now {
-                                tick = destructure_deferred_tick_key(&*bs)
+                                tick = destructure_deferred_tick_key(&bs)
                                     .and_then(|pid| {
                                         let schedule_key = prefixed_key(SCHEDULE_PREFIX, &pid);
                                         db.get(schedule_key).unwrap()
@@ -225,7 +225,7 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
             let transaction = db.transaction();
             let mut iter = db.iterator(IteratorMode::From(&[], Direction::Forward));
             while let Some((bs, _)) = iter.next().and_then(|res| res.ok()) {
-                if let Some(ext_pool_id) = extract_pool_id(&*bs) {
+                if let Some(ext_pool_id) = extract_pool_id(&bs) {
                     if ext_pool_id == pool_id {
                         transaction.delete(bs).unwrap();
                     }
@@ -251,7 +251,7 @@ fn tick_key(pfx: &str, pool_id: &PoolId, next_epoch_height: &u32) -> Vec<u8> {
     let mut key_body = bincode::serialize(next_epoch_height).unwrap();
     key_body.reverse();
     let pool_id = bincode::serialize(pool_id).unwrap();
-    key_body.extend_from_slice(&*pool_id);
+    key_body.extend_from_slice(&pool_id);
     raw_prefixed_key(pfx, &key_body)
 }
 

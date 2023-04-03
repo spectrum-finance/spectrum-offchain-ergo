@@ -297,6 +297,7 @@ pub(crate) mod tests {
             };
             client.put_predicted(entity.clone()).await;
         }
+        #[allow(clippy::needless_range_loop)]
         for i in 1..n {
             let may_exist = client.may_exist(box_ids[i]).await;
             assert!(may_exist);

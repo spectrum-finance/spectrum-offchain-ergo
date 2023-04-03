@@ -10,6 +10,5 @@ pub fn generate_bip39_mnemonic() -> String {
         chosen_words.push(WORDS[ix]);
     }
 
-    let mnemonic = chosen_words.join(" ");
-    mnemonic
+    chosen_words.join(" ")
 }

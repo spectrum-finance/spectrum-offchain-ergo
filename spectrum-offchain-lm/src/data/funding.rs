@@ -1,7 +1,7 @@
 use ergo_lib::ergotree_ir::chain::address::{Address, AddressEncoder};
 use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, ErgoBoxCandidate, NonMandatoryRegisters};
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBoxCtx};
 
@@ -72,7 +72,7 @@ impl TryFrom<String> for ExecutorWallet {
     type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        AddressEncoder::unchecked_parse_address_from_str(&*value)
+        AddressEncoder::unchecked_parse_address_from_str(&value)
             .map(Self)
             .map_err(|err| err.to_string())
     }

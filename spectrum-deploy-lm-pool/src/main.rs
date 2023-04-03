@@ -1,54 +1,41 @@
 mod bip39_words;
 mod generate_wallet;
 
-use std::collections::HashMap;
-
 use clap::{Parser, Subcommand};
 use derive_more::From;
 use ergo_chain_sync::client::node::ErgoNodeHttpClient;
-use ergo_lib::chain::contract::Contract;
+
 use ergo_lib::chain::ergo_box::box_builder::{ErgoBoxCandidateBuilder, ErgoBoxCandidateBuilderError};
-use ergo_lib::chain::ergo_state_context::ErgoStateContext;
-use ergo_lib::chain::transaction::{Transaction, TxId, TxIoVec};
-use ergo_lib::ergo_chain_types::Digest32;
-use ergo_lib::ergotree_interpreter::sigma_protocol::private_input::{DlogProverInput, PrivateInput};
+
+use ergo_lib::chain::transaction::{Transaction, TxIoVec};
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
 use ergo_lib::ergotree_ir::chain::address::{Address, AddressEncoder, NetworkPrefix};
 use ergo_lib::ergotree_ir::chain::ergo_box::box_value::{BoxValue, BoxValueError};
-use ergo_lib::ergotree_ir::chain::ergo_box::{
-    BoxId, BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters,
-};
+use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount, TokenId};
-use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
-use ergo_lib::ergotree_ir::serialization::{SigmaParsingError, SigmaSerializable};
+use ergo_lib::ergotree_ir::serialization::SigmaParsingError;
 use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{ProveDlog, SigmaProp};
 use ergo_lib::wallet::box_selector::{BoxSelector, BoxSelectorError, SimpleBoxSelector};
-use ergo_lib::wallet::miner_fee::{MINERS_FEE_ADDRESS, MINERS_FEE_BASE16_BYTES};
-use ergo_lib::wallet::secret_key::SecretKey;
-use ergo_lib::wallet::signing::{TransactionContext, TxSigningError};
-use ergo_lib::wallet::tx_builder::{TxBuilder, TxBuilderError};
+use ergo_lib::wallet::signing::TxSigningError;
+use ergo_lib::wallet::tx_builder::TxBuilderError;
 use isahc::prelude::Configurable;
 use isahc::{AsyncReadResponseExt, HttpClient};
 use serde::{Deserialize, Serialize};
 use spectrum_offchain::domain::{TypedAsset, TypedAssetAmount};
-use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
+use spectrum_offchain::event_sink::handlers::types::IntoBoxCandidate;
 use spectrum_offchain::network::ErgoNetwork;
 use spectrum_offchain_lm::data::assets::Lq;
-use spectrum_offchain_lm::data::bundle::{StakingBundle, StakingBundleProto, BUNDLE_KEY_AMOUNT_USER};
-use spectrum_offchain_lm::data::funding::DistributionFundingProto;
+use spectrum_offchain_lm::data::bundle::{StakingBundleProto, BUNDLE_KEY_AMOUNT_USER};
 use spectrum_offchain_lm::data::miner::MinerOutput;
 use spectrum_offchain_lm::data::redeemer::DepositOutput;
 use spectrum_offchain_lm::data::PoolId;
-use spectrum_offchain_lm::validators::{REDEEM_TEMPLATE, REDEEM_VALIDATOR, REDEEM_VALIDATOR_BYTES};
 use thiserror::Error;
 
 use ergo_chain_sync::client::types::{with_path, Url};
 use spectrum_offchain::transaction::TransactionCandidate;
 use spectrum_offchain_lm::data::pool::{Pool, ProgramConfig};
-use spectrum_offchain_lm::ergo::{
-    NanoErg, DEFAULT_MINER_FEE, MAX_VALUE, MIN_SAFE_BOX_VALUE, MIN_SAFE_FAT_BOX_VALUE,
-};
-use spectrum_offchain_lm::prover::{SeedPhrase, SigmaProver, Wallet, WalletSecret};
+use spectrum_offchain_lm::ergo::{NanoErg, MAX_VALUE, MIN_SAFE_BOX_VALUE, MIN_SAFE_FAT_BOX_VALUE};
+use spectrum_offchain_lm::prover::{SeedPhrase, SigmaProver, Wallet};
 
 pub struct Explorer {
     pub client: HttpClient,
@@ -65,7 +52,7 @@ impl Explorer {
         self.client
             .get_async(with_path(
                 &self.base_url,
-                &*format!(
+                &format!(
                     "/api/v1/boxes/unspent/byAddress/{}",
                     AddressEncoder::encode_address_as_string(NetworkPrefix::Mainnet, addr),
                 ),
@@ -124,7 +111,9 @@ async fn main() {
                 serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
 
             let client = HttpClient::builder()
-                .timeout(std::time::Duration::from_secs(50))
+                .timeout(std::time::Duration::from_secs(
+                    config.http_client_timeout_duration_secs as u64,
+                ))
                 .build()
                 .unwrap();
             let explorer_url = Url::try_from(String::from("https://api.ergoplatform.com")).unwrap();
@@ -239,11 +228,7 @@ fn deploy_pool_chain_transaction(
     // Since we're building a chain of transactions, we need to filter the output boxes of each
     // constituent transaction to be only those that are guarded by our wallet's key.
     let filter_tx_outputs = move |outputs: Vec<ErgoBox>| -> Vec<ErgoBox> {
-        outputs
-            .clone()
-            .into_iter()
-            .filter(|b| b.ergo_tree == guard)
-            .collect()
+        outputs.into_iter().filter(|b| b.ergo_tree == guard).collect()
     };
 
     // Let `i` denote the number of transactions left, then the target balance needed for the next
@@ -283,7 +268,7 @@ fn deploy_pool_chain_transaction(
             height,
         )
         .build()?;
-        output_candidates.push(remaining_funds.clone());
+        output_candidates.push(remaining_funds);
 
         let miner_output = MinerOutput {
             erg_value: NanoErg::from(tx_fee),
@@ -292,7 +277,6 @@ fn deploy_pool_chain_transaction(
         let inputs = TxIoVec::from_vec(
             box_selection
                 .boxes
-                .clone()
                 .into_iter()
                 .map(|bx| (bx, ContextExtension::empty()))
                 .collect::<Vec<_>>(),
@@ -322,7 +306,7 @@ fn deploy_pool_chain_transaction(
 
     let box_selector = SimpleBoxSelector::new();
     let box_selection = box_selector.select(
-        utxos.clone(),
+        utxos,
         target_balance,
         &[reward_token_budget.clone(), lq_token.clone()],
     )?;
@@ -345,7 +329,7 @@ fn deploy_pool_chain_transaction(
     let mut output_candidates = vec![
         lq_and_reward_box_candidate,
         remaining_funds,
-        miner_output.clone().into_candidate(height),
+        miner_output.into_candidate(height),
     ];
 
     // If we have remaining reward and/or LQ tokens, preserve them in a separate box.
@@ -494,7 +478,6 @@ fn deploy_pool_chain_transaction(
     let inputs = TxIoVec::from_vec(
         box_selection
             .boxes
-            .clone()
             .into_iter()
             .map(|bx| (bx, ContextExtension::empty()))
             .collect::<Vec<_>>(),
@@ -525,7 +508,7 @@ fn deploy_pool_chain_transaction(
     )
     .build()?;
 
-    let mut box_of_consumed_tokens = ErgoBoxCandidateBuilder::new(
+    let box_of_consumed_tokens = ErgoBoxCandidateBuilder::new(
         BoxValue::try_from(4 * erg_value_per_box.as_u64()).unwrap(),
         addr.script()?,
         height,
@@ -585,19 +568,16 @@ fn deploy_pool_chain_transaction(
     // Build LM pool box output candidate
     let pool = Pool {
         pool_id: PoolId::from(pool_nft.token_id),
-        budget_rem: TypedAssetAmount::new(
-            reward_token_budget.token_id.clone(),
-            *reward_token_budget.amount.as_u64(),
-        ),
+        budget_rem: TypedAssetAmount::new(reward_token_budget.token_id, *reward_token_budget.amount.as_u64()),
         reserves_lq: TypedAssetAmount::new(
             initial_lq_token_deposit.token_id,
             initial_lq_token_deposit.amount,
         ),
-        reserves_vlq: TypedAssetAmount::new(vlq_tokens.token_id.clone(), vlq_token_amount),
-        reserves_tmp: TypedAssetAmount::new(tmp_tokens.token_id.clone(), tmp_token_amount),
+        reserves_vlq: TypedAssetAmount::new(vlq_tokens.token_id, vlq_token_amount),
+        reserves_tmp: TypedAssetAmount::new(tmp_tokens.token_id, tmp_token_amount),
         epoch_ix: None,
         conf,
-        erg_value: MIN_SAFE_FAT_BOX_VALUE.into(),
+        erg_value: MIN_SAFE_FAT_BOX_VALUE,
     };
 
     let lm_pool_box_candidate = pool.into_candidate(height);
@@ -607,7 +587,7 @@ fn deploy_pool_chain_transaction(
     let deposit_output = DepositOutput {
         bundle_key: TypedAssetAmount::new(bundle_key_id, BUNDLE_KEY_AMOUNT_USER),
         redeemer_prop: redeemer_prop.clone(),
-        erg_value: MIN_SAFE_FAT_BOX_VALUE.into(),
+        erg_value: MIN_SAFE_FAT_BOX_VALUE,
         token_name: String::from(""),
         token_desc: String::from(""),
     };
@@ -625,7 +605,7 @@ fn deploy_pool_chain_transaction(
             lq_token_amount * num_epochs_to_delegate,
         )),
         redeemer_prop,
-        erg_value: MIN_SAFE_FAT_BOX_VALUE.into(),
+        erg_value: MIN_SAFE_FAT_BOX_VALUE,
         token_name: String::from(""),
         token_desc: String::from(""),
     };
@@ -647,7 +627,7 @@ fn deploy_pool_chain_transaction(
         NanoErg::from(3 * BoxValue::from(MIN_SAFE_FAT_BOX_VALUE).as_u64() + tx_fee.as_u64());
     let remaining_funds = funds_total - accumulated_cost;
     if remaining_funds >= MIN_SAFE_BOX_VALUE {
-        let mut box_of_consumed_tokens =
+        let box_of_consumed_tokens =
             ErgoBoxCandidateBuilder::new(BoxValue::from(remaining_funds), addr.script()?, height);
         output_candidates.push(box_of_consumed_tokens.build()?);
     } else {
@@ -677,7 +657,7 @@ fn deploy_pool_chain_transaction(
     ])
 }
 
-fn find_box_with_token(boxes: &Vec<ErgoBox>, token_id: &TokenId) -> Option<ErgoBox> {
+fn find_box_with_token(boxes: &[ErgoBox], token_id: &TokenId) -> Option<ErgoBox> {
     boxes
         .iter()
         .find(|&bx| {
@@ -693,7 +673,7 @@ fn find_box_with_token(boxes: &Vec<ErgoBox>, token_id: &TokenId) -> Option<ErgoB
 fn generate_new_wallet() {
     let mnemonic = generate_wallet::generate_bip39_mnemonic();
     println!("Mnemonic seed phrase(KEEP IT SAFE!): {}", mnemonic);
-    let (prover, funding_addr) = Wallet::try_from_seed(SeedPhrase::from(mnemonic)).expect("Invalid seed");
+    let (_prover, funding_addr) = Wallet::try_from_seed(SeedPhrase::from(mnemonic)).expect("Invalid seed");
 
     println!(
         "Wallet's address: {}",

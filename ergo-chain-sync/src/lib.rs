@@ -114,6 +114,7 @@ where
         }
     }
 
+    #[allow(clippy::await_holding_refcell_ref)]
     /// Try acquiring next upgrade from the network.
     /// `None` is returned when no upgrade is available at the moment.
     async fn try_upgrade(&self) -> Option<ChainUpgrade> {
