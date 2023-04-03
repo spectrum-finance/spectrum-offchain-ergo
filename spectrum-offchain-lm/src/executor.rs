@@ -44,6 +44,7 @@ pub trait ProduceExtra {
 }
 
 pub trait RunOrder: ConsumeExtra + ProduceExtra + Sized {
+    #[allow(clippy::type_complexity)]
     /// Try to run the given `Order` against the given `Pool`.
     /// Returns transaction, next state of the pool and optionally staking bundle in the case of success.
     /// Returns `RunOrderError<TOrd>` otherwise.

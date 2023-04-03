@@ -2,10 +2,10 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
+use crate::combinators::EitherOrBoth;
 use serde::__private::de::missing_field;
 use serde::ser::SerializeStruct;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
-use crate::combinators::EitherOrBoth;
 
 use crate::data::OnChainEntity;
 
@@ -233,7 +233,7 @@ where
                 })
             }
         }
-        const FIELDS: &'static [&'static str] = &["state", "prev_state_id"];
+        const FIELDS: &[&str] = &["state", "prev_state_id"];
         Deserializer::deserialize_struct(
             deserializer,
             "Traced",

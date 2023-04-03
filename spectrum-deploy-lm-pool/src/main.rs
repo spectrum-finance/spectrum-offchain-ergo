@@ -111,7 +111,9 @@ async fn main() {
                 serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
 
             let client = HttpClient::builder()
-                .timeout(std::time::Duration::from_secs(50))
+                .timeout(std::time::Duration::from_secs(
+                    config.http_client_timeout_duration_secs as u64,
+                ))
                 .build()
                 .unwrap();
             let explorer_url = Url::try_from(String::from("https://api.ergoplatform.com")).unwrap();

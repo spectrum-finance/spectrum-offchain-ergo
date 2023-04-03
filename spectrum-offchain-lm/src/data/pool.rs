@@ -262,6 +262,7 @@ impl Pool {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     /// Distribute rewards in batch.
     /// Returns state of the pool after distribution, subtracted bundlesa and reward outputs.
     pub fn distribute_rewards(

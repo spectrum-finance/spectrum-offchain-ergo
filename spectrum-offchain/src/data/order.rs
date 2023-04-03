@@ -1,4 +1,4 @@
-use super::{Has, OnChainOrder};
+use super::Has;
 
 #[derive(Debug, Hash, Clone, Eq, PartialEq)]
 pub enum OrderUpdate<TOrd: Has<TOrderId>, TOrderId> {

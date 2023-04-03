@@ -2,7 +2,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use async_channel::{Sender, TrySendError};
-use futures::{Sink, Stream};
+use futures::Sink;
 
 pub struct AsSink<T>(pub Sender<T>);
 
