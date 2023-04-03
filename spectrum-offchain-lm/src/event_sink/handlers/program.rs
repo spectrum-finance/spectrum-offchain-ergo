@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use log::trace;
 use tokio::sync::Mutex;
 
-use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 use spectrum_offchain::event_sink::types::EventHandler;
 use spectrum_offchain::event_source::data::LedgerTxEvent;

@@ -66,12 +66,11 @@ where
     let created_keys = created_entities.keys().cloned().collect::<HashSet<_>>();
     consumed_keys
         .union(&created_keys)
-        .map(|k| {
+        .flat_map(|k| {
             EitherOrBoth::try_from((consumed_entities.remove(k), created_entities.remove(k)))
                 .map(|x| vec![x])
                 .unwrap_or(Vec::new())
         })
-        .flatten()
         .collect()
 }
 
@@ -142,7 +141,7 @@ where
         let res = match ev {
             MempoolUpdate::TxAccepted(tx) => {
                 let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
-                let is_success = transitions.len() > 0;
+                let is_success = !transitions.is_empty();
                 for tr in transitions {
                     let _ = self.topic.feed(Unconfirmed(StateUpdate::Transition(tr))).await;
                 }
@@ -154,7 +153,7 @@ where
             }
             MempoolUpdate::TxWithdrawn(tx) => {
                 let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
-                let is_success = transitions.len() > 0;
+                let is_success = !transitions.is_empty();
                 for tr in transitions {
                     let _ = self
                         .topic

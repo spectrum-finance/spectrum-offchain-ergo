@@ -63,7 +63,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
                 .await
                 .ok()
                 .map(|ne| format!("[{}] [{}] [{}]", ne.error, ne.reason, ne.detail))
-                .unwrap_or(format!("<unknown>"));
+                .unwrap_or("<unknown>".to_string());
             Err(ClientError(format!("Malformed tx. {}", details)))
         } else {
             Ok(())

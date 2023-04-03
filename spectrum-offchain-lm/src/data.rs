@@ -11,9 +11,8 @@ use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
 use serde::ser::SerializeTupleStruct;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
-use type_equalities::IsEqual;
 
-use spectrum_offchain::data::{Has, OnChainEntity, OnChainOrder};
+use spectrum_offchain::data::{OnChainEntity, OnChainOrder};
 use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 
 use crate::executor::{ConsumeExtra, ProduceExtra};
@@ -36,7 +35,7 @@ pub struct OrderId(Digest32);
 
 impl Display for OrderId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&Digest32::from(self.0), f)
+        Display::fmt(&self.0, f)
     }
 }
 
@@ -154,7 +153,7 @@ where
     T: Hash,
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(&*self.0.sigma_serialize_bytes().unwrap());
+        state.write(&self.0.sigma_serialize_bytes().unwrap());
         self.1.hash(state);
     }
 }
@@ -245,7 +244,7 @@ where
                         ));
                     }
                 };
-                Ok(AsBox(ErgoBox::sigma_parse_bytes(&*field0).unwrap(), field1))
+                Ok(AsBox(ErgoBox::sigma_parse_bytes(&field0).unwrap(), field1))
             }
         }
         deserializer.deserialize_tuple_struct(

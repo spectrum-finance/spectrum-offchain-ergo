@@ -411,13 +411,12 @@ mod tests {
     use chrono::{Duration, Utc};
     use rand::RngCore;
     use serde::{Deserialize, Serialize};
-    use type_equalities::IsEqual;
 
     use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
     use crate::backlog::persistence::{BacklogStore, BacklogStoreRocksDB};
     use crate::backlog::{Backlog, BacklogConfig, BacklogService};
     use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
-    use crate::data::{Has, OnChainOrder};
+    use crate::data::OnChainOrder;
 
     #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
     struct MockOrderId(i64);

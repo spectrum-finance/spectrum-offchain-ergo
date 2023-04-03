@@ -16,7 +16,6 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use serde::{Deserialize, Serialize};
-use sigma_test_util::force_any_val;
 use type_equalities::IsEqual;
 
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
@@ -49,7 +48,7 @@ pub struct Compound {
 impl Compound {
     pub fn order_id(&self) -> OrderId {
         OrderId::from(blake2b256_hash(
-            &*self
+            &self
                 .stakers
                 .iter()
                 .map(|bid| <Vec<u8>>::from(bid.0))
@@ -114,7 +113,7 @@ impl RunOrder for Compound {
                         .chain(
                             next_funding
                                 .clone()
-                                .map(|nf| vec![nf.clone().into_candidate(ctx.height)])
+                                .map(|nf| vec![nf.into_candidate(ctx.height)])
                                 .unwrap_or(Vec::new()),
                         )
                         .chain(
@@ -153,7 +152,7 @@ impl RunOrder for Compound {
                 let outputs = tx.clone().into_tx_without_proofs().outputs;
                 let next_pool_as_box = AsBox(outputs.get(0).unwrap().clone(), next_pool);
                 let bun_init_ix = if next_funding.is_some() { 2 } else { 1 };
-                let bundle_outs = &outputs.clone()[bun_init_ix..bun_init_ix + next_bundles.len()];
+                let bundle_outs = &outputs[bun_init_ix..bun_init_ix + next_bundles.len()];
                 let bundles_as_box = next_bundles
                     .into_iter()
                     .zip(Vec::from(bundle_outs).into_iter())
@@ -241,7 +240,7 @@ impl Hash for Deposit {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.order_id.hash(state);
         self.pool_id.hash(state);
-        state.write(&*self.redeemer_prop.prop_bytes().unwrap());
+        state.write(&self.redeemer_prop.prop_bytes().unwrap());
         self.bundle_prop_hash.hash(state);
         self.max_miner_fee.hash(state);
         self.lq.hash(state);
@@ -334,7 +333,7 @@ impl TryFromBox for Deposit {
                 let redeemer_prop = SigmaProp::from(
                     ProveDlog::try_from(
                         ErgoTree::sigma_parse_bytes(
-                            &*bx.ergo_tree
+                            &bx.ergo_tree
                                 .get_constant(3)
                                 .ok()??
                                 .v
@@ -449,7 +448,7 @@ impl From<RawRedeem> for Redeem {
         Self {
             order_id: rr.order_id,
             pool_id: rr.pool_id,
-            redeemer_prop: ErgoTree::sigma_parse_bytes(&*rr.redeemer_prop_bytes).unwrap(),
+            redeemer_prop: ErgoTree::sigma_parse_bytes(&rr.redeemer_prop_bytes).unwrap(),
             bundle_key: TypedAssetAmount::new(rr.bundle_key.0, rr.bundle_key.1),
             expected_lq: TypedAssetAmount::new(rr.expected_lq.0, rr.expected_lq.1),
             max_miner_fee: rr.max_miner_fee,
@@ -499,7 +498,7 @@ impl From<RawRedeemProto> for RedeemProto {
     fn from(rr: RawRedeemProto) -> Self {
         Self {
             order_id: rr.order_id,
-            redeemer_prop: ErgoTree::sigma_parse_bytes(&*rr.redeemer_prop_bytes).unwrap(),
+            redeemer_prop: ErgoTree::sigma_parse_bytes(&rr.redeemer_prop_bytes).unwrap(),
             bundle_key: TypedAssetAmount::new(rr.bundle_key.0, rr.bundle_key.1),
             expected_lq: TypedAssetAmount::new(rr.expected_lq.0, rr.expected_lq.1),
             max_miner_fee: rr.max_miner_fee,
@@ -511,7 +510,7 @@ impl From<RawRedeemProto> for RedeemProto {
 impl Hash for Redeem {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.order_id.hash(state);
-        state.write(&*self.redeemer_prop.sigma_serialize_bytes().unwrap());
+        state.write(&self.redeemer_prop.sigma_serialize_bytes().unwrap());
         self.max_miner_fee.hash(state);
         self.bundle_key.hash(state);
         self.expected_lq.hash(state);
@@ -588,7 +587,7 @@ impl TryFromBox for RedeemProto {
             if bx.ergo_tree.template_bytes().ok()? == *REDEEM_TEMPLATE && tokens.len() == 1 {
                 let order_id = OrderId::from(bx.box_id());
                 let redeemer_prop = ErgoTree::sigma_parse_bytes(
-                    &*bx.ergo_tree
+                    &bx.ergo_tree
                         .get_constant(2)
                         .ok()??
                         .v
@@ -725,19 +724,13 @@ impl Weighted for Order {
 
 #[cfg(test)]
 mod tests {
-    use ergo_lib::ergo_chain_types::Digest32;
-    use ergo_lib::ergotree_interpreter::sigma_protocol::private_input::DlogProverInput;
-    use ergo_lib::ergotree_ir::chain::address::Address;
     use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
-    use ergo_lib::ergotree_ir::chain::token::TokenId;
     use ergo_lib::ergotree_ir::ergo_tree::{ErgoTree, ErgoTreeHeader};
     use ergo_lib::ergotree_ir::mir::constant::Constant;
     use ergo_lib::ergotree_ir::mir::expr::Expr;
     use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
     use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{ProveDlog, SigmaProp};
 
-    use ergo_lib::wallet::miner_fee::MINERS_FEE_BASE16_BYTES;
-    use sigma_test_util::force_any_val;
     use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 
     use crate::data::context::ExecutionContext;
@@ -749,8 +742,6 @@ mod tests {
     use crate::token_details::TokenDetails;
 
     use super::RedeemProto;
-
-    use super::Redeem;
 
     fn trivial_prop() -> ErgoTree {
         ErgoTree::try_from(Expr::Const(Constant::from(true))).unwrap()
@@ -777,41 +768,6 @@ mod tests {
         let res = OrderProto::try_from_box(bx);
         println!("{:?}", res);
         assert!(res.is_some())
-    }
-
-    /// Used to generate a serialised ergotree for testing
-    fn gen_deposit_ergotree() {
-        let base16_str = "1988041604000e20020202020202020202020202020202020202020202020202020202020202020204020e2000000000000000000000000000000000000000000000000000000000000000000404040008cd02217daf90deb73bdf8b6709bb42093fdfaff6573fd47b630e2d3fdd4a8193a74d040005fcffffffffffffffff0104000e2037687656669e6173e60c5671238d0518002768f7371d0b01a44c6dd56025706104060400040804140402050204040e691005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a573040500050005a09c01d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1ededed938cb27202730700017203ed93c27204720593860272067308b2db63087204730900ededededed93cbc27207730a93d0e4c672070608720593e4c67207070e72039386028cb27202730b00017208b2db63087207730c009386028cb27202730d00019c72087e730e05b2db63087207730f0093860272067310b2db6308720773110090b0ada5d90109639593c272097312c1720973137314d90109599a8c7209018c7209027315";
-        let tree_bytes = base16::decode(base16_str.as_bytes()).unwrap();
-
-        let prover_input = force_any_val::<DlogProverInput>();
-        let addr = Address::P2Pk(prover_input.public_image());
-        let guard = addr.script().unwrap();
-        let redeemer_prop = SigmaProp::from(ProveDlog::try_from(guard).unwrap())
-            .prop_bytes()
-            .unwrap();
-        let pool_id = force_any_val::<TokenId>();
-        let bundle_prop_hash = force_any_val::<Digest32>();
-        let max_miner_fee = 300000_i64;
-        let expected_num_epochs = 14_i32; // MUST BE 14 to be consistent with the pool box used in tests.
-        let miner_prop_bytes = base16::decode(MINERS_FEE_BASE16_BYTES).unwrap();
-
-        let tree = ErgoTree::sigma_parse_bytes(&tree_bytes)
-            .unwrap()
-            .with_constant(1, pool_id.into())
-            .unwrap()
-            .with_constant(3, redeemer_prop.into())
-            .unwrap()
-            .with_constant(10, bundle_prop_hash.into())
-            .unwrap()
-            .with_constant(21, max_miner_fee.into())
-            .unwrap()
-            .with_constant(14, expected_num_epochs.into())
-            .unwrap()
-            .with_constant(18, miner_prop_bytes.into())
-            .unwrap();
-
-        println!("ERGOTREE BYTES: {}", tree.to_base16_bytes().unwrap());
     }
 
     #[test]
@@ -846,7 +802,7 @@ mod tests {
             name: String::from(""),
             description: String::from(""),
         };
-        let res = deposit.clone().try_run(pool, token_details, ec);
+        let res = deposit.try_run(pool, token_details, ec);
 
         println!("{:?}", res);
         assert!(res.is_ok());

@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter, Write};
+use std::fmt::{Display, Formatter};
 
 use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
@@ -13,7 +13,7 @@ pub struct ExecutionContext {
 
 impl Display for ExecutionContext {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&*format!(
+        f.write_str(&format!(
             "Context[height={}, mintable_token_id={:?}, executor_prop={}]",
             self.height,
             self.mintable_token_id,

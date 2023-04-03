@@ -12,7 +12,6 @@ use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
 use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{ProveDlog, SigmaProp};
 use serde::{Deserialize, Serialize};
 
-use sigma_test_util::force_any_val;
 use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::domain::{TypedAsset, TypedAssetAmount};
 use spectrum_offchain::event_sink::handlers::types::{IntoBoxCandidate, TryFromBox};
@@ -325,8 +324,6 @@ where
 mod tests {
     use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
 
-    use ergo_lib::ergotree_ir::mir::constant::Constant;
-    use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
     use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 
     use crate::data::bundle::{IndexedBundle, StakingBundle};

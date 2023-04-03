@@ -27,7 +27,7 @@ where
         async move {
             let mut unhandled_ev = Some(ev.clone());
             let mut hans_guard = hans.lock().await;
-            for (i, han) in hans_guard.iter_mut().enumerate() {
+            for han in hans_guard.iter_mut() {
                 let maybe_unhandled_ev = han.try_handle(ev.clone()).await;
                 if unhandled_ev.is_some() {
                     unhandled_ev = maybe_unhandled_ev;

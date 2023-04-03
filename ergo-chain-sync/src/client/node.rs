@@ -3,7 +3,7 @@ use derive_more::From;
 use ergo_lib::chain::transaction::Transaction;
 use ergo_lib::ergo_chain_types::{BlockId, Header};
 use isahc::{AsyncReadResponseExt, HttpClient};
-use log::{info, trace};
+use log::trace;
 use thiserror::Error;
 
 use crate::client::model::{ApiInfo, FullBlock};
@@ -108,10 +108,7 @@ impl ErgoNetwork for ErgoNodeHttpClient {
 
     async fn get_best_height(&self) -> Result<u32, Error> {
         let genesis_height = ApiInfo { full_height: 0 };
-        let mut response = self
-            .client
-            .get_async(with_path(&self.base_url, &format!("/info")))
-            .await?;
+        let mut response = self.client.get_async(with_path(&self.base_url, "/info")).await?;
         let height = if response.status().is_success() {
             response
                 .json::<ApiInfo>()
@@ -136,7 +133,10 @@ impl<R> ErgoNetworkTracing<R> {
 }
 
 #[async_trait(?Send)]
-impl<R> ErgoNetwork for ErgoNetworkTracing<R> where R: ErgoNetwork {
+impl<R> ErgoNetwork for ErgoNetworkTracing<R>
+where
+    R: ErgoNetwork,
+{
     async fn get_block_at(&self, height: u32) -> Result<FullBlock, Error> {
         trace!(target: "ergo_network", "get_block_at(height: {})", height);
         self.inner.get_block_at(height).await

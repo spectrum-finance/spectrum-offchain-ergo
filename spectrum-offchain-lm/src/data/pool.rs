@@ -26,7 +26,7 @@ use crate::data::{AsBox, PoolId, PoolStateId};
 use crate::ergo::{
     NanoErg, DEFAULT_MINER_FEE, MAX_VALUE, MIN_SAFE_BOX_VALUE, MIN_SAFE_FAT_BOX_VALUE, UNIT_VALUE,
 };
-use crate::token_details::{self, TokenDetails};
+use crate::token_details::TokenDetails;
 use crate::validators::POOL_VALIDATOR;
 
 pub const INIT_EPOCH_IX: u32 = 1;
@@ -71,8 +71,8 @@ impl Display for PermanentError {
         match self {
             PermanentError::LiqudityMismatch => f.write_str("LiqudityMismatch"),
             PermanentError::ProgramExhausted => f.write_str("ProgramExhausted"),
-            PermanentError::OrderPoisoned(detail) => f.write_str(&*format!("OrderPoisoned: {}", detail)),
-            PermanentError::LowValue { expected, provided } => f.write_str(&*format!(
+            PermanentError::OrderPoisoned(detail) => f.write_str(&format!("OrderPoisoned: {}", detail)),
+            PermanentError::LowValue { expected, provided } => f.write_str(&format!(
                 "LowValue(expected: {}, provided: {})",
                 expected, provided
             )),
@@ -99,7 +99,7 @@ pub struct Pool {
 
 impl Display for Pool {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&*format!(
+        f.write_str(&format!(
             "Pool[id={}, start={}, end={}, step={}]",
             self.pool_id,
             self.conf.program_start,
@@ -111,7 +111,7 @@ impl Display for Pool {
 
 impl Display for AsBox<Pool> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&*format!(
+        f.write_str(&format!(
             "Pool[id={}, state_id={}, start={}, end={}, step={}]",
             self.1.pool_id,
             PoolStateId::from(self.0.box_id()),
@@ -301,7 +301,7 @@ impl Pool {
                    next_pool.conf);
             if epochs_burned < 1 {
                 return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned(
-                    format!("Already compounded"),
+                    "Already compounded".to_string(),
                 )));
             }
             let actual_tmp = MAX_VALUE
@@ -393,12 +393,10 @@ impl Pool {
         let cur_epoch_ix_r = cur_block_ix / self.conf.epoch_len as i64;
         if cur_epoch_ix_rem == 0 && cur_epoch_ix_r == 0 {
             0
+        } else if cur_epoch_ix_rem > 0 {
+            cur_epoch_ix_r as u32 + 1
         } else {
-            if cur_epoch_ix_rem > 0 {
-                cur_epoch_ix_r as u32 + 1
-            } else {
-                cur_epoch_ix_r as u32
-            }
+            cur_epoch_ix_r as u32
         }
     }
 
@@ -440,7 +438,7 @@ impl TryFromBox for Pool {
                     .and_then(|reg| reg.v.try_extract_into::<i32>().ok())
                     .and_then(|x| <u32>::try_from(x).ok());
                 let conf = ProgramConfig {
-                    epoch_len: *conf.get(0)? as u32,
+                    epoch_len: *conf.first()? as u32,
                     epoch_num: *conf.get(1)? as u32,
                     program_start: *conf.get(2)? as u32,
                     redeem_blocks_delta: *conf.get(3)? as u32,
@@ -501,7 +499,6 @@ impl IntoBoxCandidate for Pool {
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Borrow;
 
     use ergo_lib::ergo_chain_types::{blake2b256_hash, Digest32};
     use ergo_lib::ergotree_ir::chain::ergo_box::{BoxId, ErgoBox};
@@ -564,7 +561,7 @@ mod tests {
     fn trivial_sigma_prop() -> SigmaProp {
         let sample = "0008cd03171b64b4b185c2581d421ae0ec1f4ef2a60cf849b0f51de99f97e4c89f2500e3";
         SigmaProp::from(
-            ProveDlog::try_from(ErgoTree::sigma_parse_bytes(&*base16::decode(sample).unwrap()).unwrap())
+            ProveDlog::try_from(ErgoTree::sigma_parse_bytes(&base16::decode(sample).unwrap()).unwrap())
                 .unwrap(),
         )
     }
@@ -593,7 +590,7 @@ mod tests {
             name: String::from(""),
             description: String::from(""),
         };
-        let (pool2, bundle, _output, rew, _) = pool
+        let (pool2, bundle, _output, _rew, _) = pool
             .clone()
             .apply_deposit(deposit.clone(), token_details, ctx)
             .unwrap();
@@ -631,7 +628,7 @@ mod tests {
             name: String::from(""),
             description: String::from(""),
         };
-        let (pool2, bundle, output, rew, _) = pool
+        let (pool2, bundle, output, _rew, _) = pool
             .clone()
             .apply_deposit(deposit.clone(), token_details, ctx.clone())
             .unwrap();
@@ -644,11 +641,10 @@ mod tests {
             erg_value: NanoErg::from(100000000000u64),
             max_miner_fee: 10000000,
         };
-        let (pool3, output, rew, _) = pool2
-            .clone()
+        let (pool3, output, _rew, _) = pool2
             .apply_redeem(
-                redeem.clone(),
-                StakingBundle::from_proto(bundle.clone(), BundleStateId::from(BoxId::from(random_digest()))),
+                redeem,
+                StakingBundle::from_proto(bundle, BundleStateId::from(BoxId::from(random_digest()))),
                 ctx,
             )
             .unwrap();
@@ -702,20 +698,17 @@ mod tests {
             name: String::from(""),
             description: String::from(""),
         };
-        let (pool_2, bundle_a, _output_a, rew, _) = pool
-            .clone()
-            .apply_deposit(deposit_a.clone(), token_details.clone(), ctx_1.clone())
+        let (pool_2, bundle_a, _output_a, _rew, _) = pool
+            .apply_deposit(deposit_a, token_details.clone(), ctx_1.clone())
             .unwrap();
-        let (pool_3, bundle_b, _output_b, rew, _) = pool_2
-            .clone()
-            .apply_deposit(deposit_b.clone(), token_details, ctx_1)
-            .unwrap();
+        let (pool_3, bundle_b, _output_b, _rew, _) =
+            pool_2.apply_deposit(deposit_b, token_details, ctx_1).unwrap();
         let funding = nonempty![DistributionFunding {
             id: FundingId::from(BoxId::from(random_digest())),
             prop: trivial_prop(),
             erg_value: NanoErg::from(2000000000u64),
         }];
-        let (pool_4, bundles, next_funding, rewards, _) = pool_3
+        let (pool_4, bundles, _next_funding, rewards, _) = pool_3
             .distribute_rewards(
                 Vec::from([
                     StakingBundle::from_proto(

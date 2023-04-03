@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use chrono::Utc;
 use futures::{Stream, StreamExt};
-use futures_timer::Delay;
 use log::info;
 use spectrum_offchain::data::OnChainOrder;
 use stream_throttle::{ThrottlePool, ThrottleRate, ThrottledStream};
@@ -100,7 +99,6 @@ where
                             let orders =
                                 stakers
                                     .chunks(batch_size)
-                                    .into_iter()
                                     .enumerate()
                                     .map(|(queue_ix, xs)| Compound {
                                         pool_id,

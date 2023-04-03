@@ -13,7 +13,7 @@ use ergo_lib::ergotree_ir::chain::address::Address;
 use ergo_lib::wallet::ext_secret_key::ExtSecretKey;
 use ergo_lib::wallet::mnemonic::Mnemonic;
 use ergo_lib::wallet::secret_key::SecretKey;
-use ergo_lib::wallet::signing::{make_context, sign_transaction, TransactionContext, TxSigningError};
+use ergo_lib::wallet::signing::{make_context, TransactionContext, TxSigningError};
 use serde::Deserialize;
 use sigma_test_util::force_any_val;
 
@@ -36,7 +36,7 @@ impl TryFrom<String> for WalletSecret {
     fn try_from(value: String) -> Result<Self, Self::Error> {
         DlogProverInput::from_base16_str(value)
             .map(Self)
-            .ok_or(format!("Private inputs must be provided in Base16"))
+            .ok_or("Private inputs must be provided in Base16".to_string())
     }
 }
 
@@ -49,7 +49,7 @@ pub struct Wallet {
 
 impl Wallet {
     pub fn try_from_seed(seed: SeedPhrase) -> Option<(Self, Address)> {
-        if let Ok(sk) = ExtSecretKey::derive_master(Mnemonic::to_seed(&*<String>::from(seed), "")) {
+        if let Ok(sk) = ExtSecretKey::derive_master(Mnemonic::to_seed(&<String>::from(seed), "")) {
             if let SecretKey::DlogSecretKey(dpi) = sk.secret_key() {
                 let addr = Address::P2Pk(sk.public_image());
                 let wallet = Self {
@@ -139,7 +139,7 @@ impl SigmaProver for Wallet {
                     input_box.box_id(),
                     ProverResult {
                         proof: ProofBytes::Empty,
-                        extension: input.extension.clone(),
+                        extension: input.extension,
                     },
                 ))
             }
@@ -237,7 +237,7 @@ mod tests {
             "gather obvious bracket ticket uphold quantum quit pistol math direct rural turn west youth acid"
                 .into(),
         );
-        let (prover, funding_addr) = Wallet::try_from_seed(seed_phrase).expect("Invalid seed");
+        let (_prover, funding_addr) = Wallet::try_from_seed(seed_phrase).expect("Invalid seed");
         println!(
             "funding_address: {:?}",
             AddressEncoder::encode_address_as_string(NetworkPrefix::Mainnet, &funding_addr)

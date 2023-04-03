@@ -2,17 +2,16 @@ use std::cell::Cell;
 use std::sync::Arc;
 
 use crate::data::bundle::IndexedBundle;
-use crate::data::{FundingId, OrderId, PoolStateId};
+use crate::data::FundingId;
 use crate::token_details::get_token_details;
 use async_trait::async_trait;
 use chrono::Utc;
 use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
-use ergo_lib::ergotree_ir::chain::token::TokenId;
 use ergo_lib::ergotree_ir::ergo_tree::ErgoTree;
 use futures::{stream, StreamExt};
 use itertools::{EitherOrBoth, Itertools};
 use log::{error, info, trace, warn};
-use spectrum_offchain::data::order::{PendingOrder, ProgressingOrder};
+use spectrum_offchain::data::order::ProgressingOrder;
 use tokio::sync::Mutex;
 
 use spectrum_offchain::backlog::Backlog;
@@ -164,8 +163,6 @@ where
                 let run_result = match (ord.clone(), bundles.first().cloned()) {
                     (Order::Deposit(deposit), _) => {
                         // Try to get token names from node
-                        let pool_id_bytes = <Vec<u8>>::from(TokenId::from(pool.1.pool_id));
-                        let pool_id_encoding = base16::encode_lower(&pool_id_bytes);
                         let token_details = get_token_details(
                             pool.1.pool_id,
                             pool.1.budget_rem.token_id,
@@ -204,7 +201,7 @@ where
                         }
                     }
                     (Order::Compound(_), _) => Err(RunOrderError::Fatal(
-                        format!("No bundles found for Compound"),
+                        "No bundles found for Compound".to_string(),
                         ord.clone(),
                     )),
                     (Order::Redeem(redeem), None) => {
