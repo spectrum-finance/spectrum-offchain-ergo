@@ -110,7 +110,6 @@ pub struct DeployPoolConfig {
     initial_lq_token_deposit: TypedAssetAmount<Lq>,
     num_epochs_to_delegate: u64,
     operator_funding_secret: SeedPhrase,
-    max_number_expected_participants: u64,
 }
 
 #[tokio::main]
@@ -180,7 +179,6 @@ struct DeployPoolInputs {
     erg_value_per_box: BoxValue,
     initial_lq_token_deposit: TypedAssetAmount<Lq>,
     num_epochs_to_delegate: u64,
-    max_number_expected_participants: u64,
 }
 
 impl From<&DeployPoolConfig> for DeployPoolInputs {
@@ -191,7 +189,6 @@ impl From<&DeployPoolConfig> for DeployPoolInputs {
             erg_value_per_box: d.erg_value_per_box,
             initial_lq_token_deposit: d.initial_lq_token_deposit,
             num_epochs_to_delegate: d.num_epochs_to_delegate,
-            max_number_expected_participants: d.max_number_expected_participants,
         }
     }
 }
@@ -510,7 +507,7 @@ fn deploy_pool_chain_transaction(
     pool_init_box_builder.set_register_value(NonMandatoryRegisterId::R4, <Vec<i32>>::from(conf).into());
     pool_init_box_builder.set_register_value(
         NonMandatoryRegisterId::R5,
-        (conf.program_budget.amount as i64 - 1_i64).into(),
+        (conf.program_budget.amount as i64).into(),
     );
     pool_init_box_builder.set_register_value(
         NonMandatoryRegisterId::R6,
@@ -761,12 +758,11 @@ fn validate_pool(input: &DeployPoolInputs, current_height: u32) -> Result<(), Po
     }
 
     let epoch_num = input.conf.epoch_num;
-    let n_part = input.max_number_expected_participants;
     let max_rounding_error = input.conf.max_rounding_error;
     let budget_amt = input.conf.program_budget.amount;
 
-    if (epoch_num as u64) * n_part >= max_rounding_error
-        || max_rounding_error * n_part >= budget_amt / (epoch_num as u64)
+    if (epoch_num as u64) > max_rounding_error
+        || max_rounding_error * (epoch_num as u64) >= budget_amt / (epoch_num as u64)
     {
         return Err(PoolValidationError::FailedMaxRoundingErrorBounds);
     }
