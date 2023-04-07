@@ -1,10 +1,11 @@
 use std::cell::{Cell, RefCell};
 use std::cmp::max;
 use std::rc::Rc;
-use std::sync::Once;
+use std::sync::{Arc, Once};
 use std::time::Duration;
 
 use async_stream::stream;
+use futures::lock::Mutex;
 use futures::Stream;
 use futures_timer::Delay;
 use log::{error, info, trace};
@@ -77,10 +78,10 @@ where
 pub struct ChainSync<'a, TClient, TCache> {
     starting_height: u32,
     client: &'a TClient,
-    cache: Rc<RefCell<TCache>>,
-    state: Rc<RefCell<SyncState>>,
+    cache: Arc<Mutex<TCache>>,
+    state: Arc<Mutex<SyncState>>,
     #[pin]
-    delay: Cell<Option<Delay>>,
+    delay: Mutex<Option<Delay>>,
     tip_reached_signal: Option<&'a Once>,
 }
 
@@ -105,11 +106,11 @@ where
         Self {
             starting_height,
             client,
-            cache: Rc::new(RefCell::new(cache)),
-            state: Rc::new(RefCell::new(SyncState {
+            cache: Arc::new(Mutex::new(cache)),
+            state: Arc::new(Mutex::new(SyncState {
                 next_height: start_at,
             })),
-            delay: Cell::new(None),
+            delay: Mutex::new(None),
             tip_reached_signal,
         }
     }
@@ -117,7 +118,7 @@ where
     /// Try acquiring next upgrade from the network.
     /// `None` is returned when no upgrade is available at the moment.
     async fn try_upgrade(&self) -> Option<ChainUpgrade> {
-        let next_height = { self.state.borrow().next_height };
+        let next_height = { self.state.lock().await.next_height };
         trace!(target: "chain_sync", "Processing height [{}]", next_height);
         match self.client.get_block_at(next_height).await {
             Ok(api_blk) => {
@@ -132,19 +133,19 @@ where
                     api_blk.header.id, next_height
                 );
                 let parent_id = api_blk.header.parent_id;
-                let mut cache = self.cache.borrow_mut();
+                let mut cache = self.cache.lock().await;
                 let linked = cache.exists(parent_id).await;
                 if linked || api_blk.header.height == self.starting_height {
                     trace!(target: "chain_sync", "Chain is linked, upgrading ..");
                     let blk = Block::from(api_blk);
                     cache.append_block(blk.clone()).await;
-                    self.state.borrow_mut().upgrade();
+                    self.state.lock().await.upgrade();
                     return Some(ChainUpgrade::RollForward(blk));
                 } else {
                     // Local chain does not link anymore
                     trace!(target: "chain_sync", "Chain does not link, downgrading ..");
                     if let Some(discarded_blk) = cache.take_best_block().await {
-                        self.state.borrow_mut().downgrade();
+                        self.state.lock().await.downgrade();
                         return Some(ChainUpgrade::RollBackward(discarded_blk));
                     }
                 }
@@ -173,14 +174,15 @@ where
 {
     stream! {
             loop {
-                if let Some(delay) = chain_sync.delay.take() {
+                let delay = {chain_sync.delay.lock().await.take()};
+                if let Some(delay) = delay {
                     delay.await;
                 }
                 if let Some(upgr) = chain_sync.try_upgrade().await {
                     yield upgr;
                 } else {
-                    chain_sync.delay
-                            .set(Some(Delay::new(Duration::from_secs(THROTTLE_SECS))));
+                    *chain_sync.delay.lock().await
+                            = Some(Delay::new(Duration::from_secs(THROTTLE_SECS)));
                     if let Some(sig) = chain_sync.tip_reached_signal {
                         sig.call_once(|| {
                             trace!(target: "chain_sync", "Tip reached, waiting for new blocks ..");

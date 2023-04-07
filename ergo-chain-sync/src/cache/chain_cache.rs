@@ -5,7 +5,7 @@ use ergo_lib::ergo_chain_types::{BlockId, Digest32};
 
 use crate::model::{Block, BlockRecord};
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait ChainCache {
     async fn append_block(&mut self, block: Block);
     async fn exists(&mut self, block_id: BlockId) -> bool;
@@ -33,7 +33,7 @@ impl Default for InMemoryCache {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl ChainCache for InMemoryCache {
     async fn append_block(&mut self, block: Block) {
         let id = block.id;

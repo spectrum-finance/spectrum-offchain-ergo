@@ -24,7 +24,7 @@ pub enum Error {
     NoBlock,
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait ErgoNetwork {
     async fn get_block_at(&self, height: u32) -> Result<FullBlock, Error>;
     async fn fetch_mempool(&self, offset: usize, limit: usize) -> Result<Vec<Transaction>, Error>;
@@ -43,7 +43,7 @@ impl ErgoNodeHttpClient {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl ErgoNetwork for ErgoNodeHttpClient {
     async fn get_block_at(&self, height: u32) -> Result<FullBlock, Error> {
         let blocks = self
@@ -135,8 +135,11 @@ impl<R> ErgoNetworkTracing<R> {
     }
 }
 
-#[async_trait(?Send)]
-impl<R> ErgoNetwork for ErgoNetworkTracing<R> where R: ErgoNetwork {
+#[async_trait]
+impl<R> ErgoNetwork for ErgoNetworkTracing<R>
+where
+    R: ErgoNetwork + Send + Sync,
+{
     async fn get_block_at(&self, height: u32) -> Result<FullBlock, Error> {
         trace!(target: "ergo_network", "get_block_at(height: {})", height);
         self.inner.get_block_at(height).await

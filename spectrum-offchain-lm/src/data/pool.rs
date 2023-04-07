@@ -314,7 +314,7 @@ impl Pool {
                             / (self.conf.epoch_num as u128),
                     )
                     .saturating_sub(1);
-                ((alloc_rem * bundle.vlq.amount as u128 * epochs_burned as u128 / actual_tmp as u128) as u64)
+                (alloc_rem * bundle.vlq.amount as u128 * epochs_burned as u128 / actual_tmp as u128) as u64
             } else {
                 0
             };
