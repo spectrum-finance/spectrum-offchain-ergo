@@ -189,7 +189,17 @@ where
                             // early and try again once pool box is updated.
                             if pool_epoch_ix < compound.epoch_ix {
                                 // Suspend order until newer pool box is confirmed on-chain
-                                error!("Trying to compound order @ epoch {} with pool box @ epoch {}. Try again later.", compound.epoch_ix, pool_epoch_ix);
+                                error!(
+                                    "Trying to compound order @ epoch {} with pool box @ epoch {}. Try again later.",
+                                    compound.epoch_ix,
+                                    pool_epoch_ix
+                                );
+                                error!(
+                                    target: "offchain_lm",
+                                    "Trying to compound order @ epoch {} with pool box @ epoch {}. Try again later.",
+                                    compound.epoch_ix,
+                                    pool_epoch_ix
+                                );
                                 self.backlog.lock().await.suspend(ord).await;
                                 return Err(());
                             }
