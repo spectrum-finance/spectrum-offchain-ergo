@@ -158,8 +158,10 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                     break;
                 }
             }
+
+            let mut deferred_tick = None;
             // If there are no pending ticks we check deferred ticks.
-            if tick.is_none() {
+            if deferred_tick.is_none() {
                 let deferred_ticks_prefix = bincode::serialize(DEFERRED_TICKS_PREFIX).unwrap();
                 let mut readopts = ReadOptions::default();
                 readopts.set_iterate_range(rocksdb::PrefixRange(deferred_ticks_prefix.clone()));
@@ -168,19 +170,19 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                     readopts,
                 );
                 let ts_now = Utc::now().timestamp();
-                while tick.is_none() {
+                while deferred_tick.is_none() {
                     if let Some((bs, deferred_until)) = deferred_ticks.next().and_then(|res| res.ok()) {
                         if let Ok(deferred_until) = bincode::deserialize::<i64>(&deferred_until) {
                             if deferred_until <= ts_now {
-                                tick = destructure_deferred_tick_key(&bs)
+                                deferred_tick = destructure_deferred_tick_key(&*bs)
                                     .and_then(|pid| {
                                         let schedule_key = prefixed_key(SCHEDULE_PREFIX, &pid);
                                         db.get(schedule_key).unwrap()
                                     })
                                     .and_then(|bs| bincode::deserialize::<PoolSchedule>(&bs).ok())
                                     .and_then(|sc| sc.try_into().ok());
-                                if tick.is_some() {
-                                    trace!(target: "schedules", "deferred tick chosen: {:?}", tick);
+                                if deferred_tick.is_some() {
+                                    trace!(target: "schedules", "deferred tick chosen: {:?}", deferred_tick);
                                 }
                             } else {
                                 break;
@@ -191,7 +193,39 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                     }
                 }
             }
-            tick
+            match (tick, deferred_tick) {
+                (Some(tick), None) => {
+                    trace!(target: "schedules", "pending tick chosen (no deffered ticks): {:?}", tick);
+                    Some(tick)
+                }
+                (None, Some(tick)) => {
+                    trace!(target: "schedules", "deferred tick chosen (no pending ticks): {:?}", tick);
+                    Some(tick)
+                }
+                (Some(pending_tick), Some(deferred_tick)) => {
+                    if pending_tick.height < deferred_tick.height {
+                        trace!(
+                            target: "schedules",
+                            "pending tick chosen: {:?} (nearer than deferred tick {:?})",
+                            pending_tick,
+                            deferred_tick
+                        );
+                        Some(pending_tick)
+                    } else {
+                        trace!(
+                            target: "schedules",
+                            "deferred tick chosen: {:?} (nearer than pending tick {:?})",
+                            deferred_tick,
+                            pending_tick
+                        );
+                        Some(deferred_tick)
+                    }
+                }
+                (None, None) => {
+                    trace!(target: "schedules", "no ticks to peek");
+                    None
+                }
+            }
         })
         .await
     }

@@ -273,6 +273,7 @@ where
                                                                 tx.inputs.get(1).unwrap().box_id,
                                                             ))
                                                             .await;
+                                                        self.backlog.lock().await.suspend(ord.clone()).await;
                                                     }
 
                                                     Invalidation::Order => {
@@ -405,7 +406,37 @@ where
             } else {
                 warn!("No pool is found for order [{:?}]", ord.get_self_ref());
                 warn!(target: "offchain_lm", "No pool is found for order [{:?}]", ord.get_self_ref());
-                self.backlog.lock().await.remove(ord.get_self_ref()).await;
+
+                match &ord {
+                    Order::Deposit(AsBox(ergo_box, _)) | Order::Redeem(AsBox(ergo_box, _)) => {
+                        // If it's been 10 blocks since the appearance of the deposit/redeem order
+                        // and no pool box has been witnessed, it's safe to say that the pool is
+                        // invalid and the order can be removed. Otherwise we'll try the order
+                        // again later in case the pool box will be updated on-chain.
+                        let current_height = self.network.get_height().await;
+                        if current_height.saturating_sub(ergo_box.creation_height) > 10 {
+                            warn!(
+                                target: "offchain_lm",
+                                "More than 10 blocks since missing pool box; deleting order [{:?}]",
+                                ord.get_self_ref()
+                            );
+                            self.backlog.lock().await.remove(ord.get_self_ref()).await;
+                        } else {
+                            warn!(
+                                target: "offchain_lm",
+                                "Less than 10 blocks since missing pool box; suspending order [{:?}]",
+                                ord.get_self_ref()
+                            );
+                            self.backlog.lock().await.suspend(ord).await;
+                        }
+                    }
+                    Order::Compound(_) => {
+                        // Compound orders can be safely removed here because if a new pool box
+                        // appears on-chain later, the tick scheduler will again introduce
+                        // compound orders at the appropriate height.
+                        self.backlog.lock().await.remove(ord.get_self_ref()).await;
+                    }
+                }
             }
         }
         Err(())
