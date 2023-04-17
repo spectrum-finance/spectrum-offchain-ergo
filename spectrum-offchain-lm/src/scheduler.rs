@@ -23,7 +23,7 @@ pub trait ScheduleRepo {
     /// Persist schedule.
     async fn update_schedule(&mut self, schedule: PoolSchedule) -> Result<(), ProgramExhausted>;
     /// Get closest tick.
-    async fn peek(&mut self) -> Option<Tick>;
+    async fn peek(&self) -> Option<Tick>;
     /// Remove tried tick from db.
     async fn remove(&mut self, tick: Tick);
     /// Defer tick processing until the given timestamp.
@@ -54,7 +54,7 @@ where
         r
     }
 
-    async fn peek(&mut self) -> Option<Tick> {
+    async fn peek(&self) -> Option<Tick> {
         trace!(target: "schedules", "peek()");
         let res = self.inner.peek().await;
         trace!(target: "schedules", "peek() -> {:?}", res);
@@ -133,7 +133,7 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
         .await
     }
 
-    async fn peek(&mut self) -> Option<Tick> {
+    async fn peek(&self) -> Option<Tick> {
         let db = Arc::clone(&self.db);
         spawn_blocking(move || {
             let ticks_prefix = bincode::serialize(TICKS_PREFIX).unwrap();
