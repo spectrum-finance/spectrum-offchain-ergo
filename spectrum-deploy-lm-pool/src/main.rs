@@ -397,7 +397,7 @@ fn deploy_pool_chain_transaction(
 
     // TX 1: Mint pool NFT -------------------------------------------------------------------------
     let inputs = if !remaining_tokens.is_empty() {
-        let mut tx_0_outputs = tx_0.outputs.clone();
+        let mut tx_0_outputs = tx_0.outputs.clone().to_vec();
         let ix = tx_0_outputs
             .iter()
             .position(|ergobox| {
@@ -411,7 +411,7 @@ fn deploy_pool_chain_transaction(
         let _ = tx_0_outputs.swap_remove(ix);
         filter_tx_outputs(tx_0_outputs)
     } else {
-        filter_tx_outputs(tx_0.outputs.clone())
+        filter_tx_outputs(tx_0.outputs.clone().to_vec())
     };
     let (pool_nft, signed_mint_pool_nft_tx) = mint_token(
         inputs,
@@ -422,7 +422,7 @@ fn deploy_pool_chain_transaction(
     )?;
 
     // TX 2: Mint vLQ tokens -----------------------------------------------------------------------
-    let inputs = filter_tx_outputs(signed_mint_pool_nft_tx.outputs.clone());
+    let inputs = filter_tx_outputs(signed_mint_pool_nft_tx.outputs.clone().to_vec());
     let (vlq_tokens, signed_mint_vlq_tokens_tx) = mint_token(
         inputs,
         &mut num_transactions_left,
@@ -432,7 +432,7 @@ fn deploy_pool_chain_transaction(
     )?;
 
     // TX 3: Mint TMP tokens -----------------------------------------------------------------------
-    let inputs = filter_tx_outputs(signed_mint_vlq_tokens_tx.outputs.clone());
+    let inputs = filter_tx_outputs(signed_mint_vlq_tokens_tx.outputs.clone().to_vec());
     let (tmp_tokens, signed_mint_tmp_tokens_tx) = mint_token(
         inputs,
         &mut num_transactions_left,
@@ -443,14 +443,15 @@ fn deploy_pool_chain_transaction(
 
     // TX 4: Create pool-input box -----------------------------------------------------------------
     let box_with_pool_nft =
-        find_box_with_token(&signed_mint_pool_nft_tx.outputs, &pool_nft.token_id).unwrap();
-    let box_with_rewards_tokens = find_box_with_token(&tx_0.outputs, &reward_token_budget.token_id).unwrap();
+        find_box_with_token(signed_mint_pool_nft_tx.outputs.as_vec(), &pool_nft.token_id).unwrap();
+    let box_with_rewards_tokens =
+        find_box_with_token(tx_0.outputs.as_vec(), &reward_token_budget.token_id).unwrap();
     let box_with_vlq_tokens =
-        find_box_with_token(&signed_mint_vlq_tokens_tx.outputs, &vlq_tokens.token_id).unwrap();
+        find_box_with_token(signed_mint_vlq_tokens_tx.outputs.as_vec(), &vlq_tokens.token_id).unwrap();
     let box_with_tmp_tokens =
-        find_box_with_token(&signed_mint_tmp_tokens_tx.outputs, &tmp_tokens.token_id).unwrap();
+        find_box_with_token(signed_mint_tmp_tokens_tx.outputs.as_vec(), &tmp_tokens.token_id).unwrap();
 
-    let box_with_remaining_funds = signed_mint_tmp_tokens_tx.outputs[1].clone();
+    let box_with_remaining_funds = signed_mint_tmp_tokens_tx.outputs.get(1).unwrap().clone();
 
     let target_balance = calc_target_balance(num_transactions_left)?;
     let box_selector = SimpleBoxSelector::new();
@@ -532,7 +533,7 @@ fn deploy_pool_chain_transaction(
     num_transactions_left -= 1;
 
     // TX 5: Create first LM pool, stake bundle and redeemer out boxes -----------------------------
-    let inputs = filter_tx_outputs(pool_input_tx.outputs.clone());
+    let inputs = filter_tx_outputs(pool_input_tx.outputs.clone().to_vec());
     let target_balance = calc_target_balance(num_transactions_left)?;
 
     let box_selector = SimpleBoxSelector::new();
