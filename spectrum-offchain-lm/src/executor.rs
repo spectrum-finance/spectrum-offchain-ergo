@@ -298,10 +298,9 @@ where
                                                 }
                                             }
                                         }
-                                        NodeSubmitTxError::DoubleSpend => {
+                                        NodeSubmitTxError::DoubleSpend | NodeSubmitTxError::Unhandled => {
                                             self.backlog.lock().await.suspend(ord).await;
                                         }
-                                        NodeSubmitTxError::Unhandled => (),
                                     }
                                 } else {
                                     // Return order to backlog to check for settlement.
