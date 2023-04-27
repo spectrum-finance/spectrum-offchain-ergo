@@ -4,6 +4,7 @@ use std::sync::{Arc, Once};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use futures::{stream, Stream};
 use futures_timer::Delay;
 use log::{trace, warn};
@@ -147,10 +148,13 @@ pub fn executor_stream<'a, TExecutor: Executor + 'a>(
     })
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum OrderType {
     Deposit,
-    Compound,
+    Compound {
+        /// Funding boxes used as inputs for the compounding TX.
+        input_funding_box_ids: nonempty::NonEmpty<BoxId>,
+    },
     Redeem,
 }
 
@@ -158,7 +162,8 @@ pub enum Invalidation {
     Pool,
     StakingBundles(Vec<usize>),
     Order,
-    Funding,
+    /// Contains the indices of input funding boxes that were found by ergo-node to be invalid.
+    Funding(Vec<usize>),
 }
 
 pub fn generate_invalidations(
@@ -177,20 +182,29 @@ pub fn generate_invalidations(
                 res.push(Invalidation::Order);
             }
         }
-        OrderType::Compound => {
-            if missing_indices.contains(&1) {
-                res.push(Invalidation::Funding);
+        OrderType::Compound {
+            input_funding_box_ids,
+        } => {
+            let mut missing_funding_ixs = vec![];
+            for (i, _) in input_funding_box_ids.iter().enumerate() {
+                // We shift `i` by 1 since the first input is always the pool box.
+                if missing_indices.contains(&((i + 1) as i32)) {
+                    missing_funding_ixs.push(i + 1);
+                }
             }
 
+            res.push(Invalidation::Funding(missing_funding_ixs));
+            // Staking bundles start at index == `input_funding_box_ids.len()`, since funding boxes
+            // always following the pool box within TX inputs.
+            let mut bundles_to_invalidate = vec![];
             for ix in missing_indices {
-                // Staking bundles start at index 2 of inputs.
-                let mut bundles_to_invalidate = vec![];
-                if ix > 1 {
-                    bundles_to_invalidate.push(ix as usize - 2);
+                let ix = ix as usize;
+                if ix > input_funding_box_ids.len() {
+                    bundles_to_invalidate.push(ix);
                 }
-                if !bundles_to_invalidate.is_empty() {
-                    res.push(Invalidation::StakingBundles(bundles_to_invalidate));
-                }
+            }
+            if !bundles_to_invalidate.is_empty() {
+                res.push(Invalidation::StakingBundles(bundles_to_invalidate));
             }
         }
         OrderType::Redeem => {
@@ -223,6 +237,8 @@ pub fn parse_err(err: &str) -> NodeSubmitTxError {
         );
     } else if err.contains("Double spending attempt") {
         return NodeSubmitTxError::DoubleSpend;
+    } else if err.contains("Scripts of all transaction inputs should pass verification") {
+        return NodeSubmitTxError::ScriptsOfInputsDontPassVerification;
     }
 
     NodeSubmitTxError::Unhandled
@@ -233,6 +249,7 @@ pub enum NodeSubmitTxError {
     MissingInputs(Vec<MissingIndex>),
     DoubleSpend,
     Unhandled,
+    ScriptsOfInputsDontPassVerification,
 }
 
 #[cfg(test)]

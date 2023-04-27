@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use log::trace;
+use log::{info, trace};
 use tokio::sync::Mutex;
 
 use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Traced};
@@ -115,6 +115,13 @@ where
     };
     match (confirmed, predicted) {
         (Some(Confirmed(conf)), Some(Predicted(pred))) => {
+            info!(
+                target: "offchain_lm",
+                "resolve_bundle_state: bundle_id: {}, confirmed: Some({:?}), predicted: Some({:?})",
+                bundle_id,
+                conf.1,
+                pred.1
+            );
             let anchoring_point = conf;
             let anchoring_sid = anchoring_point.1.get_self_state_ref();
             let predicted_sid = pred.1.get_self_state_ref();
@@ -128,8 +135,33 @@ where
             };
             Some(safe_point)
         }
-        (Some(Confirmed(conf)), _) => Some(conf),
-        _ => None,
+        (Some(Confirmed(conf)), None) => {
+            info!(
+                target: "offchain_lm",
+                "resolve_bundle_state: bundle_id: {}, confirmed: Some({:?}), predicted: None",
+                bundle_id,
+                conf.1,
+            );
+            Some(conf)
+        }
+        (None, Some(Predicted(pred))) => {
+            info!(
+                target: "offchain_lm",
+                "resolve_bundle_state: bundle_id: {}, confirmed: None, predicted: Some({:?})",
+                bundle_id,
+                pred.1,
+            );
+
+            None
+        }
+        (None, None) => {
+            info!(
+                target: "offchain_lm",
+                "resolve_bundle_state: bundle_id: {}, confirmed: None, predicted: None",
+                bundle_id,
+            );
+            None
+        }
     }
 }
 

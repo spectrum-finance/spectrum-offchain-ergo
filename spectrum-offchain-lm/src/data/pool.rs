@@ -24,7 +24,8 @@ use crate::data::order::{Deposit, Redeem};
 use crate::data::redeemer::{DepositOutput, RedeemOutput, RewardOutput};
 use crate::data::{AsBox, PoolId, PoolStateId};
 use crate::ergo::{
-    NanoErg, DEFAULT_MINER_FEE, MAX_VALUE, MIN_SAFE_BOX_VALUE, MIN_SAFE_FAT_BOX_VALUE, UNIT_VALUE,
+    NanoErg, DEFAULT_MINER_FEE, DEFAULT_MINER_FEE_FOR_COMPOUND_TX, MAX_VALUE, MIN_SAFE_BOX_VALUE,
+    MIN_SAFE_FAT_BOX_VALUE, UNIT_VALUE,
 };
 use crate::token_details::TokenDetails;
 use crate::validators::POOL_VALIDATOR;
@@ -296,10 +297,23 @@ impl Pool {
             } else {
                 0
             };
-            trace!(target: "pool", "Bundle: [{}], epochs_remain: [{}], epochs_burned: [{}], budget_remaining: {}, epoch_complete: {}, conf: {:?}", 
-                   bundle.state_id, epochs_remain, epochs_burned, next_pool.budget_rem.amount,
-                   next_pool.epoch_completed(),
-                   next_pool.conf);
+            trace!(
+                target: "pool",
+                "Bundle box_id: [{}], \
+                 bundle_id: [{}], \
+                 epochs_remain: [{}], \
+                 epochs_burned: [{}], \
+                 budget_remaining: {}, \
+                 epoch_complete: {}, \
+                 conf: {:?}",
+                bundle.state_id,
+                bundle.bundle_id(),
+                epochs_remain,
+                epochs_burned,
+                next_pool.budget_rem.amount,
+                next_pool.epoch_completed(),
+                next_pool.conf
+            );
             if epochs_burned < 1 {
                 return Err(PoolOperationError::Permanent(PermanentError::OrderPoisoned(
                     "Already compounded".to_string(),
@@ -353,7 +367,7 @@ impl Pool {
         }
         next_pool.epoch_ix = Some(epoch_ix);
         let mut miner_output = MinerOutput {
-            erg_value: DEFAULT_MINER_FEE,
+            erg_value: DEFAULT_MINER_FEE_FOR_COMPOUND_TX,
         };
         accumulated_cost = accumulated_cost + miner_output.erg_value;
         let funds_total: NanoErg = funding.iter().map(|f| f.erg_value).sum();

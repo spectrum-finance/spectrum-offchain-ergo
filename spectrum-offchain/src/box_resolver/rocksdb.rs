@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
+use log::warn;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -218,14 +219,27 @@ where
         <TEntity as OnChainEntity>::TEntityId: 'a,
         <TEntity as OnChainEntity>::TStateId: 'a,
     {
+        let predecessor: Option<<TEntity as OnChainEntity>::TStateId> =
+            <EntityRepoRocksDB as EntityRepo<TEntity>>::get_prediction_predecessor::<'_, '_, '_>(
+                self,
+                sid.clone(),
+            )
+            .await;
         let db = self.db.clone();
         let link_key = prefixed_key(PREDICTION_LINK_PREFIX, &sid);
         let last_confirmed_index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &eid);
         let last_unconfirmed_index_key = prefixed_key(LAST_UNCONFIRMED_PREFIX, &eid);
         spawn_blocking(move || {
             let tx = db.transaction();
+            if let Some(predecessor) = predecessor {
+                warn!(target: "offchain_lm", "invalidate box: rollback to {:?}", predecessor);
+                warn!("invalidate box: rollback to {:?}", predecessor);
+                let predecessor_bytes = bincode::serialize(&predecessor).unwrap();
+                tx.put(last_confirmed_index_key, predecessor_bytes).unwrap();
+            } else {
+                tx.delete(last_confirmed_index_key).unwrap();
+            }
             tx.delete(link_key).unwrap();
-            tx.delete(last_confirmed_index_key).unwrap();
             tx.delete(last_unconfirmed_index_key).unwrap();
             tx.commit().unwrap();
         })

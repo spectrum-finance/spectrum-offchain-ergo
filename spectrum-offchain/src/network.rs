@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use derive_more::Display;
 use ergo_lib::chain::transaction::Transaction;
+use ergo_lib::ergotree_ir::chain::ergo_box::BoxId;
 use ergo_lib::ergotree_ir::chain::token::TokenId;
 use isahc::AsyncReadResponseExt;
 use isahc::Request;
@@ -28,6 +29,7 @@ pub trait ErgoNetwork {
         &self,
         token_id: TokenId,
     ) -> Result<Option<TokenMintingInfo>, ClientError>;
+    async fn box_in_utxo(&self, box_id: BoxId) -> bool;
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -115,6 +117,22 @@ impl ErgoNetwork for ErgoNodeHttpClient {
         } else {
             Err(ClientError("No response from ergo node".into()))
         }
+    }
+
+    async fn box_in_utxo(&self, box_id: BoxId) -> bool {
+        let box_id_str = String::from(box_id);
+        let resp = self
+            .client
+            .get_async(with_path(&self.base_url, &format!("/utxo/byId/{}", box_id_str)))
+            .await
+            .ok();
+        if let Some(mut resp) = resp {
+            let is_success = resp.status().is_success();
+            let _ = resp.consume().await;
+            return is_success;
+        }
+
+        false
     }
 }
 
