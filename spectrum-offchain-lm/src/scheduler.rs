@@ -160,7 +160,7 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
             }
 
             let mut deferred_tick = None;
-            // If there are no pending ticks we check deferred ticks.
+            // Next we check deferred ticks.
             if deferred_tick.is_none() {
                 let deferred_ticks_prefix = bincode::serialize(DEFERRED_TICKS_PREFIX).unwrap();
                 let mut readopts = ReadOptions::default();
@@ -193,6 +193,8 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                     }
                 }
             }
+
+            // Select tick with lowest height.
             match (tick, deferred_tick) {
                 (Some(tick), None) => {
                     trace!(target: "schedules", "pending tick chosen (no deffered ticks): {:?}", tick);
