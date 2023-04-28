@@ -1,6 +1,6 @@
 [package]
 name = "spectrum-offchain-lm"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.67.1"
 
@@ -10,9 +10,9 @@ rust-version = "1.67.1"
 isahc = { version = "1.7.2", features = ["json"] }
 futures = "0.3.25"
 tokio = { version = "1.22.0", features = ["full"] }
-ergo-chain-sync = { version = "0.1.0", path = "../ergo-chain-sync" }
-ergo-mempool-sync = { version = "0.1.0", path = "../ergo-mempool-sync" }
-spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
+ergo-chain-sync = { version = "1.0", path = "../ergo-chain-sync" }
+ergo-mempool-sync = { version = "1.0", path = "../ergo-mempool-sync" }
+spectrum-offchain = { version = "1.0", path = "../spectrum-offchain" }
 #ergo-lib = { version = "0.23", features = ["json", "arbitrary"] }
 ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "799107269fa43549b08f6ddb04ed412daec1c5d7", features = ["json", "arbitrary"] }
 log = "0.4.17"

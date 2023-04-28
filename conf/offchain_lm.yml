@@ -3,7 +3,7 @@ http_client_timeout_duration_secs: 50
 chain_sync_starting_height: 960000
 backlog_config:
   order_lifespan: 8640000
-  order_exec_time: 86400
+  order_exec_time: 1200
   retry_suspended_prob: 20
 log4rs_yaml_path: conf/log4rs.yaml
 backlog_store_db_path: ./tmp/backlog

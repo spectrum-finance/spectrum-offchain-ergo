@@ -252,8 +252,10 @@ struct AppConfig<'a> {
 
 #[derive(Parser)]
 #[command(name = "spectrum-offchain-lm")]
-#[command(author = "Ilya Oskin (@oskin1), Timothy Ling (@kettlebell) for Spectrum Finance")]
-#[command(version = "0.1")]
+#[command(
+    author = "Ilya Oskin (@oskin1), Timothy Ling (@kettlebell), Timofey Gusev (@GusevTimofey) for Spectrum Finance"
+)]
+#[command(version = "1.0.0")]
 #[command(about = "Spectrum Finance Liquidity Mining Reference Node", long_about = None)]
 struct AppArgs {
     /// Path to the YAML configuration file.
