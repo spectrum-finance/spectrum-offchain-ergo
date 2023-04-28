@@ -34,9 +34,7 @@ use thiserror::Error;
 use ergo_chain_sync::client::types::{with_path, Url};
 use spectrum_offchain::transaction::TransactionCandidate;
 use spectrum_offchain_lm::data::pool::{Pool, ProgramConfig};
-use spectrum_offchain_lm::ergo::{
-    NanoErg, DEFAULT_MINER_FEE_FOR_COMPOUND_TX, MAX_VALUE, MIN_SAFE_BOX_VALUE, MIN_SAFE_FAT_BOX_VALUE,
-};
+use spectrum_offchain_lm::ergo::{NanoErg, MAX_VALUE, MIN_SAFE_BOX_VALUE, MIN_SAFE_FAT_BOX_VALUE};
 use spectrum_offchain_lm::prover::{SeedPhrase, SigmaProver, Wallet};
 
 pub struct Explorer {
@@ -612,7 +610,7 @@ fn deploy_pool_chain_transaction(
     let staking_bundle_candidate = staking_bundle.into_candidate(height);
 
     let mut miner_output = MinerOutput {
-        erg_value: DEFAULT_MINER_FEE_FOR_COMPOUND_TX,
+        erg_value: NanoErg::from(tx_fee),
     };
     let mut output_candidates = vec![
         lm_pool_box_candidate,
