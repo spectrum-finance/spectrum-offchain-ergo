@@ -1,10 +1,11 @@
 use std::fmt::{Display, Formatter};
 
 use derive_more::Display;
+use ergo_lib::ergo_chain_types::Digest32;
 use ergo_lib::ergotree_ir::chain::ergo_box::{
     BoxTokens, ErgoBox, ErgoBoxCandidate, NonMandatoryRegisterId, NonMandatoryRegisters,
 };
-use ergo_lib::ergotree_ir::chain::token::Token;
+use ergo_lib::ergotree_ir::chain::token::{Token, TokenId};
 use ergo_lib::ergotree_ir::mir::constant::{Constant, TryExtractInto};
 use log::trace;
 use nonempty::NonEmpty;
@@ -228,7 +229,17 @@ impl Pool {
         if redeem.expected_lq.amount != bundle.vlq.amount {
             return Err(PoolOperationError::Permanent(PermanentError::LiqudityMismatch));
         }
-        if !self.epoch_completed() {
+
+        // The following pool is forever stuck, so we skip the `epoch_completed` check for it and
+        // automatically allow all redeems for this pool to be processed.
+        let stuck_pool_id = PoolId::from(TokenId::from(
+            Digest32::try_from(String::from(
+                "69eff57ea62b13c58e5668e3fbc9927fdb2dffb1c692261f98728a665b2f8abb",
+            ))
+            .unwrap(),
+        ));
+
+        if bundle.pool_id != stuck_pool_id && !self.epoch_completed() {
             return Err(PoolOperationError::Temporal(TemporalError::LiquidityMoveBlocked));
         }
         let release_lq = redeem.expected_lq;
@@ -409,6 +420,9 @@ impl Pool {
 
     fn current_epoch_ix(&self, height: u32) -> u32 {
         let cur_block_ix = height as i64 - self.conf.program_start as i64 + 1;
+        if cur_block_ix < 0 {
+            return 0;
+        }
         let cur_epoch_ix_rem = cur_block_ix % self.conf.epoch_len as i64;
         let cur_epoch_ix_r = cur_block_ix / self.conf.epoch_len as i64;
         if cur_epoch_ix_rem == 0 && cur_epoch_ix_r == 0 {
