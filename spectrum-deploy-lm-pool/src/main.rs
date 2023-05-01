@@ -856,7 +856,7 @@ fn validate_pool(input: &DeployPoolInputs, current_height: u32) -> Result<(), Po
     let max_rounding_error = input.conf.max_rounding_error;
     let budget_amt = input.conf.program_budget.amount;
 
-    if (epoch_num as u64) > max_rounding_error
+    if (epoch_num as u64) >= max_rounding_error
         || max_rounding_error * (epoch_num as u64) >= budget_amt / (epoch_num as u64)
     {
         return Err(PoolValidationError::FailedMaxRoundingErrorBounds);
