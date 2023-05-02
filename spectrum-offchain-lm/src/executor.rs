@@ -314,9 +314,16 @@ where
 
                                         NodeSubmitTxError::ScriptsOfInputsDontPassVerification => {
                                             // This error message from the node is not helpful at
-                                            // all. We must check that the bot's currently known
+                                            // all, but it does appear quite often when the bot
+                                            // retries a successfully-processed TX. The node
+                                            // sometimes response with a 'missing input box' error
+                                            // and other times with the 'don't pass verification'
+                                            // error.
+
+                                            // We currently check that the bot's currently known
                                             // pool and funding boxes are in the UTXO. If not, we
-                                            // manually invalidate them here.
+                                            // manually invalidate them here. It may not be needed
+                                            // (DEV-1001).
 
                                             let pool_box_id = pool.0.box_id();
 
