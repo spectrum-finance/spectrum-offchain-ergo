@@ -333,8 +333,8 @@ impl TryFromBox for Deposit {
                 let redeemer_prop = SigmaProp::from(
                     ProveDlog::try_from(
                         ErgoTree::sigma_parse_bytes(
-                            &bx.ergo_tree
-                                .get_constant(3)
+                            &*bx.ergo_tree
+                                .get_constant(2)
                                 .ok()??
                                 .v
                                 .try_extract_into::<Vec<u8>>()
@@ -346,28 +346,28 @@ impl TryFromBox for Deposit {
                 );
                 let bundle_prop_hash = bx
                     .ergo_tree
-                    .get_constant(10)
+                    .get_constant(12)
                     .ok()??
                     .v
                     .try_extract_into::<Digest32>()
                     .ok()?;
                 let max_miner_fee = bx
                     .ergo_tree
-                    .get_constant(21)
+                    .get_constant(23)
                     .ok()??
                     .v
                     .try_extract_into::<i64>()
                     .ok()?;
                 let expected_num_epochs = bx
                     .ergo_tree
-                    .get_constant(14)
+                    .get_constant(16)
                     .ok()??
                     .v
                     .try_extract_into::<i32>()
                     .ok()?;
                 let miner_prop_bytes = bx
                     .ergo_tree
-                    .get_constant(18)
+                    .get_constant(20)
                     .ok()??
                     .v
                     .try_extract_into::<Vec<u8>>()
@@ -587,8 +587,8 @@ impl TryFromBox for RedeemProto {
             if bx.ergo_tree.template_bytes().ok()? == *REDEEM_TEMPLATE && tokens.len() == 1 {
                 let order_id = OrderId::from(bx.box_id());
                 let redeemer_prop = ErgoTree::sigma_parse_bytes(
-                    &bx.ergo_tree
-                        .get_constant(2)
+                    &*bx.ergo_tree
+                        .get_constant(9)
                         .ok()??
                         .v
                         .try_extract_into::<Vec<u8>>()
@@ -599,7 +599,7 @@ impl TryFromBox for RedeemProto {
                 let expected_lq_id = TokenId::from(
                     Digest32::try_from(
                         bx.ergo_tree
-                            .get_constant(3)
+                            .get_constant(10)
                             .ok()??
                             .v
                             .try_extract_into::<Vec<u8>>()
@@ -609,7 +609,7 @@ impl TryFromBox for RedeemProto {
                 );
                 let expected_lq_amt = bx
                     .ergo_tree
-                    .get_constant(4)
+                    .get_constant(11)
                     .ok()??
                     .v
                     .try_extract_into::<i64>()
@@ -617,7 +617,7 @@ impl TryFromBox for RedeemProto {
                 let expected_lq = TypedAssetAmount::new(expected_lq_id, expected_lq_amt);
                 let miner_prop_bytes = bx
                     .ergo_tree
-                    .get_constant(6)
+                    .get_constant(5)
                     .ok()??
                     .v
                     .try_extract_into::<Vec<u8>>()
@@ -625,7 +625,7 @@ impl TryFromBox for RedeemProto {
                 assert_eq!(miner_prop_bytes, base16::decode(MINERS_FEE_BASE16_BYTES).unwrap());
                 let max_miner_fee = bx
                     .ergo_tree
-                    .get_constant(9)
+                    .get_constant(8)
                     .ok()??
                     .v
                     .try_extract_into::<i64>()
@@ -750,9 +750,9 @@ mod tests {
     #[test]
     fn parse_order() {
         let sample_json = r#"{
-            "boxId": "63a4e768e86e65c29b2cf7e9d05363178be5e1b2c424482509934c013ba19b99",
+            "boxId": "bb509e85cdfe71a15c57396552c830259cfcb8020c1d637abc0899de08fa53b0",
             "value": 2750000,
-            "ergoTree": "198c041604000e20ad62f6dd92e7dc850bc406770dfac9a943dd221a7fb440b7b2bcc7d3149c179204020e240008cd020d22b6c7e1348da3c8d371d7b656b09e379d28e1ad6410697bc5820d95e01a6c0404040008cd02217daf90deb73bdf8b6709bb42093fdfaff6573fd47b630e2d3fdd4a8193a74d040005fcffffffffffffffff0104000e20057a413d4ae7baa1f7f3b5a66bc93e7f13f94b3108765939f9edd82fad80e93d040604000408041c0402050204040e691005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a573040500050005c0cf24d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1ededed938cb27202730700017203ed93c27204720593860272067308b2db63087204730900ededededed93cbc27207730a93d0e4c672070608720593e4c67207070e72039386028cb27202730b00017208b2db63087207730c009386028cb27202730d00019c72087e730e05b2db63087207730f0093860272067310b2db6308720773110090b0ada5d90109639593c272097312c1720973137314d90109599a8c7209018c7209027315",
+            "ergoTree": "19a6041904000e203130a82e45842aebb888742868e055e2f554ab7d92f233f2c828ed4a437937100e240008cd03df90a38ed9b551bd7f706f251ae84974179e44e1d2113794dc115b769672fe3f08cd02217daf90deb73bdf8b6709bb42093fdfaff6573fd47b630e2d3fdd4a8193a74d0404040a040204040400040005fcffffffffffffffff0104000e20156dd1feb11debf65765c1d28fcf2e599a280789ee60ad426ccdeceb0ce22541040604000408041c0402050204040e691005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a573040500050005c0cf240100d803d601b2a4730000d6027301d6037302eb027303d195ed92b1a4730493b1db630872017305d805d604db63087201d605b2a5730600d606c57201d607b2a5730700d6088cb2db6308a773080002ededed938cb27204730900017202ed93c2720572039386027206730ab2db63087205730b00ededededed93cbc27207730c93d0e4c672070608720393e4c67207070e72029386028cb27204730d00017208b2db63087207730e009386028cb27204730f00019c72087e731005b2db6308720773110093860272067312b2db6308720773130090b0ada5d90109639593c272097314c1720973157316d90109599a8c7209018c72090273177318",
             "assets": [
                 {
                     "tokenId": "98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45",
@@ -770,12 +770,48 @@ mod tests {
         assert!(res.is_some())
     }
 
+    /// Used to generate a serialised ergotree for testing
+    fn gen_deposit_ergotree() {
+        let base16_str = "19a2041904000e2002020202020202020202020202020202020202020202020202020202020202020e20000000000000000000000000000000000000000000000000000000000000000008cd02217daf90deb73bdf8b6709bb42093fdfaff6573fd47b630e2d3fdd4a8193a74d0404040a040204040400040005fcffffffffffffffff0104000e200508f3623d4b2be3bdb9737b3e65644f011167eefb830d9965205f022ceda40d04060400040804140402050204040e691005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a573040500050005a09c010100d803d601b2a4730000d6027301d6037302eb027303d195ed92b1a4730493b1db630872017305d805d604db63087201d605b2a5730600d606c57201d607b2a5730700d6088cb2db6308a773080002ededed938cb27204730900017202ed93c2720572039386027206730ab2db63087205730b00ededededed93cbc27207730c93d0e4c672070608720393e4c67207070e72029386028cb27204730d00017208b2db63087207730e009386028cb27204730f00019c72087e731005b2db6308720773110093860272067312b2db6308720773130090b0ada5d90109639593c272097314c1720973157316d90109599a8c7209018c72090273177318";
+        let tree_bytes = base16::decode(base16_str.as_bytes()).unwrap();
+
+        let prover_input = force_any_val::<DlogProverInput>();
+        let addr = Address::P2Pk(prover_input.public_image());
+        let guard = addr.script().unwrap();
+        let redeemer_prop = SigmaProp::from(ProveDlog::try_from(guard).unwrap())
+            .prop_bytes()
+            .unwrap();
+
+        let pool_id = force_any_val::<TokenId>();
+        let bundle_prop_hash = force_any_val::<Digest32>();
+        let max_miner_fee = 300000_i64;
+        let expected_num_epochs = 14_i32; // MUST BE 14 to be consistent with the pool box used in tests.
+        let miner_prop_bytes = base16::decode(MINERS_FEE_BASE16_BYTES).unwrap();
+
+        let tree = ErgoTree::sigma_parse_bytes(&tree_bytes)
+            .unwrap()
+            .with_constant(1, pool_id.into())
+            .unwrap()
+            .with_constant(2, redeemer_prop.into())
+            .unwrap()
+            .with_constant(12, bundle_prop_hash.into())
+            .unwrap()
+            .with_constant(23, max_miner_fee.into())
+            .unwrap()
+            .with_constant(16, expected_num_epochs.into())
+            .unwrap()
+            .with_constant(20, miner_prop_bytes.into())
+            .unwrap();
+
+        println!("ERGOTREE BYTES: {}", tree.to_base16_bytes().unwrap());
+    }
+
     #[test]
     fn run_deposit() {
         let deposit_json = r#"{
-            "boxId": "63a4e768e86e65c29b2cf7e9d05363178be5e1b2c424482509934c013ba19b99",
+            "boxId": "bb509e85cdfe71a15c57396552c830259cfcb8020c1d637abc0899de08fa53b0",
             "value": 2750000,
-            "ergoTree": "198c041604000e20ad62f6dd92e7dc850bc406770dfac9a943dd221a7fb440b7b2bcc7d3149c179204020e240008cd020d22b6c7e1348da3c8d371d7b656b09e379d28e1ad6410697bc5820d95e01a6c0404040008cd02217daf90deb73bdf8b6709bb42093fdfaff6573fd47b630e2d3fdd4a8193a74d040005fcffffffffffffffff0104000e20057a413d4ae7baa1f7f3b5a66bc93e7f13f94b3108765939f9edd82fad80e93d040604000408041c0402050204040e691005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a573040500050005c0cf24d808d601b2a4730000d602db63087201d6037301d604b2a5730200d6057303d606c57201d607b2a5730400d6088cb2db6308a773050002eb027306d1ededed938cb27202730700017203ed93c27204720593860272067308b2db63087204730900ededededed93cbc27207730a93d0e4c672070608720593e4c67207070e72039386028cb27202730b00017208b2db63087207730c009386028cb27202730d00019c72087e730e05b2db63087207730f0093860272067310b2db6308720773110090b0ada5d90109639593c272097312c1720973137314d90109599a8c7209018c7209027315",
+            "ergoTree": "19a6041904000e203130a82e45842aebb888742868e055e2f554ab7d92f233f2c828ed4a437937100e240008cd03df90a38ed9b551bd7f706f251ae84974179e44e1d2113794dc115b769672fe3f08cd02217daf90deb73bdf8b6709bb42093fdfaff6573fd47b630e2d3fdd4a8193a74d0404040a040204040400040005fcffffffffffffffff0104000e20156dd1feb11debf65765c1d28fcf2e599a280789ee60ad426ccdeceb0ce22541040604000408041c0402050204040e691005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a573040500050005c0cf240100d803d601b2a4730000d6027301d6037302eb027303d195ed92b1a4730493b1db630872017305d805d604db63087201d605b2a5730600d606c57201d607b2a5730700d6088cb2db6308a773080002ededed938cb27204730900017202ed93c2720572039386027206730ab2db63087205730b00ededededed93cbc27207730c93d0e4c672070608720393e4c67207070e72029386028cb27204730d00017208b2db63087207730e009386028cb27204730f00019c72087e731005b2db6308720773110093860272067312b2db6308720773130090b0ada5d90109639593c272097314c1720973157316d90109599a8c7209018c72090273177318",
             "assets": [
                 {
                     "tokenId": "98da76cecb772029cfec3d53727d5ff37d5875691825fbba743464af0c89ce45",
@@ -820,9 +856,9 @@ mod tests {
     fn test_redeem_from_box() {
         let redeem_json = r#"
         {
-            "boxId" : "3b764c3ccce4d5b8815d78221288a9b72679f02e1342cc731668f59d8751e1c6",
+            "boxId" : "f711dbb1ddecacc0c23ccc5806dcb39890d30634e9b99339cc11aca42be721d4",
             "value" : 2500000,
-            "ergoTree" : "19b6020a040208cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0e240008cd03b196b978d77488fba3138876a40a40b9a046c2fbb5ecfa13d4ecf8f1eec52aec0e2004928901c08363208a29e334af73cd428f3d92d3cce8e379bcd0aee6231a421d05968ef8e9df0104000e691005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a5730405000500058092f401d801d601b2a5730000eb027301d1eded93c27201730293860273037304b2db6308720173050090b0ada5d90102639593c272027306c1720273077308d90102599a8c7202018c7202027309",
+            "ergoTree" : "19d1020e08cd02217daf90deb73bdf8b6709bb42093fdfaff6573fd47b630e2d3fdd4a8193a74d04040400040a04020e691005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a573040500050005a09c010e2001010101010101010101010101010101010101010101010101010101010101010e20000000000000000000000000000000000000000000000000000000000000000005d00f04000100eb027300d195ed92b1a4730193b1db6308b2a47302007303d802d601b2a5730400d60290b0ada5d90102639593c272027305c1720273067307d90102599a8c7202018c7202027308ededed93c272017309938602730a730bb2db63087201730c0072027202730d",
             "assets" : [
               {
                 "tokenId" : "8830d8d6f5501156bfd1e1a59e9399199f7c4afb941899c685fe809da23fd954",
