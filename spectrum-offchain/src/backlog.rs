@@ -300,21 +300,48 @@ where
 impl<TOrd, TStore> Backlog<TOrd> for BacklogService<TOrd, TStore>
 where
     TStore: BacklogStore<TOrd>,
-    TOrd::TOrderId: Debug,
+    TOrd::TOrderId: Debug + Clone,
     TOrd: OnChainOrder + Weighted + Hash + Eq + Clone,
 {
     async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
     where
         TOrd: 'a,
     {
-        self.store
-            .put(BacklogOrder {
-                order: ord.order.clone(),
-                timestamp: ord.timestamp,
-            })
-            .await;
-        let wt = ord.order.weight();
-        self.pending_pq.push(ord.into(), wt);
+        if !self.store.exists(ord.order.get_self_ref()).await {
+            self.store
+                .put(BacklogOrder {
+                    order: ord.order.clone(),
+                    timestamp: ord.timestamp,
+                })
+                .await;
+        }
+
+        if let Some(index) = self
+            .revisit_queue
+            .iter()
+            .position(|wo| wo.order_id == ord.order.get_self_ref())
+        {
+            self.revisit_queue.remove(index);
+        }
+
+        if let Some(element) = self
+            .suspended_pq
+            .iter()
+            .find(|wo| wo.0.order_id == ord.order.get_self_ref())
+            .map(|(e, _)| e)
+            .cloned()
+        {
+            self.suspended_pq.remove(&element);
+        }
+
+        if !self
+            .pending_pq
+            .iter()
+            .any(|wo| wo.0.order_id == ord.order.get_self_ref())
+        {
+            let wt = ord.order.weight();
+            self.pending_pq.push(ord.into(), wt);
+        }
     }
 
     async fn suspend<'a>(&mut self, ord: TOrd) -> bool

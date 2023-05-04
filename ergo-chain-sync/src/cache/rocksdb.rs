@@ -47,7 +47,7 @@ impl ChainCacheRocksDB {
 
 /// The Rocksdb bindings are not async, so we must wrap any uses of the library in
 /// `async_std::task::spawn_blocking`.
-#[async_trait(?Send)]
+#[async_trait]
 impl ChainCache for ChainCacheRocksDB {
     async fn append_block(&mut self, block: Block) {
         let db = self.db.clone();
