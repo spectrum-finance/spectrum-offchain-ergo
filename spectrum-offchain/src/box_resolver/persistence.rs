@@ -379,7 +379,13 @@ pub(crate) mod tests {
             let confirmed: Option<Confirmed<ErgoEntity>> = client.get_last_confirmed(token_ids[i]).await;
             assert!(predicted.is_none());
             assert!(unconfirmed.is_none());
-            assert!(confirmed.is_none());
+            if i == 1 {
+                //  On first iteration of the loop, there is no confirmed entity to rollback to.
+                assert!(confirmed.is_none());
+            } else {
+                // Here we rollback to confirmed entity.
+                assert!(confirmed.is_some());
+            }
         }
     }
 

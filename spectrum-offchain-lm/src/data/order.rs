@@ -152,7 +152,7 @@ impl RunOrder for Compound {
                 let outputs = tx.clone().into_tx_without_proofs().outputs;
                 let next_pool_as_box = AsBox(outputs.get(0).unwrap().clone(), next_pool);
                 let bun_init_ix = if next_funding.is_some() { 2 } else { 1 };
-                let outputs = outputs.clone().to_vec();
+                let outputs = outputs.to_vec();
                 let bundle_outs = &outputs[bun_init_ix..bun_init_ix + next_bundles.len()];
                 let bundles_as_box = next_bundles
                     .into_iter()
@@ -334,7 +334,7 @@ impl TryFromBox for Deposit {
                 let redeemer_prop = SigmaProp::from(
                     ProveDlog::try_from(
                         ErgoTree::sigma_parse_bytes(
-                            &*bx.ergo_tree
+                            &bx.ergo_tree
                                 .get_constant(2)
                                 .ok()??
                                 .v
@@ -588,7 +588,7 @@ impl TryFromBox for RedeemProto {
             if bx.ergo_tree.template_bytes().ok()? == *REDEEM_TEMPLATE && tokens.len() == 1 {
                 let order_id = OrderId::from(bx.box_id());
                 let redeemer_prop = ErgoTree::sigma_parse_bytes(
-                    &*bx.ergo_tree
+                    &bx.ergo_tree
                         .get_constant(9)
                         .ok()??
                         .v
@@ -725,13 +725,19 @@ impl Weighted for Order {
 
 #[cfg(test)]
 mod tests {
+    use ergo_lib::ergo_chain_types::Digest32;
+    use ergo_lib::ergotree_interpreter::sigma_protocol::private_input::DlogProverInput;
+    use ergo_lib::ergotree_ir::chain::address::Address;
     use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
+    use ergo_lib::ergotree_ir::chain::token::TokenId;
     use ergo_lib::ergotree_ir::ergo_tree::{ErgoTree, ErgoTreeHeader};
     use ergo_lib::ergotree_ir::mir::constant::Constant;
     use ergo_lib::ergotree_ir::mir::expr::Expr;
     use ergo_lib::ergotree_ir::serialization::SigmaSerializable;
     use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{ProveDlog, SigmaProp};
 
+    use ergo_lib::wallet::miner_fee::MINERS_FEE_BASE16_BYTES;
+    use sigma_test_util::force_any_val;
     use spectrum_offchain::event_sink::handlers::types::TryFromBox;
 
     use crate::data::context::ExecutionContext;
@@ -772,6 +778,7 @@ mod tests {
     }
 
     /// Used to generate a serialised ergotree for testing
+    #[allow(dead_code)]
     fn gen_deposit_ergotree() {
         let base16_str = "19a2041904000e2002020202020202020202020202020202020202020202020202020202020202020e20000000000000000000000000000000000000000000000000000000000000000008cd02217daf90deb73bdf8b6709bb42093fdfaff6573fd47b630e2d3fdd4a8193a74d0404040a040204040400040005fcffffffffffffffff0104000e200508f3623d4b2be3bdb9737b3e65644f011167eefb830d9965205f022ceda40d04060400040804140402050204040e691005040004000e36100204a00b08cd0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ea02d192a39a8cc7a701730073011001020402d19683030193a38cc7b2a57300000193c2b2a57301007473027303830108cdeeac93b1a573040500050005a09c010100d803d601b2a4730000d6027301d6037302eb027303d195ed92b1a4730493b1db630872017305d805d604db63087201d605b2a5730600d606c57201d607b2a5730700d6088cb2db6308a773080002ededed938cb27204730900017202ed93c2720572039386027206730ab2db63087205730b00ededededed93cbc27207730c93d0e4c672070608720393e4c67207070e72029386028cb27204730d00017208b2db63087207730e009386028cb27204730f00019c72087e731005b2db6308720773110093860272067312b2db6308720773130090b0ada5d90109639593c272097314c1720973157316d90109599a8c7209018c72090273177318";
         let tree_bytes = base16::decode(base16_str.as_bytes()).unwrap();
