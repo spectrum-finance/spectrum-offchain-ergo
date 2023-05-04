@@ -127,6 +127,7 @@ async fn main() {
                         let tx_id = tx.id();
                         if let Err(e) = node.submit_tx(tx).await {
                             println!("ERROR SUBMITTING TO NODE: {:?}", e);
+                            break;
                         } else {
                             println!(
                                 "TX {:?} successfully submitted! (Description: {})",
@@ -154,6 +155,10 @@ pub async fn deploy_pool(
 ) -> Result<Vec<(Transaction, String)>, Error> {
     let input = DeployPoolInputs::from(&config);
     let (prover, addr) = Wallet::try_from_seed(config.operator_funding_secret).expect("Invalid seed");
+    println!(
+        "Wallet address: {:?}",
+        AddressEncoder::encode_address_as_string(NetworkPrefix::Mainnet, &addr)
+    );
     let current_height = node.get_height().await;
     validate_pool(&input, current_height)?;
     let utxos = explorer.get_utxos(&addr).await;
@@ -191,6 +196,16 @@ fn deploy_pool_chain_transaction(
 ) -> Result<Vec<(Transaction, String)>, Error> {
     check_utxos(&utxos, &input)?;
     println!("UTXOs fine: only reward and LQ tokens found.");
+
+    println!("UTXOS---------");
+    for ergo_box in &utxos {
+        println!(
+            "   {}: value: {:?}, #tokens: {}",
+            ergo_box.box_id(),
+            ergo_box.value,
+            ergo_box.tokens.as_ref().map(|t| t.len()).unwrap_or(0)
+        );
+    }
 
     let DeployPoolInputs {
         conf,
@@ -247,9 +262,20 @@ fn deploy_pool_chain_transaction(
                       token_desc,
                       token_amount|
      -> Result<(Token, Transaction), Error> {
+        println!("Mint token");
         let target_balance = calc_target_balance(*num_transactions_left)?;
+        println!("  Target balance: {:?}", target_balance);
         let box_selector = SimpleBoxSelector::new();
         let box_selection = box_selector.select(input_boxes, target_balance, &[])?;
+        println!("  Box selection:");
+        for ergo_box in &box_selection.boxes {
+            println!(
+                "   {}: value: {:?}, #tokens: {}",
+                ergo_box.box_id(),
+                ergo_box.value,
+                ergo_box.tokens.as_ref().map(|t| t.len()).unwrap_or(0)
+            );
+        }
         let token = Token {
             token_id: box_selection.boxes.first().box_id().into(),
             amount: token_amount,
@@ -259,18 +285,27 @@ fn deploy_pool_chain_transaction(
         builder.mint_token(token.clone(), token_name, token_desc, 0);
         let mut output_candidates = vec![builder.build()?];
 
-        let remaining_funds = ErgoBoxCandidateBuilder::new(
-            calc_target_balance(*num_transactions_left - 1)?,
-            ergo_tree,
-            height,
-        )
-        .build()?;
-        output_candidates.push(remaining_funds);
+        let next_target_balance = calc_target_balance(*num_transactions_left - 1)?;
+        let mut accumulated_cost = *next_target_balance.as_u64() + *erg_value_per_box.as_u64();
+
+        let funds_for_remaining_txs =
+            ErgoBoxCandidateBuilder::new(next_target_balance, ergo_tree.clone(), height).build()?;
+        output_candidates.push(funds_for_remaining_txs);
 
         let miner_output = MinerOutput {
             erg_value: NanoErg::from(tx_fee),
         };
+        accumulated_cost += tx_fee.as_u64();
         output_candidates.push(miner_output.into_candidate(height));
+
+        let input_funds_total = box_selection.boxes.iter().fold(NanoErg::from(0), |acc, ergobox| {
+            acc + NanoErg::from(ergobox.value)
+        });
+
+        let funds_remaining = input_funds_total.safe_sub(NanoErg::from(accumulated_cost));
+        let funds_remaining_out_box =
+            ErgoBoxCandidateBuilder::new(BoxValue::from(funds_remaining), ergo_tree, height).build()?;
+        output_candidates.push(funds_remaining_out_box);
         let inputs = TxIoVec::from_vec(
             box_selection
                 .boxes
@@ -287,6 +322,20 @@ fn deploy_pool_chain_transaction(
             output_candidates,
         };
         let signed_tx = prover.sign(tx_candidate)?;
+
+        println!("  outputs:");
+        let mut output_total = 0;
+        for ergo_box in &signed_tx.outputs {
+            println!(
+                "    {}: value: {:?}, #tokens: {}",
+                ergo_box.box_id(),
+                ergo_box.value,
+                ergo_box.tokens.as_ref().map(|t| t.len()).unwrap_or(0)
+            );
+            output_total += ergo_box.value.as_u64();
+        }
+
+        assert_eq!(input_funds_total, NanoErg::from(output_total));
 
         *num_transactions_left -= 1;
         Ok((token, signed_tx))
@@ -394,6 +443,19 @@ fn deploy_pool_chain_transaction(
     };
     num_transactions_left -= 1;
     let tx_0 = prover.sign(tx_candidate)?;
+    let mut output_total = 0;
+    println!("TX_0 outputs:");
+    for ergo_box in &tx_0.outputs {
+        println!(
+            "   {}: value: {:?}, #tokens: {}",
+            ergo_box.box_id(),
+            ergo_box.value,
+            ergo_box.tokens.as_ref().map(|t| t.len()).unwrap_or(0)
+        );
+        output_total += ergo_box.value.as_u64();
+    }
+
+    assert_eq!(funds_total, NanoErg::from(output_total));
 
     // TX 1: Mint pool NFT -------------------------------------------------------------------------
     let inputs = if !remaining_tokens.is_empty() {
@@ -413,6 +475,7 @@ fn deploy_pool_chain_transaction(
     } else {
         filter_tx_outputs(tx_0.outputs.clone().to_vec())
     };
+    println!("TX_1: pool NFT");
     let (pool_nft, signed_mint_pool_nft_tx) = mint_token(
         inputs,
         &mut num_transactions_left,
@@ -423,6 +486,7 @@ fn deploy_pool_chain_transaction(
 
     // TX 2: Mint vLQ tokens -----------------------------------------------------------------------
     let inputs = filter_tx_outputs(signed_mint_pool_nft_tx.outputs.clone().to_vec());
+    println!("TX_2: vLQ tokens");
     let (vlq_tokens, signed_mint_vlq_tokens_tx) = mint_token(
         inputs,
         &mut num_transactions_left,
@@ -433,6 +497,7 @@ fn deploy_pool_chain_transaction(
 
     // TX 3: Mint TMP tokens -----------------------------------------------------------------------
     let inputs = filter_tx_outputs(signed_mint_vlq_tokens_tx.outputs.clone().to_vec());
+    println!("TX_3: TMP tokens");
     let (tmp_tokens, signed_mint_tmp_tokens_tx) = mint_token(
         inputs,
         &mut num_transactions_left,
@@ -454,6 +519,8 @@ fn deploy_pool_chain_transaction(
     let box_with_remaining_funds = signed_mint_tmp_tokens_tx.outputs.get(1).unwrap().clone();
 
     let target_balance = calc_target_balance(num_transactions_left)?;
+    println!("TX_4:");
+    println!("  Target balance: {:?}", target_balance);
     let box_selector = SimpleBoxSelector::new();
     let box_selection = box_selector.select(
         vec![
@@ -472,6 +539,20 @@ fn deploy_pool_chain_transaction(
             tmp_tokens.clone(),
         ],
     )?;
+
+    println!("  Box selection:");
+    for ergo_box in &box_selection.boxes {
+        println!(
+            "   {}: value: {:?}, #tokens: {}",
+            ergo_box.box_id(),
+            ergo_box.value,
+            ergo_box.tokens.as_ref().map(|t| t.len()).unwrap_or(0)
+        );
+    }
+
+    let input_funds_total = box_selection.boxes.iter().fold(NanoErg::from(0), |acc, ergobox| {
+        acc + NanoErg::from(ergobox.value)
+    });
 
     let inputs = TxIoVec::from_vec(
         box_selection
@@ -499,27 +580,22 @@ fn deploy_pool_chain_transaction(
     );
 
     let pool_init_box = pool_init_box_builder.build()?;
-    let remaining_funds = ErgoBoxCandidateBuilder::new(
-        calc_target_balance(num_transactions_left - 1)?,
-        addr.script()?,
-        height,
-    )
-    .build()?;
-
-    let box_of_consumed_tokens = ErgoBoxCandidateBuilder::new(
-        BoxValue::try_from(4 * erg_value_per_box.as_u64()).unwrap(),
-        addr.script()?,
-        height,
-    );
+    let next_target_balance = calc_target_balance(num_transactions_left - 1)?;
+    let funds_for_remaining_tx =
+        ErgoBoxCandidateBuilder::new(next_target_balance, addr.script()?, height).build()?;
 
     let miner_output = MinerOutput {
         erg_value: NanoErg::from(tx_fee),
     };
+    let accumulated_cost = *next_target_balance.as_u64() + *erg_value_per_box.as_u64() + tx_fee.as_u64();
+    let funds_remaining = input_funds_total.safe_sub(NanoErg::from(accumulated_cost));
+    let funds_remaining_out_box =
+        ErgoBoxCandidateBuilder::new(BoxValue::from(funds_remaining), addr.script()?, height).build()?;
     let output_candidates = vec![
         pool_init_box,
-        remaining_funds,
+        funds_for_remaining_tx,
         miner_output.into_candidate(height),
-        box_of_consumed_tokens.build()?,
+        funds_remaining_out_box,
     ];
 
     let output_candidates = TxIoVec::from_vec(output_candidates).unwrap();
@@ -530,6 +606,19 @@ fn deploy_pool_chain_transaction(
     };
     let pool_input_tx = prover.sign(tx_candidate)?;
 
+    println!("  outputs:");
+    let mut output_total = 0;
+    for ergo_box in &pool_input_tx.outputs {
+        println!(
+            "    {}: value: {:?}, #tokens: {}",
+            ergo_box.box_id(),
+            ergo_box.value,
+            ergo_box.tokens.as_ref().map(|t| t.len()).unwrap_or(0)
+        );
+        output_total += ergo_box.value.as_u64();
+    }
+
+    assert_eq!(input_funds_total, NanoErg::from(output_total));
     num_transactions_left -= 1;
 
     // TX 5: Create first LM pool, stake bundle and redeemer out boxes -----------------------------
@@ -549,6 +638,17 @@ fn deploy_pool_chain_transaction(
         ],
     )?;
 
+    println!("TX_5:");
+    println!("  Target balance: {:?}", target_balance);
+    println!("  Box selection:");
+    for ergo_box in &box_selection.boxes {
+        println!(
+            "   {}: value: {:?}, #tokens: {}",
+            ergo_box.box_id(),
+            ergo_box.value,
+            ergo_box.tokens.as_ref().map(|t| t.len()).unwrap_or(0)
+        );
+    }
     let inputs = TxIoVec::from_vec(
         box_selection
             .boxes
@@ -618,12 +718,12 @@ fn deploy_pool_chain_transaction(
         staking_bundle_candidate,
     ];
 
-    let funds_total = box_selection.boxes.iter().fold(NanoErg::from(0), |acc, ergobox| {
+    let input_funds_total = box_selection.boxes.iter().fold(NanoErg::from(0), |acc, ergobox| {
         acc + NanoErg::from(ergobox.value)
     });
     let accumulated_cost =
         NanoErg::from(3 * BoxValue::from(MIN_SAFE_FAT_BOX_VALUE).as_u64() + tx_fee.as_u64());
-    let remaining_funds = funds_total - accumulated_cost;
+    let remaining_funds = input_funds_total - accumulated_cost;
     if remaining_funds >= MIN_SAFE_BOX_VALUE {
         let box_of_consumed_tokens =
             ErgoBoxCandidateBuilder::new(BoxValue::from(remaining_funds), addr.script()?, height);
@@ -641,6 +741,20 @@ fn deploy_pool_chain_transaction(
         output_candidates,
     };
     let init_pool_tx = prover.sign(tx_candidate)?;
+
+    println!("  outputs:");
+    let mut output_total = 0;
+    for ergo_box in &init_pool_tx.outputs {
+        println!(
+            "    {}: value: {:?}, #tokens: {}",
+            ergo_box.box_id(),
+            ergo_box.value,
+            ergo_box.tokens.as_ref().map(|t| t.len()).unwrap_or(0)
+        );
+        output_total += ergo_box.value.as_u64();
+    }
+
+    assert_eq!(input_funds_total, NanoErg::from(output_total));
 
     Ok(vec![
         (tx_0, String::from("Move LQ and reward tokens to single box")),
@@ -742,7 +856,7 @@ fn validate_pool(input: &DeployPoolInputs, current_height: u32) -> Result<(), Po
     let max_rounding_error = input.conf.max_rounding_error;
     let budget_amt = input.conf.program_budget.amount;
 
-    if (epoch_num as u64) > max_rounding_error
+    if (epoch_num as u64) >= max_rounding_error
         || max_rounding_error * (epoch_num as u64) >= budget_amt / (epoch_num as u64)
     {
         return Err(PoolValidationError::FailedMaxRoundingErrorBounds);
