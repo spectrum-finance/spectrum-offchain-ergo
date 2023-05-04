@@ -174,7 +174,7 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                     if let Some((bs, deferred_until)) = deferred_ticks.next().and_then(|res| res.ok()) {
                         if let Ok(deferred_until) = bincode::deserialize::<i64>(&deferred_until) {
                             if deferred_until <= ts_now {
-                                deferred_tick = destructure_deferred_tick_key(&*bs)
+                                deferred_tick = destructure_deferred_tick_key(&bs)
                                     .and_then(|pid| {
                                         let schedule_key = prefixed_key(SCHEDULE_PREFIX, &pid);
                                         db.get(schedule_key).unwrap()

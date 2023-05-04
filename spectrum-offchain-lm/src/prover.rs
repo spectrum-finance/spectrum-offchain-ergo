@@ -13,7 +13,7 @@ use ergo_lib::ergotree_ir::chain::address::Address;
 use ergo_lib::wallet::ext_secret_key::ExtSecretKey;
 use ergo_lib::wallet::mnemonic::Mnemonic;
 use ergo_lib::wallet::secret_key::SecretKey;
-use ergo_lib::wallet::signing::{make_context, sign_transaction, TransactionContext, TxSigningError};
+use ergo_lib::wallet::signing::{make_context, TransactionContext, TxSigningError};
 use ergo_lib::wallet::tx_context::TransactionContextError;
 use serde::Deserialize;
 use sigma_test_util::force_any_val;
@@ -141,7 +141,7 @@ impl SigmaProver for Wallet {
                         input_box.box_id(),
                         ProverResult {
                             proof: ProofBytes::Empty,
-                            extension: input.extension.clone(),
+                            extension: input.extension,
                         },
                     ))
                 }

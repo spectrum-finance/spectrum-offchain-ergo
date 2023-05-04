@@ -44,7 +44,7 @@ where
         async move {
             if tip_reached.is_completed() {
                 let peek_result = {
-                    let mut schedules = schedules.lock().await;
+                    let schedules = schedules.lock().await;
                     schedules.peek().await
                 };
                 if let Some(
