@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::sync::Arc;
 
 use async_std::task::spawn_blocking;
@@ -30,6 +31,11 @@ pub trait ScheduleRepo {
     async fn defer(&mut self, tick: Tick, until: i64);
     /// Eliminate all references to the given pool.
     async fn clean(&mut self, pool_id: PoolId);
+    /// Scan over existing ticks and return:
+    ///  - `None` if `tick_height` is at least 10 blocks away from all other scheduled ticks
+    ///  - `Some(h)`, where `h` is the least height > `tick_height` that's at least 10 blocks away
+    ///     from any existing ticks.
+    async fn adjusted_tick_height(&self, tick_height: u32) -> Option<u32>;
 }
 
 pub struct ScheduleRepoTracing<R> {
@@ -78,6 +84,13 @@ where
         self.inner.clean(pool_id).await;
         trace!(target: "schedules", "clean({}) -> ()", pool_id);
     }
+
+    async fn adjusted_tick_height(&self, tick_height: u32) -> Option<u32> {
+        trace!(target: "schedules", "adjusted_tick_height({})", tick_height);
+        let res = self.inner.adjusted_tick_height(tick_height).await;
+        trace!(target: "schedules", "adjusted_tick_height({}) -> {:?}", tick_height, res);
+        res
+    }
 }
 
 pub struct ScheduleRepoRocksDB {
@@ -97,8 +110,13 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
     async fn update_schedule(&mut self, schedule: PoolSchedule) -> Result<(), ProgramExhausted> {
         let db = Arc::clone(&self.db);
         let pid = schedule.pool_id;
-        spawn_blocking(move || {
-            if let Some(next_height) = schedule.next_compounding_at() {
+        if let Some(next_height) = schedule.next_compounding_at() {
+            let next_height = if let Some(adjusted_height) = self.adjusted_tick_height(next_height).await {
+                adjusted_height
+            } else {
+                next_height
+            };
+            spawn_blocking(move || {
                 let transaction = db.transaction();
 
                 // Note that we will remove the ticks before and after the tick @ `next_height`, to
@@ -126,11 +144,11 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
                 }
                 transaction.commit().unwrap();
                 Ok(())
-            } else {
-                Err(ProgramExhausted)
-            }
-        })
-        .await
+            })
+            .await
+        } else {
+            Err(ProgramExhausted)
+        }
     }
 
     async fn peek(&self) -> Option<Tick> {
@@ -271,6 +289,96 @@ impl ScheduleRepo for ScheduleRepoRocksDB {
         })
         .await
     }
+
+    async fn adjusted_tick_height(&self, tick_height: u32) -> Option<u32> {
+        let db = Arc::clone(&self.db);
+        spawn_blocking(move || {
+            // Extract pending tick heights
+            let ticks_prefix = bincode::serialize(TICKS_PREFIX).unwrap();
+            let mut readopts = ReadOptions::default();
+            readopts.set_iterate_range(rocksdb::PrefixRange(ticks_prefix.clone()));
+            let ticks = db.iterator_opt(IteratorMode::From(&ticks_prefix, Direction::Forward), readopts);
+
+            let mut pending_tick_heights = vec![];
+
+            for (bs, _) in ticks.flatten() {
+                let tick: Option<Tick> = destructure_tick_key(&bs)
+                    .and_then(|pid| {
+                        let schedule_key = prefixed_key(SCHEDULE_PREFIX, &pid);
+                        db.get(schedule_key).unwrap()
+                    })
+                    .and_then(|bs| bincode::deserialize::<PoolSchedule>(&bs).ok())
+                    .and_then(|sc| sc.try_into().ok());
+                if let Some(tick) = tick {
+                    pending_tick_heights.push(tick.height);
+                } else {
+                    break;
+                }
+            }
+
+            let mut deferred_tick_heights = vec![];
+            // Now get all deferred tick heights
+            let deferred_ticks_prefix = bincode::serialize(DEFERRED_TICKS_PREFIX).unwrap();
+            let mut readopts = ReadOptions::default();
+            readopts.set_iterate_range(rocksdb::PrefixRange(deferred_ticks_prefix.clone()));
+            let deferred_ticks = db.iterator_opt(
+                IteratorMode::From(&deferred_ticks_prefix, Direction::Forward),
+                readopts,
+            );
+
+            for (bs, _) in deferred_ticks.flatten() {
+                let tick: Option<Tick> = destructure_tick_key(&bs)
+                    .and_then(|pid| {
+                        let schedule_key = prefixed_key(SCHEDULE_PREFIX, &pid);
+                        db.get(schedule_key).unwrap()
+                    })
+                    .and_then(|bs| bincode::deserialize::<PoolSchedule>(&bs).ok())
+                    .and_then(|sc| sc.try_into().ok());
+                if let Some(tick) = tick {
+                    deferred_tick_heights.push(tick.height);
+                } else {
+                    break;
+                }
+            }
+
+            let best = min(
+                find_min_distance(pending_tick_heights, tick_height),
+                find_min_distance(deferred_tick_heights, tick_height),
+            );
+
+            if best == tick_height {
+                None
+            } else {
+                Some(best)
+            }
+        })
+        .await
+    }
+}
+
+fn find_min_distance(mut nums: Vec<u32>, x: u32) -> u32 {
+    fn is_at_least_distance_10(value: u32, nums: &[u32]) -> bool {
+        nums.iter().all(|&num| (num as i32 - value as i32).abs() >= 10)
+    }
+
+    if is_at_least_distance_10(x, &nums) {
+        return x;
+    }
+
+    nums.sort_unstable();
+
+    let mut candidate = nums[0] + 10;
+
+    #[allow(clippy::needless_range_loop)]
+    for i in 1..nums.len() {
+        if nums[i] > candidate + 9 {
+            break;
+        } else {
+            candidate = nums[i] + 10;
+        }
+    }
+
+    candidate
 }
 
 /// Schedules: (PREFIX:PoolId -> Schedule)
