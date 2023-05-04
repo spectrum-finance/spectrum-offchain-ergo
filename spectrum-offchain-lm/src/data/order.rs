@@ -152,6 +152,7 @@ impl RunOrder for Compound {
                 let outputs = tx.clone().into_tx_without_proofs().outputs;
                 let next_pool_as_box = AsBox(outputs.get(0).unwrap().clone(), next_pool);
                 let bun_init_ix = if next_funding.is_some() { 2 } else { 1 };
+                let outputs = outputs.clone().to_vec();
                 let bundle_outs = &outputs[bun_init_ix..bun_init_ix + next_bundles.len()];
                 let bundles_as_box = next_bundles
                     .into_iter()

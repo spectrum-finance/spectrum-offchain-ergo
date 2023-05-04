@@ -253,6 +253,7 @@ where
     }
 
     async fn revisit_progressing_orders(&mut self) {
+        let mut too_recent_order = None;
         while let Some(ord) = self.revisit_queue.pop_front() {
             let ts_now = Utc::now().timestamp();
             let elapsed_secs = ts_now - ord.timestamp;
@@ -266,8 +267,14 @@ where
                     self.store.remove(ord.order_id).await;
                 }
             } else {
+                // Too soon to consider `ord`, return it to queue.
+                too_recent_order = Some(ord);
                 break;
             }
+        }
+
+        if let Some(ord) = too_recent_order {
+            self.revisit_queue.push_front(ord);
         }
     }
 }

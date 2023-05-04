@@ -13,7 +13,8 @@ use ergo_lib::ergotree_ir::chain::address::Address;
 use ergo_lib::wallet::ext_secret_key::ExtSecretKey;
 use ergo_lib::wallet::mnemonic::Mnemonic;
 use ergo_lib::wallet::secret_key::SecretKey;
-use ergo_lib::wallet::signing::{make_context, TransactionContext, TxSigningError};
+use ergo_lib::wallet::signing::{make_context, sign_transaction, TransactionContext, TxSigningError};
+use ergo_lib::wallet::tx_context::TransactionContextError;
 use serde::Deserialize;
 use sigma_test_util::force_any_val;
 
@@ -117,33 +118,34 @@ impl SigmaProver for Wallet {
         )?;
         let tx = tx_context.spending_tx.clone();
         let message_to_sign = tx.bytes_to_sign()?;
-        let signed_inputs = tx.inputs.enumerated().try_mapped(|(idx, input)| {
-            let input_box = tx_context
-                .get_input_box(&input.box_id)
-                .ok_or(TxSigningError::InputBoxNotFound(idx))?;
-            let addr = Address::recreate_from_ergo_tree(&input_box.ergo_tree).unwrap();
-            if let Address::P2Pk(_) = addr {
-                let ctx = Rc::new(make_context(&self.ergo_state_context, &tx_context, idx)?);
-                let hints_bag = HintsBag::empty();
-                self.prove(
-                    &input_box.ergo_tree,
-                    &Env::empty(),
-                    ctx,
-                    message_to_sign.as_slice(),
-                    &hints_bag,
-                )
-                .map(|proof| Input::new(input.box_id, proof.into()))
-                .map_err(|e| TxSigningError::ProverError(e, idx))
-            } else {
-                Ok(Input::new(
-                    input_box.box_id(),
-                    ProverResult {
-                        proof: ProofBytes::Empty,
-                        extension: input.extension,
-                    },
-                ))
-            }
-        })?;
+        let signed_inputs =
+            tx.inputs.enumerated().try_mapped(|(idx, input)| {
+                let input_box = tx_context.get_input_box(&input.box_id).ok_or(
+                    TxSigningError::TransactionContextError(TransactionContextError::InputBoxNotFound(idx)),
+                )?;
+                let addr = Address::recreate_from_ergo_tree(&input_box.ergo_tree).unwrap();
+                if let Address::P2Pk(_) = addr {
+                    let ctx = Rc::new(make_context(&self.ergo_state_context, &tx_context, idx)?);
+                    let hints_bag = HintsBag::empty();
+                    self.prove(
+                        &input_box.ergo_tree,
+                        &Env::empty(),
+                        ctx,
+                        message_to_sign.as_slice(),
+                        &hints_bag,
+                    )
+                    .map(|proof| Input::new(input.box_id, proof.into()))
+                    .map_err(|e| TxSigningError::ProverError(e, idx))
+                } else {
+                    Ok(Input::new(
+                        input_box.box_id(),
+                        ProverResult {
+                            proof: ProofBytes::Empty,
+                            extension: input.extension.clone(),
+                        },
+                    ))
+                }
+            })?;
         Ok(Transaction::new(
             signed_inputs,
             tx.data_inputs,

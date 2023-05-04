@@ -152,7 +152,7 @@ where
                 let bundle_ids = ord.get::<Vec<BundleId>>();
                 let bundle_resolver = Arc::clone(&self.bundle_repo);
                 let bundles = stream::iter(bundle_ids.iter())
-                    .scan((), move |_, bundle_id| {
+                    .filter_map(move |bundle_id| {
                         let bundle_repo = Arc::clone(&bundle_resolver);
                         async move { resolve_bundle_state(*bundle_id, bundle_repo).await }
                     })
@@ -190,10 +190,19 @@ where
                             .collect(compound.estimated_min_value())
                             .await;
                         if let Ok(funding) = funding {
+                            let input_funding_box_ids = funding.clone().map(|b| b.0.box_id());
                             compound
                                 .try_run(pool.clone(), (bundles.clone(), funding), ctx)
                                 .map(|(tx, next_pool, (next_bundles, residual_funding))| {
-                                    (tx, next_pool, next_bundles, residual_funding, OrderType::Compound)
+                                    (
+                                        tx,
+                                        next_pool,
+                                        next_bundles,
+                                        residual_funding,
+                                        OrderType::Compound {
+                                            input_funding_box_ids,
+                                        },
+                                    )
                                 })
                                 .map_err(|err| err.map(Order::Compound))
                         } else {
@@ -264,15 +273,17 @@ where
                                                         self.backlog.lock().await.suspend(ord.clone()).await;
                                                     }
 
-                                                    Invalidation::Funding => {
-                                                        assert_eq!(order_type, OrderType::Compound);
-                                                        self.funding_repo
-                                                            .lock()
-                                                            .await
-                                                            .remove(FundingId::from(
-                                                                tx.inputs.get(1).unwrap().box_id,
-                                                            ))
-                                                            .await;
+                                                    Invalidation::Funding(missing_funding_ixs) => {
+                                                        for i in missing_funding_ixs {
+                                                            self.funding_repo
+                                                                .lock()
+                                                                .await
+                                                                .remove(FundingId::from(
+                                                                    tx.inputs.get(i).unwrap().box_id,
+                                                                ))
+                                                                .await;
+                                                        }
+                                                        self.backlog.lock().await.suspend(ord.clone()).await;
                                                     }
 
                                                     Invalidation::Order => {
@@ -300,6 +311,61 @@ where
                                         NodeSubmitTxError::DoubleSpend => {
                                             self.backlog.lock().await.suspend(ord).await;
                                         }
+
+                                        NodeSubmitTxError::ScriptsOfInputsDontPassVerification => {
+                                            // This error message from the node is not helpful at
+                                            // all, but it does appear quite often when the bot
+                                            // retries a successfully-processed TX. The node
+                                            // sometimes response with a 'missing input box' error
+                                            // and other times with the 'don't pass verification'
+                                            // error.
+
+                                            // We currently check that the bot's currently known
+                                            // pool and funding boxes are in the UTXO. If not, we
+                                            // manually invalidate them here. It may not be needed
+                                            // (DEV-1001).
+
+                                            let pool_box_id = pool.0.box_id();
+
+                                            if !self.network.box_in_utxo(pool_box_id).await {
+                                                warn!("Pool box {:?} is spent", pool_box_id);
+                                                warn!(
+                                                    target: "offchain_lm",
+                                                    "Pool box {:?} is spent",
+                                                    pool_box_id
+                                                );
+                                                self.pool_repo
+                                                    .lock()
+                                                    .await
+                                                    .invalidate(
+                                                        pool.get_self_state_ref(),
+                                                        pool.get_self_ref(),
+                                                    )
+                                                    .await;
+                                            }
+
+                                            if let OrderType::Compound {
+                                                input_funding_box_ids,
+                                            } = order_type
+                                            {
+                                                for box_id in input_funding_box_ids {
+                                                    if !self.network.box_in_utxo(box_id).await {
+                                                        warn!("Input funding box {:?} is spent", box_id);
+                                                        warn!(
+                                                            target: "offchain_lm",
+                                                            "Input funding box {:?} is spent",
+                                                            box_id
+                                                        );
+                                                        self.funding_repo
+                                                            .lock()
+                                                            .await
+                                                            .remove(FundingId::from(box_id))
+                                                            .await;
+                                                    }
+                                                }
+                                            }
+                                        }
+
                                         NodeSubmitTxError::Unhandled => (),
                                     }
                                 } else {
@@ -405,7 +471,37 @@ where
             } else {
                 warn!("No pool is found for order [{:?}]", ord.get_self_ref());
                 warn!(target: "offchain_lm", "No pool is found for order [{:?}]", ord.get_self_ref());
-                self.backlog.lock().await.remove(ord.get_self_ref()).await;
+
+                match &ord {
+                    Order::Deposit(AsBox(ergo_box, _)) | Order::Redeem(AsBox(ergo_box, _)) => {
+                        // If it's been 10 blocks since the appearance of the deposit/redeem order
+                        // and no pool box has been witnessed, it's safe to say that the pool is
+                        // invalid and the order can be removed. Otherwise we'll try the order
+                        // again later in case the pool box will be updated on-chain.
+                        let current_height = self.network.get_height().await;
+                        if current_height.saturating_sub(ergo_box.creation_height) > 10 {
+                            warn!(
+                                target: "offchain_lm",
+                                "More than 10 blocks since missing pool box; deleting order [{:?}]",
+                                ord.get_self_ref()
+                            );
+                            self.backlog.lock().await.remove(ord.get_self_ref()).await;
+                        } else {
+                            warn!(
+                                target: "offchain_lm",
+                                "Less than 10 blocks since missing pool box; suspending order [{:?}]",
+                                ord.get_self_ref()
+                            );
+                            self.backlog.lock().await.suspend(ord).await;
+                        }
+                    }
+                    Order::Compound(_) => {
+                        // Compound orders can be safely removed here because if a new pool box
+                        // appears on-chain later, the tick scheduler will again introduce
+                        // compound orders at the appropriate height.
+                        self.backlog.lock().await.remove(ord.get_self_ref()).await;
+                    }
+                }
             }
         }
         Err(())

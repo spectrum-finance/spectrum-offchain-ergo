@@ -51,6 +51,9 @@ pub const MIN_SAFE_BOX_VALUE: NanoErg = NanoErg(250_000);
 pub const MIN_SAFE_FAT_BOX_VALUE: NanoErg = NanoErg(522_000); // 347760 * 1.5
 pub const DEFAULT_MINER_FEE: NanoErg = NanoErg(1_000_000);
 
+/// This value empirically determined from live tests on-chain.
+pub const DEFAULT_MINER_FEE_FOR_COMPOUND_TX: NanoErg = NanoErg(3_000_000);
+
 impl From<BoxValue> for NanoErg {
     fn from(v: BoxValue) -> Self {
         Self(*v.as_u64())
