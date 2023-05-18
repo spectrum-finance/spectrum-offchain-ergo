@@ -1,7 +1,10 @@
+use std::collections::HashSet;
 use std::sync::{Arc, Once};
 
 use clap::{arg, Parser};
+use ergo_lib::ergo_chain_types::Digest32;
 use ergo_lib::ergotree_ir::chain::address::{AddressEncoder, NetworkPrefix};
+use ergo_lib::ergotree_ir::chain::token::TokenId;
 use futures::channel::mpsc;
 use futures::future::ready;
 use futures::stream::select_all;
@@ -41,6 +44,7 @@ use crate::data::bundle::IndexedStakingBundle;
 use crate::data::funding::{ExecutorWallet, FundingUpdate};
 use crate::data::pool::Pool;
 use crate::data::AsBox;
+use crate::data::PoolId;
 use crate::data::{
     order::{Order, OrderProto},
     OrderId,
@@ -147,9 +151,21 @@ async fn main() {
 
     let default_handler = NoopDefaultHandler;
 
+    // The following pool ids are from Spectrum test and production pools.
+    let blacklisted_entities = generate_pool_blacklist(&[
+        "f61da4f7d651fc7a1c1bb586c91ec1fcea1ef9611461fd437176c49d9db37bb2",
+        "8a82a413c451fec826c8d39e87b95b6104d7de30e5d883a3c5ba4236d44b5837",
+        "8d49ef70ab015d79cb9ab523adf3ccb0b7d05534c598e4ddf8acb8b2b420b463",
+        "1b3d37d78650dd8527fa02f8783d9b98490df3b464dd44af0e0593ceb4717702",
+        "af629d8e63d08a9770bc543f807bdb82dcda942d4e21d506771f975dc2b3fd3a",
+        "24e9f9a3e0aa89092d8690941900323dea2ee3603ca7368c0c35175259df6930",
+    ]);
     // pools
     let (pool_snd, pool_recv) = mpsc::unbounded::<Confirmed<StateUpdate<AsBox<Pool>>>>();
-    let pool_han = ConfirmedUpdateHandler::<_, AsBox<Pool>, _>::new(pool_snd, Arc::clone(&pools));
+
+    let pool_han =
+        ConfirmedUpdateHandler::<_, AsBox<Pool>, _>::new(pool_snd, Arc::clone(&pools), blacklisted_entities);
+
     let pool_update_stream = boxed(entity_tracking_stream(pool_recv, Arc::clone(&pools)));
 
     // bundles
@@ -264,4 +280,15 @@ struct AppArgs {
     /// Optional path to the log4rs YAML configuration file. NOTE: overrides path specified in config YAML file.
     #[arg(long, short)]
     log4rs_path: Option<String>,
+}
+
+fn generate_pool_blacklist(base16_encodings: &[&str]) -> HashSet<PoolId> {
+    base16_encodings
+        .iter()
+        .map(|encoding| {
+            PoolId::from(TokenId::from(
+                Digest32::try_from(String::from(*encoding)).unwrap(),
+            ))
+        })
+        .collect()
 }
