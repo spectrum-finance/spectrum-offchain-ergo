@@ -122,7 +122,7 @@ async fn main() {
             };
             let node = ErgoNodeHttpClient::new(client, config.node_addr.clone());
             match deploy_pool(config, &node, explorer).await {
-                Ok(txs) => {
+                Ok((txs, pool_id)) => {
                     for (tx, description) in txs {
                         let tx_id = tx.id();
                         if let Err(e) = node.submit_tx(tx).await {
@@ -135,6 +135,10 @@ async fn main() {
                             );
                         }
                     }
+                    println!(
+                        "Program ID is: {:?}. Please note it down to whitelist your program",
+                        pool_id
+                    );
                 }
                 Err(e) => {
                     println!("DEPLOY POOL ERROR: {:?}", e);
@@ -152,7 +156,7 @@ pub async fn deploy_pool(
     config: DeployPoolConfig,
     node: &ErgoNodeHttpClient,
     explorer: Explorer,
-) -> Result<Vec<(Transaction, String)>, Error> {
+) -> Result<(Vec<(Transaction, String)>, PoolId), Error> {
     let input = DeployPoolInputs::from(&config);
     let (prover, addr) = Wallet::try_from_seed(config.operator_funding_secret).expect("Invalid seed");
     println!(
@@ -162,9 +166,9 @@ pub async fn deploy_pool(
     let current_height = node.get_height().await;
     validate_pool(&input, current_height)?;
     let utxos = explorer.get_utxos(&addr).await;
-    let txs = deploy_pool_chain_transaction(utxos, input, current_height, prover, addr)?;
+    let res = deploy_pool_chain_transaction(utxos, input, current_height, prover, addr)?;
     //dbg!(&txs);
-    Ok(txs)
+    Ok(res)
 }
 
 struct DeployPoolInputs {
@@ -193,7 +197,7 @@ fn deploy_pool_chain_transaction(
     height: u32,
     prover: Wallet,
     addr: Address,
-) -> Result<Vec<(Transaction, String)>, Error> {
+) -> Result<(Vec<(Transaction, String)>, PoolId), Error> {
     check_utxos(&utxos, &input)?;
     println!("UTXOs fine: only reward and LQ tokens found.");
 
@@ -678,6 +682,7 @@ fn deploy_pool_chain_transaction(
         erg_value: MIN_SAFE_FAT_BOX_VALUE,
     };
 
+    let pool_id = pool.pool_id;
     let lm_pool_box_candidate = pool.into_candidate(height);
 
     let bundle_key_id: TokenId = inputs.first().0.box_id().into();
@@ -756,17 +761,20 @@ fn deploy_pool_chain_transaction(
 
     assert_eq!(input_funds_total, NanoErg::from(output_total));
 
-    Ok(vec![
-        (tx_0, String::from("Move LQ and reward tokens to single box")),
-        (signed_mint_pool_nft_tx, String::from("Mint Pool NFT")),
-        (signed_mint_vlq_tokens_tx, String::from("Mint VLQ tokens")),
-        (signed_mint_tmp_tokens_tx, String::from("Mint TMP tokens")),
-        (pool_input_tx, String::from("Initialise pool-input box")),
-        (
-            init_pool_tx,
-            String::from("Create first LM pool, staking bundle and redeemer out boxes"),
-        ),
-    ])
+    Ok((
+        vec![
+            (tx_0, String::from("Move LQ and reward tokens to single box")),
+            (signed_mint_pool_nft_tx, String::from("Mint Pool NFT")),
+            (signed_mint_vlq_tokens_tx, String::from("Mint VLQ tokens")),
+            (signed_mint_tmp_tokens_tx, String::from("Mint TMP tokens")),
+            (pool_input_tx, String::from("Initialise pool-input box")),
+            (
+                init_pool_tx,
+                String::from("Create first LM pool, staking bundle and redeemer out boxes"),
+            ),
+        ],
+        pool_id,
+    ))
 }
 
 fn find_box_with_token(boxes: &[ErgoBox], token_id: &TokenId) -> Option<ErgoBox> {
