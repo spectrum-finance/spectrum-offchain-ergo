@@ -465,10 +465,11 @@ impl TryFromBox for Pool {
                 let lq = tokens.get(2)?;
                 let vlq = tokens.get(3)?;
                 let tmp = tokens.get(4)?;
-                let conf = r4?.v.try_extract_into::<Vec<i32>>().ok()?;
-                let budget = r5?.v.try_extract_into::<i64>().ok()?;
-                let max_rounding_error = <u64>::try_from(r6?.v.try_extract_into::<i64>().ok()?).ok()?;
+                let conf = r4.ok()??.v.try_extract_into::<Vec<i32>>().ok()?;
+                let budget = r5.ok()??.v.try_extract_into::<i64>().ok()?;
+                let max_rounding_error = <u64>::try_from(r6.ok()??.v.try_extract_into::<i64>().ok()?).ok()?;
                 let epoch_ix = r7
+                    .ok()?
                     .and_then(|reg| reg.v.try_extract_into::<i32>().ok())
                     .and_then(|x| <u32>::try_from(x).ok());
                 let conf = ProgramConfig {
