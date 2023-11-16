@@ -11,7 +11,7 @@ use ergo_lib::chain::transaction::{Transaction, TxIoVec};
 use ergo_lib::ergotree_interpreter::sigma_protocol::prover::ContextExtension;
 use ergo_lib::ergotree_ir::chain::address::{Address, AddressEncoder, NetworkPrefix};
 use ergo_lib::ergotree_ir::chain::ergo_box::box_value::{BoxValue, BoxValueError};
-use ergo_lib::ergotree_ir::chain::ergo_box::{ErgoBox, NonMandatoryRegisterId};
+use ergo_lib::ergotree_ir::chain::ergo_box::{BoxId, ErgoBox, NonMandatoryRegisterId};
 use ergo_lib::ergotree_ir::chain::token::{Token, TokenAmount, TokenId};
 use ergo_lib::ergotree_ir::serialization::SigmaParsingError;
 use ergo_lib::ergotree_ir::sigma_protocol::sigma_boolean::{ProveDlog, SigmaProp};
@@ -48,8 +48,9 @@ pub struct Items<A> {
 }
 
 impl Explorer {
-    pub async fn get_utxos(&self, addr: &Address) -> Vec<ErgoBox> {
-        self.client
+    pub async fn get_utxos(&self, addr: &Address) -> Result<Vec<ErgoBox>, ExplorerError> {
+        Ok(self
+            .client
             .get_async(with_path(
                 &self.base_url,
                 &format!(
@@ -57,14 +58,38 @@ impl Explorer {
                     AddressEncoder::encode_address_as_string(NetworkPrefix::Mainnet, addr),
                 ),
             ))
-            .await
-            .ok()
-            .unwrap()
+            .await?
             .json::<Items<ErgoBox>>()
-            .await
-            .unwrap()
-            .items
+            .await?
+            .items)
     }
+
+    pub async fn get_box(&self, box_id: BoxId) -> Result<ErgoBox, ExplorerError> {
+        let mut response = self
+            .client
+            .get_async(with_path(&self.base_url, &format!("/api/v1/boxes/{}", box_id)))
+            .await?;
+        let ergo_box = if response.status().is_success() {
+            response.json::<ErgoBox>().await?
+        } else {
+            return Err(ExplorerError::UnsuccessfulRequest(
+                "expected 200 from /boxes/".into(),
+            ));
+        };
+        Ok(ergo_box)
+    }
+}
+
+#[derive(Error, From, Debug)]
+pub enum ExplorerError {
+    #[error("json decoding: {0}")]
+    Json(serde_json::Error),
+    #[error("isahc: {0}")]
+    Isahc(isahc::Error),
+    #[error("unsuccessful request: {0}")]
+    UnsuccessfulRequest(String),
+    #[error("No Box found")]
+    NoBox,
 }
 
 #[derive(Debug, Error, From)]
@@ -85,6 +110,8 @@ pub enum Error {
     Utxo(UtxoError),
     #[error("pool validation error: {0:?}")]
     PoolValidation(PoolValidationError),
+    #[error("explorer error: {0:?}")]
+    Explorer(ExplorerError),
 }
 
 #[derive(Deserialize)]
@@ -165,7 +192,7 @@ pub async fn deploy_pool(
     );
     let current_height = node.get_height().await;
     validate_pool(&input, current_height)?;
-    let utxos = explorer.get_utxos(&addr).await;
+    let utxos = explorer.get_utxos(&addr).await?;
     let res = deploy_pool_chain_transaction(utxos, input, current_height, prover, addr)?;
     //dbg!(&txs);
     Ok(res)

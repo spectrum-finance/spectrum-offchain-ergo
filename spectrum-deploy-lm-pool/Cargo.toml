@@ -13,6 +13,7 @@ ergo-mempool-sync = { version = "1.0", path = "../ergo-mempool-sync" }
 isahc = { version = "1.7.2", features = ["json"] }
 serde = { version = "1.0.147", features = ["derive"] }
 serde_yaml = "0.9"
+serde_json = "1"
 spectrum-offchain = { version = "1.0", path = "../spectrum-offchain" }
 spectrum-offchain-lm = { version = "1.0", path = "../spectrum-offchain-lm" }
 tokio = { version = "1.22.0", features = ["full"] }
