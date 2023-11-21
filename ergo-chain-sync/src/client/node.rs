@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use derive_more::From;
+use ergo_lib::chain::ergo_state_context::ErgoStateContext;
 use ergo_lib::chain::transaction::Transaction;
-use ergo_lib::ergo_chain_types::{BlockId, Header};
+use ergo_lib::ergo_chain_types::{BlockId, Header, PreHeader};
 use isahc::{AsyncReadResponseExt, HttpClient};
 use log::trace;
 use thiserror::Error;
@@ -29,6 +30,7 @@ pub trait ErgoNetwork {
     async fn get_block_at(&self, height: u32) -> Result<FullBlock, Error>;
     async fn fetch_mempool(&self, offset: usize, limit: usize) -> Result<Vec<Transaction>, Error>;
     async fn get_best_height(&self) -> Result<u32, Error>;
+    async fn get_ergo_state_context(&self) -> Result<ErgoStateContext, Error>;
 }
 
 #[derive(Clone)]
@@ -120,6 +122,25 @@ impl ErgoNetwork for ErgoNodeHttpClient {
         };
         Ok(height)
     }
+
+    async fn get_ergo_state_context(&self) -> Result<ErgoStateContext, Error> {
+        let mut response = self
+            .client
+            .get_async(with_path(&self.base_url, "/blocks/lastHeaders/10"))
+            .await?;
+        let mut headers = if response.status().is_success() {
+            response.json::<Vec<Header>>().await?
+        } else {
+            return Err(Error::UnsuccessfulRequest(
+                "expected 200 from /blocks/lastHeaders/10".into(),
+            ));
+        };
+        // Node returns headers in ascending block-height order
+        headers.reverse();
+        let headers: [Header; 10] = <[Header; 10]>::try_from(headers).unwrap();
+        let pre_header = PreHeader::from(headers[0].clone());
+        Ok(ErgoStateContext { pre_header, headers })
+    }
 }
 
 pub struct ErgoNetworkTracing<R> {
@@ -150,5 +171,10 @@ where
     async fn get_best_height(&self) -> Result<u32, Error> {
         trace!(target: "ergo_network", "get_best_height()");
         self.inner.get_best_height().await
+    }
+
+    async fn get_ergo_state_context(&self) -> Result<ErgoStateContext, Error> {
+        trace!(target: "ergo_network", "get_ergo_state_context()");
+        self.inner.get_ergo_state_context().await
     }
 }
