@@ -12,7 +12,7 @@ futures = "0.3.25"
 tokio = { version = "1.22.0", features = ["full"] }
 ergo-chain-sync = {  version = "1.0", path = "../ergo-chain-sync" }
 ergo-mempool-sync = {  version = "1.0", path = "../ergo-mempool-sync" }
-ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", features = ["json"], branch = "impl_Into_ecpoint" }
+ergo-lib = { version = "0.26", features = ["json"] }
 log = "0.4.17"
 log4rs = "1.2.0"
 async-trait = "0.1.58"

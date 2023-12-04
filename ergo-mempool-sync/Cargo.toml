@@ -12,7 +12,7 @@ tokio = { version = "1.22.0", features = ["full"] }
 isahc = { version = "1.7.2", features = ["json"] }
 serde = { version = "1.0.147", features = ["derive"] }
 serde_json = "1.0.88"
-ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", features = ["json"], branch = "impl_Into_ecpoint" }
+ergo-lib = { version = "0.26", features = ["json"] }
 ergo-chain-sync = {  version = "1.0", path = "../ergo-chain-sync" }
 async-trait = "0.1.58"
 async-stream = "0.3.3"
