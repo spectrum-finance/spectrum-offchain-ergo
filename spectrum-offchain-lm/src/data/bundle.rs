@@ -225,13 +225,15 @@ impl TryFromBox for StakingBundle {
             // only the Redeem order will ever interact with this box.
             if (tokens.len() == 3 || tokens.len() == 2) && bx.ergo_tree == *BUNDLE_VALIDATOR {
                 let redeemer_prop = bx
-                    .get_register(NonMandatoryRegisterId::R6.into())?
+                    .get_register(NonMandatoryRegisterId::R6.into())
+                    .ok()??
                     .v
                     .try_extract_into::<SigmaProp>()
                     .ok()?;
                 let pool_id = TokenId::from(
                     Digest32::try_from(
-                        bx.get_register(NonMandatoryRegisterId::R7.into())?
+                        bx.get_register(NonMandatoryRegisterId::R7.into())
+                            .ok()??
                             .v
                             .try_extract_into::<Vec<u8>>()
                             .ok()?,
@@ -239,13 +241,15 @@ impl TryFromBox for StakingBundle {
                     .ok()?,
                 );
                 let token_name = bx
-                    .get_register(NonMandatoryRegisterId::R4.into())?
+                    .get_register(NonMandatoryRegisterId::R4.into())
+                    .ok()??
                     .v
                     .try_extract_into::<Vec<u8>>()
                     .ok()
                     .and_then(|bytes| String::from_utf8(bytes).ok())?;
                 let token_desc = bx
-                    .get_register(NonMandatoryRegisterId::R5.into())?
+                    .get_register(NonMandatoryRegisterId::R5.into())
+                    .ok()??
                     .v
                     .try_extract_into::<Vec<u8>>()
                     .ok()

@@ -138,11 +138,13 @@ impl ErgoNetwork for ErgoNodeHttpClient {
 
 #[cfg(test)]
 mod tests {
-    use ergo_chain_sync::client::{node::ErgoNodeHttpClient, types::Url};
+    use crate::network::ErgoNetwork;
+    use ergo_chain_sync::client::{
+        node::{ErgoNetwork as EN, ErgoNodeHttpClient},
+        types::Url,
+    };
     use ergo_lib::{ergo_chain_types::Digest32, ergotree_ir::chain::token::TokenId};
     use isahc::{prelude::Configurable, HttpClient};
-
-    use crate::network::ErgoNetwork;
 
     #[tokio::test]
     async fn test_token_minting_info() {
@@ -163,5 +165,19 @@ mod tests {
         .unwrap();
         let info = node.get_token_minting_info(token_id).await.unwrap().unwrap();
         println!("{:?}", info);
+    }
+
+    #[tokio::test]
+    async fn test_ergo_state_context() {
+        let client = HttpClient::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .unwrap();
+        let node = ErgoNodeHttpClient::new(
+            client,
+            Url::try_from(String::from("http://213.239.193.208:9053")).unwrap(),
+        );
+        let ctx = node.get_ergo_state_context().await.unwrap();
+        println!("{:?}", ctx);
     }
 }
