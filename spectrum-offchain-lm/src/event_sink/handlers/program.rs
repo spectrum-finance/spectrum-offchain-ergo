@@ -28,7 +28,11 @@ where
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
         match ev {
-            LedgerTxEvent::AppliedTx { tx, timestamp } => {
+            LedgerTxEvent::AppliedTx {
+                tx,
+                timestamp,
+                height,
+            } => {
                 let mut is_success = false;
                 for o in &tx.outputs {
                     if let Some(pool) = Pool::try_from_box(o.clone()) {
@@ -43,7 +47,11 @@ where
                     trace!(target: "offchain_lm", "New program parsed from applied tx");
                     None
                 } else {
-                    Some(LedgerTxEvent::AppliedTx { tx, timestamp })
+                    Some(LedgerTxEvent::AppliedTx {
+                        tx,
+                        timestamp,
+                        height,
+                    })
                 }
             }
             ev => Some(ev),

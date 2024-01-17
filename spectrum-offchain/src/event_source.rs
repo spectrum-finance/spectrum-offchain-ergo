@@ -23,6 +23,7 @@ fn process_upgrade(upgr: ChainUpgrade) -> Vec<LedgerTxEvent> {
                 .map(|tx| LedgerTxEvent::AppliedTx {
                     tx,
                     timestamp: ts as i64,
+                    height: blk.height,
                 })
                 .collect()
         }
