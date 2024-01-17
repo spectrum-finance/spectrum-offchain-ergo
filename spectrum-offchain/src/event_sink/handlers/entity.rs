@@ -107,7 +107,11 @@ where
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
         let res = match ev {
-            LedgerTxEvent::AppliedTx { tx, timestamp } => {
+            LedgerTxEvent::AppliedTx {
+                tx,
+                timestamp,
+                height,
+            } => {
                 let transitions =
                     extract_transitions(Arc::clone(&self.entities), &self.blacklisted_entities, tx.clone())
                         .await;
@@ -120,7 +124,11 @@ where
                     trace!(target: "offchain_lm", "[{}] entities parsed from applied tx", num_transitions);
                     None
                 } else {
-                    Some(LedgerTxEvent::AppliedTx { tx, timestamp })
+                    Some(LedgerTxEvent::AppliedTx {
+                        tx,
+                        timestamp,
+                        height,
+                    })
                 }
             }
             LedgerTxEvent::UnappliedTx(tx) => {

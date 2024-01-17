@@ -83,14 +83,22 @@ where
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
         let res = match ev {
-            LedgerTxEvent::AppliedTx { tx, timestamp } => {
+            LedgerTxEvent::AppliedTx {
+                tx,
+                timestamp,
+                height,
+            } => {
                 let transitions = self.extract_transitions(tx.clone()).await;
                 let is_success = !transitions.is_empty();
                 for tr in transitions {
                     let _ = self.topic.feed(Confirmed(StateUpdate::Transition(tr))).await;
                 }
                 if is_success {
-                    Some(LedgerTxEvent::AppliedTx { tx, timestamp })
+                    Some(LedgerTxEvent::AppliedTx {
+                        tx,
+                        timestamp,
+                        height,
+                    })
                 } else {
                     None
                 }

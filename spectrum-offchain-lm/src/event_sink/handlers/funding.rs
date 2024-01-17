@@ -28,7 +28,11 @@ where
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
         let res = match ev {
-            LedgerTxEvent::AppliedTx { tx, timestamp } => {
+            LedgerTxEvent::AppliedTx {
+                tx,
+                timestamp,
+                height,
+            } => {
                 let mut is_success = false;
                 {
                     let repo = self.repo.lock().await;
@@ -60,7 +64,11 @@ where
                 if is_success {
                     None
                 } else {
-                    Some(LedgerTxEvent::AppliedTx { tx, timestamp })
+                    Some(LedgerTxEvent::AppliedTx {
+                        tx,
+                        timestamp,
+                        height,
+                    })
                 }
             }
             LedgerTxEvent::UnappliedTx(tx) => {

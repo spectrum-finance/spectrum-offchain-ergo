@@ -49,7 +49,11 @@ where
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
         let res = match ev {
-            LedgerTxEvent::AppliedTx { tx, timestamp } => {
+            LedgerTxEvent::AppliedTx {
+                tx,
+                timestamp,
+                height,
+            } => {
                 let mut is_success = false;
                 for i in tx.clone().inputs {
                     let order_id = TOrd::TOrderId::from(i.box_id);
@@ -78,7 +82,11 @@ where
                 if is_success {
                     return None;
                 }
-                Some(LedgerTxEvent::AppliedTx { tx, timestamp })
+                Some(LedgerTxEvent::AppliedTx {
+                    tx,
+                    timestamp,
+                    height,
+                })
             }
             LedgerTxEvent::UnappliedTx(tx) => {
                 let mut is_success = false;
