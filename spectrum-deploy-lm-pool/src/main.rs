@@ -1,6 +1,8 @@
 mod bip39_words;
 mod generate_wallet;
 
+use std::ops::Add;
+
 use clap::{Parser, Subcommand};
 use derive_more::From;
 use ergo_chain_sync::client::node::ErgoNodeHttpClient;
@@ -262,17 +264,11 @@ fn deploy_pool_chain_transaction(
         builder.mint_token(token.clone(), token_name, token_desc, 0);
         let mut output_candidates = vec![builder.build()?];
 
-        let next_target_balance = calc_target_balance(*num_transactions_left - 1)?;
-        let mut accumulated_cost = *next_target_balance.as_u64() + *erg_value_per_box.as_u64();
-
-        let funds_for_remaining_txs =
-            ErgoBoxCandidateBuilder::new(next_target_balance, ergo_tree.clone(), height).build()?;
-        output_candidates.push(funds_for_remaining_txs);
+        let accumulated_cost = *erg_value_per_box.as_u64() + tx_fee.as_u64();
 
         let miner_output = MinerOutput {
             erg_value: NanoErg::from(tx_fee),
         };
-        accumulated_cost += tx_fee.as_u64();
         output_candidates.push(miner_output.into_candidate(height));
 
         let input_funds_total = box_selection.boxes.iter().fold(NanoErg::from(0), |acc, ergobox| {
@@ -322,6 +318,8 @@ fn deploy_pool_chain_transaction(
     let mut num_transactions_left = 6;
     let target_balance = calc_target_balance(num_transactions_left)?;
 
+    println!("TX 0: target_balance: {:?}", target_balance);
+
     let lq_token = Token {
         token_id: initial_lq_token_deposit.token_id,
         amount: TokenAmount::try_from(input.initial_lq_token_deposit.amount).unwrap(),
@@ -339,21 +337,10 @@ fn deploy_pool_chain_transaction(
     builder.add_token(lq_token.clone());
     let lq_and_reward_box_candidate = builder.build()?;
 
-    let remaining_funds = ErgoBoxCandidateBuilder::new(
-        calc_target_balance(num_transactions_left - 1)?,
-        addr.script()?,
-        height,
-    )
-    .build()?;
-
     let miner_output = MinerOutput {
         erg_value: NanoErg::from(tx_fee),
     };
-    let mut output_candidates = vec![
-        lq_and_reward_box_candidate,
-        remaining_funds,
-        miner_output.into_candidate(height),
-    ];
+    let mut output_candidates = vec![lq_and_reward_box_candidate, miner_output.into_candidate(height)];
 
     // If we have remaining reward and/or LQ tokens, preserve them in a separate box.
     let mut num_selected_reward_tokens = 0;
@@ -390,16 +377,24 @@ fn deploy_pool_chain_transaction(
         });
     }
 
+    let mut accumulated_cost = NanoErg::from(erg_value_per_box) + NanoErg::from(tx_fee);
+
+    if !remaining_tokens.is_empty() {
+        accumulated_cost = accumulated_cost.add(MIN_SAFE_BOX_VALUE);
+        let mut builder =
+            ErgoBoxCandidateBuilder::new(BoxValue::from(MIN_SAFE_BOX_VALUE), addr.script()?, height);
+        for token in &remaining_tokens {
+            builder.add_token(token.clone());
+        }
+        output_candidates.push(builder.build()?);
+    }
+
     let funds_total = box_selection.boxes.iter().fold(NanoErg::from(0), |acc, ergobox| {
         acc + NanoErg::from(ergobox.value)
     });
 
-    let accumulated_cost = NanoErg::from(target_balance);
     let funds_remain = funds_total.safe_sub(accumulated_cost);
-    let mut builder = ErgoBoxCandidateBuilder::new(BoxValue::from(funds_remain), addr.script()?, height);
-    for token in &remaining_tokens {
-        builder.add_token(token.clone());
-    }
+    let builder = ErgoBoxCandidateBuilder::new(BoxValue::from(funds_remain), addr.script()?, height);
     output_candidates.push(builder.build()?);
 
     let inputs = TxIoVec::from_vec(
@@ -493,7 +488,7 @@ fn deploy_pool_chain_transaction(
     let box_with_tmp_tokens =
         find_box_with_token(signed_mint_tmp_tokens_tx.outputs.as_vec(), &tmp_tokens.token_id).unwrap();
 
-    let box_with_remaining_funds = signed_mint_tmp_tokens_tx.outputs.get(1).unwrap().clone();
+    let box_with_remaining_funds = signed_mint_tmp_tokens_tx.outputs.get(2).unwrap().clone();
 
     let target_balance = calc_target_balance(num_transactions_left)?;
     println!("TX_4:");
@@ -557,20 +552,17 @@ fn deploy_pool_chain_transaction(
     );
 
     let pool_init_box = pool_init_box_builder.build()?;
-    let next_target_balance = calc_target_balance(num_transactions_left - 1)?;
-    let funds_for_remaining_tx =
-        ErgoBoxCandidateBuilder::new(next_target_balance, addr.script()?, height).build()?;
 
     let miner_output = MinerOutput {
         erg_value: NanoErg::from(tx_fee),
     };
-    let accumulated_cost = *next_target_balance.as_u64() + *erg_value_per_box.as_u64() + tx_fee.as_u64();
+
+    let accumulated_cost = *erg_value_per_box.as_u64() + tx_fee.as_u64();
     let funds_remaining = input_funds_total.safe_sub(NanoErg::from(accumulated_cost));
     let funds_remaining_out_box =
         ErgoBoxCandidateBuilder::new(BoxValue::from(funds_remaining), addr.script()?, height).build()?;
     let output_candidates = vec![
         pool_init_box,
-        funds_for_remaining_tx,
         miner_output.into_candidate(height),
         funds_remaining_out_box,
     ];
@@ -652,7 +644,7 @@ fn deploy_pool_chain_transaction(
         reserves_tmp: TypedAssetAmount::new(tmp_tokens.token_id, tmp_token_amount),
         epoch_ix: None,
         conf,
-        erg_value: MIN_SAFE_FAT_BOX_VALUE,
+        erg_value: erg_value_per_box.into(),
     };
 
     let pool_id = pool.pool_id;
@@ -663,7 +655,7 @@ fn deploy_pool_chain_transaction(
     let deposit_output = DepositOutput {
         bundle_key: TypedAssetAmount::new(bundle_key_id, BUNDLE_KEY_AMOUNT_USER),
         redeemer_prop: redeemer_prop.clone(),
-        erg_value: MIN_SAFE_FAT_BOX_VALUE,
+        erg_value: erg_value_per_box.into(),
         token_name: String::from(""),
         token_desc: String::from(""),
     };
@@ -681,7 +673,7 @@ fn deploy_pool_chain_transaction(
             lq_token_amount * num_epochs_to_delegate,
         )),
         redeemer_prop,
-        erg_value: MIN_SAFE_FAT_BOX_VALUE,
+        erg_value: erg_value_per_box.into(),
         token_name: String::from(""),
         token_desc: String::from(""),
     };
@@ -699,8 +691,7 @@ fn deploy_pool_chain_transaction(
     let input_funds_total = box_selection.boxes.iter().fold(NanoErg::from(0), |acc, ergobox| {
         acc + NanoErg::from(ergobox.value)
     });
-    let accumulated_cost =
-        NanoErg::from(3 * BoxValue::from(MIN_SAFE_FAT_BOX_VALUE).as_u64() + tx_fee.as_u64());
+    let accumulated_cost = NanoErg::from(3 * erg_value_per_box.as_u64() + tx_fee.as_u64());
     let remaining_funds = input_funds_total - accumulated_cost;
     if remaining_funds >= MIN_SAFE_BOX_VALUE {
         let box_of_consumed_tokens =
